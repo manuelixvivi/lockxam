@@ -1,1 +1,0 @@
-# License API endpoints placeholder

@@ -9,8 +9,8 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.database import Base, get_db
 from app.core.security import hash_password
-from app.models.auth_account import AuthAccount
-from app.models.school import School
+from app.models.school.school import School
+from app.models.security.auth_account import AuthAccount
 from main import app
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")

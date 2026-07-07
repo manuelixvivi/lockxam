@@ -6,10 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.core.database import Base, SessionLocal, engine
 from app.core.security import hash_password
-from app.models.activity_log import ActivityLog
-from app.models.auth_account import AuthAccount
-from app.models.school import School
-from app.models.user_session import UserSession
+from app.models.school.school import School
+from app.models.security.activity_log import ActivityLog
+from app.models.security.auth_account import AuthAccount
+from app.models.security.user_session import UserSession
 
 fake = Faker()
 

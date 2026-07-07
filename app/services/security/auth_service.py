@@ -12,20 +12,20 @@ from app.core.security import (
     verify_token,
 )
 from app.exceptions import AuthenticationException, BusinessException, PermissionException
-from app.models.enums import SessionRevokedReason, UserRole
-from app.models.login_attempt import LoginAttempt
-from app.repositories.auth_repository import auth_repository
-from app.repositories.login_attempt_repository import login_attempt_repository
-from app.repositories.session_repository import session_repository
-from app.schemas.auth import (
+from app.models.security.enums import SessionRevokedReason, UserRole
+from app.models.security.login_attempt import LoginAttempt
+from app.repositories.security.auth_repository import auth_repository
+from app.repositories.security.login_attempt_repository import login_attempt_repository
+from app.repositories.security.session_repository import session_repository
+from app.schemas.security.auth import (
     LoginRequest,
     LoginResponse,
     RefreshRequest,
     SessionResponse,
     TokenResponse,
 )
-from app.services.activity_service import ActivityService
-from app.services.session_service import SessionService
+from app.services.security.activity_service import ActivityService
+from app.services.security.session_service import SessionService
 
 
 class AuthService:

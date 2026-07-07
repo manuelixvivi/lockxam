@@ -1,4 +1,4 @@
-from app.models.user_session import UserSession
+from app.models.security.user_session import UserSession
 
 
 def test_list_active_sessions(client, test_superadmin):

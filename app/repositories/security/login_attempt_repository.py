@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.login_attempt import LoginAttempt
+from app.models.security.login_attempt import LoginAttempt
 from app.repositories.base_repository import BaseRepository
 
 

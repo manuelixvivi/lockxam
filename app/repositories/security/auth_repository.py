@@ -1,7 +1,7 @@
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.auth_account import AuthAccount
+from app.models.security.auth_account import AuthAccount
 from app.repositories.base_repository import BaseRepository
 
 

@@ -9,7 +9,7 @@ from app.core.security import (
     verify_token,
 )
 from app.exceptions import ValidationException
-from app.models.user_session import UserSession
+from app.models.security.user_session import UserSession
 
 
 def test_password_policy():

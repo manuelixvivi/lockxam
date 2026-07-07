@@ -4,8 +4,8 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.core.security import create_uuid
-from app.models.user_session import UserSession
-from app.repositories.session_repository import session_repository
+from app.models.security.user_session import UserSession
+from app.repositories.security.session_repository import session_repository
 
 
 class SessionService:

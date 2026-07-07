@@ -1,7 +1,7 @@
 from sqlalchemy.orm import Session
 
-from app.models.activity_log import ActivityLog
-from app.repositories.activity_repository import activity_repository
+from app.models.security.activity_log import ActivityLog
+from app.repositories.security.activity_repository import activity_repository
 
 
 class ActivityService:

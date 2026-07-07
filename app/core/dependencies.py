@@ -8,8 +8,8 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.security import verify_token
 from app.exceptions import AuthenticationException
-from app.models.enums import SessionRevokedReason
-from app.repositories.session_repository import session_repository
+from app.models.security.enums import SessionRevokedReason
+from app.repositories.security.session_repository import session_repository
 
 security = HTTPBearer()
 

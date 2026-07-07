@@ -1,0 +1,1 @@
+# School API endpoints placeholder

@@ -1,4 +1,4 @@
-from app.models.user_session import UserSession
+from app.models.security.user_session import UserSession
 
 
 def test_refresh_token_rotation(client, test_superadmin):

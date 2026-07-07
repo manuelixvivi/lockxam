@@ -4,7 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.rbac import require_role
-from app.schemas.auth import (
+from app.schemas.security.auth import (
     CurrentUserResponse,
     LoginRequest,
     LoginResponse,
@@ -12,7 +12,7 @@ from app.schemas.auth import (
     SessionResponse,
     TokenResponse,
 )
-from app.services.auth_service import AuthService
+from app.services.security.auth_service import AuthService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 

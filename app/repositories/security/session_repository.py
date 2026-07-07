@@ -4,7 +4,7 @@ from datetime import datetime
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from app.models.user_session import UserSession
+from app.models.security.user_session import UserSession
 from app.repositories.base_repository import BaseRepository
 
 

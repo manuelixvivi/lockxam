@@ -2,7 +2,7 @@ from fastapi import Depends, HTTPException
 from starlette.status import HTTP_403_FORBIDDEN
 
 from app.core.dependencies import get_current_user
-from app.models.enums import UserRole
+from app.models.security.enums import UserRole
 
 
 def require_role(*allowed_roles: str):

@@ -1,4 +1,4 @@
-from app.models.auth_account import AuthAccount
+from app.models.security.auth_account import AuthAccount
 
 
 def test_login_success(client, test_superadmin):

@@ -1,4 +1,4 @@
-from app.models.activity_log import ActivityLog
+from app.models.security.activity_log import ActivityLog
 from app.repositories.base_repository import BaseRepository
 
 

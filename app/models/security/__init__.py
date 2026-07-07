@@ -1,4 +1,3 @@
-from app.models.school.school import School as School
 from app.models.security.activity_log import ActivityLog as ActivityLog
 from app.models.security.auth_account import AuthAccount as AuthAccount
 from app.models.security.enums import SessionRevokedReason as SessionRevokedReason

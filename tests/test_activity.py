@@ -1,4 +1,4 @@
-from app.models.activity_log import ActivityLog
+from app.models.security.activity_log import ActivityLog
 
 
 def test_login_activity_logged(client, test_superadmin, db):

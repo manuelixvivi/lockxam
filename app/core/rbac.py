@@ -2,6 +2,7 @@ from fastapi import Depends, HTTPException
 from starlette.status import HTTP_403_FORBIDDEN
 
 from app.core.dependencies import get_current_user
+from app.models.enums import UserRole
 
 
 def require_role(*allowed_roles: str):
@@ -22,48 +23,44 @@ def require_any_role(*allowed_roles: str):
 
 
 def require_superadmin():
-    return require_role("SUPERADMIN")
+    return require_role(UserRole.SUPERADMIN)
 
 
 def require_admin():
-    return require_role("ADMIN")
+    return require_role(UserRole.ADMIN)
 
 
 def require_teacher():
-    return require_role("TEACHER")
+    return require_role(UserRole.TEACHER)
 
 
 def require_student():
-    return require_role("STUDENT")
+    return require_role(UserRole.STUDENT)
 
 
 def require_staff():
-    return require_role("SUPERADMIN", "ADMIN")
+    return require_role(UserRole.SUPERADMIN, UserRole.ADMIN)
 
 
 def require_academic_staff():
-    return require_role("SUPERADMIN", "ADMIN", "TEACHER")
+    return require_role(UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.TEACHER)
 
 
 def require_authenticated():
-    return require_role("SUPERADMIN", "ADMIN", "TEACHER", "STUDENT")
+    return require_role(UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.TEACHER, UserRole.STUDENT)
 
 
 def is_superadmin(current_user):
-
-    return current_user["role"] == "SUPERADMIN"
+    return current_user["role"] == UserRole.SUPERADMIN
 
 
 def is_admin(current_user):
-
-    return current_user["role"] == "ADMIN"
+    return current_user["role"] == UserRole.ADMIN
 
 
 def is_teacher(current_user):
-
-    return current_user["role"] == "TEACHER"
+    return current_user["role"] == UserRole.TEACHER
 
 
 def is_student(current_user):
-
-    return current_user["role"] == "STUDENT"
+    return current_user["role"] == UserRole.STUDENT

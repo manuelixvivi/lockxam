@@ -26,7 +26,7 @@ class BaseRepository(Generic[ModelType]):
     def __init__(self, model: type[ModelType]):
         self.model = model
 
-    def get_by_id(self, db: Session, obj_id: int) -> ModelType | None:
+    def get_by_id(self, db: Session, obj_id: Any) -> ModelType | None:
         return db.scalar(select(self.model).where(self.model.id == obj_id))  # type: ignore[attr-defined]
 
     def get_all(self, db: Session) -> list[ModelType]:
@@ -66,7 +66,7 @@ class BaseRepository(Generic[ModelType]):
         db.add(obj)
         return obj
 
-    def exists(self, db: Session, obj_id: int) -> bool:
+    def exists(self, db: Session, obj_id: Any) -> bool:
         return (
             db.scalar(select(self.model.id).where(self.model.id == obj_id))  # type: ignore[attr-defined]
             is not None

@@ -1,7 +1,7 @@
 from datetime import datetime, timedelta
+from uuid import UUID
 
 from fastapi import Request
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.security import (
@@ -12,9 +12,11 @@ from app.core.security import (
     verify_token,
 )
 from app.exceptions import AuthenticationException, BusinessException, PermissionException
+from app.models.enums import SessionRevokedReason, UserRole
 from app.models.login_attempt import LoginAttempt
-from app.models.user_session import UserSession
 from app.repositories.auth_repository import auth_repository
+from app.repositories.login_attempt_repository import login_attempt_repository
+from app.repositories.session_repository import session_repository
 from app.schemas.auth import (
     LoginRequest,
     LoginResponse,
@@ -22,8 +24,8 @@ from app.schemas.auth import (
     SessionResponse,
     TokenResponse,
 )
-from app.services.activity_service import log_activity, log_login
-from app.services.session_service import create_session, save_session
+from app.services.activity_service import ActivityService
+from app.services.session_service import SessionService
 
 
 class AuthService:
@@ -34,10 +36,7 @@ class AuthService:
         username = data.username
 
         # 1. Brute Force Protection: Rate Limiting Check
-        stmt = select(LoginAttempt).where(
-            LoginAttempt.ip_address == ip_address, LoginAttempt.username == username
-        )
-        attempt_record = db.scalar(stmt)
+        attempt_record = login_attempt_repository.get_attempt(db, ip_address, username)
 
         if attempt_record:
             if attempt_record.blocked_until and attempt_record.blocked_until > datetime.utcnow():
@@ -52,7 +51,7 @@ class AuthService:
                 # Lock has expired, reset attempt counter
                 attempt_record.attempts = 0
                 attempt_record.blocked_until = None
-                db.add(attempt_record)
+                login_attempt_repository.update(db, attempt_record)
 
         try:
             # 2. Authenticate
@@ -62,7 +61,7 @@ class AuthService:
             if attempt_record:
                 attempt_record.attempts = 0
                 attempt_record.blocked_until = None
-                db.add(attempt_record)
+                login_attempt_repository.update(db, attempt_record)
 
             # 3. Start session and log activity (adds to db session but doesn't commit yet)
             session = AuthService._create_session(db, request, account)
@@ -82,6 +81,7 @@ class AuthService:
                     attempts=1,
                     last_attempt_at=datetime.utcnow(),
                 )
+                login_attempt_repository.create(db, attempt_record)
             else:
                 attempt_record.attempts += 1
                 attempt_record.last_attempt_at = datetime.utcnow()
@@ -89,7 +89,7 @@ class AuthService:
             if attempt_record.attempts >= 5:
                 attempt_record.blocked_until = datetime.utcnow() + timedelta(minutes=15)
 
-            db.add(attempt_record)
+            login_attempt_repository.update(db, attempt_record)
             db.commit()
             raise ae
         except Exception:
@@ -108,8 +108,7 @@ class AuthService:
             raise AuthenticationException("Invalid session")
 
         try:
-            stmt = select(UserSession).where(UserSession.id == session_id)
-            user_session = db.scalar(stmt)
+            user_session = session_repository.get_by_id(db, session_id)
 
             if not user_session:
                 raise AuthenticationException("Session not found")
@@ -117,12 +116,12 @@ class AuthService:
             # Revoke session
             user_session.revoked = True
             user_session.revoked_at = datetime.utcnow()
-            user_session.revoked_reason = "LOGOUT"
+            user_session.revoked_reason = SessionRevokedReason.LOGOUT
             user_session.last_activity_at = datetime.utcnow()
-            db.add(user_session)
+            session_repository.update(db, user_session)
 
             # Log activity
-            log_activity(
+            ActivityService.log_activity(
                 db=db,
                 auth_account_id=user_session.auth_account_id,
                 action_type="AUTH",
@@ -157,8 +156,7 @@ class AuthService:
             raise AuthenticationException("Invalid refresh token payload")
 
         try:
-            stmt = select(UserSession).where(UserSession.id == session_id)
-            user_session = db.scalar(stmt)
+            user_session = session_repository.get_by_id(db, session_id)
 
             if not user_session:
                 raise AuthenticationException("Session not found")
@@ -174,8 +172,8 @@ class AuthService:
                 # Token reuse detected! Revoke the entire session immediately (replay attack protection)
                 user_session.revoked = True
                 user_session.revoked_at = datetime.utcnow()
-                user_session.revoked_reason = "REFRESH_TOKEN_REUSE_DETECTED"
-                db.add(user_session)
+                user_session.revoked_reason = SessionRevokedReason.REFRESH_TOKEN_REUSE_DETECTED
+                session_repository.update(db, user_session)
                 db.commit()
                 raise AuthenticationException(
                     "Refresh token reuse detected. Session has been revoked."
@@ -185,13 +183,13 @@ class AuthService:
             new_access_jti = create_uuid()
             new_refresh_jti = create_uuid()
 
-            user_session.access_token_jti = new_access_jti
-            user_session.refresh_token_jti = new_refresh_jti
+            user_session.access_token_jti = UUID(new_access_jti)
+            user_session.refresh_token_jti = UUID(new_refresh_jti)
             user_session.last_activity_at = datetime.utcnow()
-            db.add(user_session)
+            session_repository.update(db, user_session)
 
             # Log activity
-            log_activity(
+            ActivityService.log_activity(
                 db=db,
                 auth_account_id=user_session.auth_account_id,
                 action_type="AUTH",
@@ -228,17 +226,7 @@ class AuthService:
         user_id = int(current_user["sub"])
         current_sid = current_user["sid"]
 
-        stmt = (
-            select(UserSession)
-            .where(
-                UserSession.auth_account_id == user_id,
-                UserSession.revoked == False,
-                UserSession.expires_at > datetime.utcnow(),
-            )
-            .order_by(UserSession.created_at.desc())
-        )
-
-        sessions = list(db.scalars(stmt).all())
+        sessions = session_repository.get_active_sessions_by_user(db, user_id)
 
         return [
             SessionResponse(
@@ -258,26 +246,30 @@ class AuthService:
         role = current_user["role"]
 
         try:
-            stmt = select(UserSession).where(UserSession.id == session_id)
-            user_session = db.scalar(stmt)
+            user_session = session_repository.get_by_id(db, session_id)
 
             if not user_session:
                 raise BusinessException("Session not found", status_code=404)
 
-            if user_session.auth_account_id != user_id and role not in ["SUPERADMIN", "ADMIN"]:
+            if user_session.auth_account_id != user_id and role not in [
+                UserRole.SUPERADMIN,
+                UserRole.ADMIN,
+            ]:
                 raise PermissionException("Permission denied to revoke this session")
 
             # Mark session as revoked
             user_session.revoked = True
             user_session.revoked_at = datetime.utcnow()
             user_session.revoked_reason = (
-                "ADMIN_FORCE_LOGOUT" if role in ["SUPERADMIN", "ADMIN"] else "USER_FORCE_LOGOUT"
+                SessionRevokedReason.ADMIN_FORCE_LOGOUT
+                if role in [UserRole.SUPERADMIN, UserRole.ADMIN]
+                else SessionRevokedReason.USER_FORCE_LOGOUT
             )
             user_session.last_activity_at = datetime.utcnow()
-            db.add(user_session)
+            session_repository.update(db, user_session)
 
             # Log activity
-            log_activity(
+            ActivityService.log_activity(
                 db=db,
                 auth_account_id=user_session.auth_account_id,
                 action_type="AUTH",
@@ -296,27 +288,22 @@ class AuthService:
         user_id = int(current_user["sub"])
 
         try:
-            stmt = select(UserSession).where(
-                UserSession.auth_account_id == user_id,
-                UserSession.revoked == False,
-                UserSession.expires_at > datetime.utcnow(),
-            )
-            sessions = list(db.scalars(stmt).all())
+            sessions = session_repository.get_active_sessions_by_user(db, user_id)
 
             for s in sessions:
                 s.revoked = True
                 s.revoked_at = datetime.utcnow()
-                s.revoked_reason = "LOGOUT_ALL"
+                s.revoked_reason = SessionRevokedReason.LOGOUT_ALL
                 s.last_activity_at = datetime.utcnow()
-                db.add(s)
+                session_repository.update(db, s)
 
-                log_activity(
+                ActivityService.log_activity(
                     db=db,
                     auth_account_id=user_id,
                     action_type="AUTH",
                     action_name="FORCE_LOGOUT",
                     session_id=str(s.id),
-                    metadata={"reason": "LOGOUT_ALL"},
+                    metadata={"reason": SessionRevokedReason.LOGOUT_ALL},
                 )
 
             db.commit()
@@ -344,12 +331,12 @@ class AuthService:
 
     @staticmethod
     def _create_session(db: Session, request: Request, account) -> dict:
-        session = create_session()
+        session = SessionService.create_session()
 
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
 
-        save_session(
+        SessionService.save_session(
             db=db,
             auth_account_id=account.id,
             session=session,
@@ -357,7 +344,7 @@ class AuthService:
             user_agent=user_agent,
         )
 
-        log_login(
+        ActivityService.log_login(
             db=db,
             auth_account_id=account.id,
             school_id=account.school_id,

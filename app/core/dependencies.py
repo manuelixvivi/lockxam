@@ -3,13 +3,13 @@ from datetime import datetime, timedelta
 
 from fastapi import Depends
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.security import verify_token
 from app.exceptions import AuthenticationException
-from app.models.user_session import UserSession
+from app.models.enums import SessionRevokedReason
+from app.repositories.session_repository import session_repository
 
 security = HTTPBearer()
 
@@ -41,10 +41,7 @@ def get_current_user(
         raise AuthenticationException("Invalid token payload")
 
     # Query active session
-    stmt = select(UserSession).where(
-        UserSession.id == session_id, UserSession.access_token_jti == jti
-    )
-    user_session = db.scalar(stmt)
+    user_session = session_repository.get_session_by_id_and_jti(db, session_id, jti)
 
     if not user_session:
         raise AuthenticationException("Session not found")
@@ -62,13 +59,14 @@ def get_current_user(
         # Revoke the session due to inactivity
         user_session.revoked = True
         user_session.revoked_at = datetime.utcnow()
-        user_session.revoked_reason = "IDLE_TIMEOUT"
-        db.add(user_session)
+        user_session.revoked_reason = SessionRevokedReason.IDLE_TIMEOUT
+        session_repository.update(db, user_session)
         db.commit()
         raise AuthenticationException("Session expired due to inactivity")
 
     # Update last activity time
     user_session.last_activity_at = datetime.utcnow()
+    session_repository.update(db, user_session)
     db.commit()
 
     return payload

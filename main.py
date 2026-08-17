@@ -33,15 +33,16 @@ from app.database.seed_master import seed_master_data
 from app.exceptions import register_exception_handlers
 from app.middleware import RequestContextMiddleware
 
-# Ensure all database tables exist (e.g. login_attempts)
-Base.metadata.create_all(bind=engine)
-
-# Auto-seed master data on startup
-db = SessionLocal()
+# Ensure all database tables exist safely on startup
 try:
-    seed_master_data(db)
-finally:
-    db.close()
+    Base.metadata.create_all(bind=engine)
+    db = SessionLocal()
+    try:
+        seed_master_data(db)
+    finally:
+        db.close()
+except Exception as _err:
+    print(f"Deferred DB init on import: {_err}")
 
 app = FastAPI(title="EquiGrade API", version="1.0.0")
 

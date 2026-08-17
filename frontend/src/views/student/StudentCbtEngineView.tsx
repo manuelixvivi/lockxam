@@ -18,6 +18,7 @@ import { Modal } from "../../components/ui/Modal";
 import { MathText } from "../../components/ui/MathText";
 import { useToast } from "../../context/ToastContext";
 import { studentExamApi } from "../../api/studentExam";
+import { apiClient } from "../../api/client";
 import type { StudentSchedule, StudentQuestionItem, ExamAttemptData } from "../../api/studentExam";
 
 interface StudentCbtEngineProps {
@@ -182,6 +183,35 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
 
     return () => clearInterval(timer);
   }, [isLoading, isCompleted, remainingSeconds]);
+
+  // Poll supervisor broadcast announcements (Feature #3)
+  const lastBroadcastIdRef = useRef<number>(0);
+  useEffect(() => {
+    if (!schedule.session_id || isCompleted) return;
+
+    const pollBroadcasts = async () => {
+      try {
+        const res = await apiClient.get<{ broadcasts: any[] }>(`/api/v1/exam/sessions/${schedule.session_id}/broadcasts`);
+        if (res?.broadcasts && res.broadcasts.length > 0) {
+          const latest = res.broadcasts[res.broadcasts.length - 1];
+          if (latest.id > lastBroadcastIdRef.current) {
+            lastBroadcastIdRef.current = latest.id;
+            showToast({
+              type: "info",
+              title: "📢 PENGUMUMAN PENGAWAS",
+              message: latest.message,
+            });
+          }
+        }
+      } catch (err) {
+        console.warn("Broadcast poll error:", err);
+      }
+    };
+
+    pollBroadcasts();
+    const interval = setInterval(pollBroadcasts, 4000);
+    return () => clearInterval(interval);
+  }, [schedule.session_id, isCompleted, showToast]);
 
   // Anti-Copy & Anti-Selection
   useEffect(() => {

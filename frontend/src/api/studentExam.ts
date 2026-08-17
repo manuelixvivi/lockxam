@@ -20,6 +20,23 @@ export interface StudentSchedule {
   // QR check-in fields
   has_checked_in: boolean;
   checked_in_at: string | null;
+  final_score?: number | null;
+}
+
+export interface ClassLeaderboardItem {
+  rank: number;
+  student_id: number;
+  student_name: string;
+  avatar_initial: string;
+  avg_score: number;
+  total_exams: number;
+  is_self: boolean;
+}
+
+export interface ClassLeaderboardResponse {
+  rank_self: number | null;
+  total_class_students: number;
+  leaderboard: ClassLeaderboardItem[];
 }
 
 export interface StudentQuestionItem {
@@ -116,5 +133,27 @@ export const studentExamApi = {
       { "X-Device-Id": deviceId }
     );
     return res as any;
+  },
+
+  // Send device telemetry & violation reports
+  sendTelemetry: async (
+    attemptId: number,
+    data: {
+      battery_level?: number;
+      is_charging?: boolean;
+      ping_ms?: number;
+      is_offline?: boolean;
+      violation_type?: string;
+      violation_reason?: string;
+    }
+  ) => {
+    const res = await apiClient.post(`/api/v1/exam/attempts/${attemptId}/telemetry`, data);
+    return res as any;
+  },
+
+  // Get class leaderboard data
+  getClassLeaderboard: async (): Promise<ClassLeaderboardResponse> => {
+    const res = await apiClient.get<ClassLeaderboardResponse>("/api/v1/exam/class-leaderboard");
+    return res;
   },
 };

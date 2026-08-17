@@ -2,14 +2,14 @@ import { useState } from "react";
 import { AppShell } from "../../components/layout/AppShell";
 import { StudentSchedulesView } from "./StudentSchedulesView";
 import { StudentCbtEngineView } from "./StudentCbtEngineView";
-import { StudentSchedule } from "../../api/studentExam";
+import type { StudentSchedule } from "../../api/studentExam";
 import { Breadcrumb } from "../../components/layout/Breadcrumb";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
 import { Input } from "../../components/ui/Input";
 import { Modal } from "../../components/ui/Modal";
 import { LockxamAppGuard } from "../../components/ui/LockxamAppGuard";
-import { Award, KeyRound, Eye, EyeOff, ShieldCheck } from "lucide-react";
+import { KeyRound, Eye, EyeOff, ShieldCheck } from "lucide-react";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { apiClient } from "../../api/client";
@@ -83,6 +83,17 @@ export function StudentWorkspaceView({ initialPath = "/student/dashboard", onNav
     }
   };
 
+  if (activeExamSchedule) {
+    return (
+      <LockxamAppGuard>
+        <StudentCbtEngineView
+          schedule={activeExamSchedule}
+          onExit={() => setActiveExamSchedule(null)}
+        />
+      </LockxamAppGuard>
+    );
+  }
+
   return (
     <LockxamAppGuard>
       <AppShell activeHref={currentPath} onNavigate={handleNavigate}>
@@ -94,18 +105,7 @@ export function StudentWorkspaceView({ initialPath = "/student/dashboard", onNav
         />
 
         {currentPath === "/student/history" ? (
-          <div className="space-y-6 animate-fade-in">
-            <div className="glass-panel p-8 text-center space-y-4 border border-slate-800">
-              <div className="w-16 h-16 bg-indigo-500/10 border border-indigo-500/30 rounded-full flex items-center justify-center mx-auto text-indigo-400">
-                <Award className="w-8 h-8" />
-              </div>
-              <h2 className="text-xl font-bold text-slate-100">Riwayat & Transkrip Hasil Ujian</h2>
-              <p className="text-xs text-slate-400 max-w-md mx-auto">
-                Seluruh riwayat pengerjaan ujian CBT dan nilai terverifikasi Anda tersimpan aman di database sekolah.
-              </p>
-              <Badge variant="indigo">TRANSKRIP UJIAN AKTIF</Badge>
-            </div>
-          </div>
+          <StudentSchedulesView mode="HISTORY" onStartExam={(sch) => setActiveExamSchedule(sch)} />
         ) : currentPath === "/student/profile" ? (
           <div className="space-y-6 animate-fade-in">
             {/* Main Profile Card */}
@@ -179,7 +179,7 @@ export function StudentWorkspaceView({ initialPath = "/student/dashboard", onNav
             </div>
           </div>
         ) : (
-          <StudentSchedulesView />
+          <StudentSchedulesView onStartExam={(sch) => setActiveExamSchedule(sch)} />
         )}
 
         {/* ── Modal Ganti Password Siswa ── */}

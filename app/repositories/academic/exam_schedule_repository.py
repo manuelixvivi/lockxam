@@ -12,9 +12,7 @@ class ExamScheduleRepository(BaseRepository[ExamSchedule]):
         super().__init__(ExamSchedule)
 
     def get_by_public_id(self, db: Session, public_id: UUID) -> ExamSchedule | None:
-        return db.scalar(
-            select(ExamSchedule).where(ExamSchedule.public_id == public_id)
-        )
+        return db.scalar(select(ExamSchedule).where(ExamSchedule.public_id == public_id))
 
     def list_by_school(
         self,

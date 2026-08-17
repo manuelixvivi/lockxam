@@ -48,6 +48,10 @@ export interface StudentAttemptProctor {
   device_status: string | null;
   device_id: string | null;
   ip_address: string | null;
+  battery_level?: number | null;
+  ping_ms?: number | null;
+  violation_reason?: string | null;
+  monitoring_card_state?: "GREEN" | "YELLOW" | "RED";
 }
 
 export interface EssayGradingEvaluation {

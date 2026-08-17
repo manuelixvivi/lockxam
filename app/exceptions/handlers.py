@@ -12,20 +12,31 @@ def register_exception_handlers(app: FastAPI) -> None:
     async def integrity_error_handler(request, exc: IntegrityError):
         error_msg = str(exc.orig) if exc.orig else str(exc)
         logger.error(f"Database IntegrityError: {error_msg}")
-        
+
         # Parse unique key violations to inform the user exactly what is conflicting
         if "unique constraint" in error_msg.lower() or "duplicate key" in error_msg.lower():
             if "schools_npsn" in error_msg:
-                return JSONResponse(status_code=400, content={"detail": "NPSN sudah terdaftar di sistem. Gunakan NPSN lain."})
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "NPSN sudah terdaftar di sistem. Gunakan NPSN lain."},
+                )
             if "schools_domain" in error_msg:
-                return JSONResponse(status_code=400, content={"detail": "Domain sudah digunakan sekolah lain. Gunakan domain lain."})
+                return JSONResponse(
+                    status_code=400,
+                    content={"detail": "Domain sudah digunakan sekolah lain. Gunakan domain lain."},
+                )
             if "schools_code" in error_msg:
-                return JSONResponse(status_code=400, content={"detail": "Kode Sekolah sudah terdaftar di sistem."})
-            if "uq_attempt_question" in error_msg or "exam_attempt_id, question_id" in error_msg:
-                return JSONResponse(status_code=400, content={"detail": "Jawaban untuk soal ini sudah tersimpan."})
+                return JSONResponse(
+                    status_code=400, content={"detail": "Kode Sekolah sudah terdaftar di sistem."}
+                )
+            if "student_answers" in error_msg or "uq_attempt_question" in error_msg:
+                return JSONResponse(
+                    status_code=400, content={"detail": "Jawaban untuk soal ini sudah tersimpan."}
+                )
 
             # Regex fallback to extract conflicting column and value
             import re
+
             match = re.search(r"Key \((.*?)\)=\((.*?)\) already exists", error_msg)
             if match:
                 field, val = match.groups()
@@ -34,17 +45,26 @@ def register_exception_handlers(app: FastAPI) -> None:
                     "domain": "Domain",
                     "code": "Kode Sekolah",
                     "username": "Username/Email",
-                    "email": "Email"
+                    "email": "Email",
                 }
                 field_name = field_translate.get(field.lower(), field)
                 return JSONResponse(
                     status_code=400,
-                    content={"detail": f"Data bentrok: Nilai '{val}' pada kolom {field_name} sudah terdaftar di sistem."}
+                    content={
+                        "detail": f"Data bentrok: Nilai '{val}' pada kolom {field_name} sudah terdaftar di sistem."
+                    },
                 )
-                
-            return JSONResponse(status_code=400, content={"detail": "Data yang Anda masukkan bentrok dengan data yang sudah ada di sistem."})
-            
-        return JSONResponse(status_code=500, content={"detail": "Terjadi kesalahan integritas data pada server."})
+
+            return JSONResponse(
+                status_code=400,
+                content={
+                    "detail": "Data yang Anda masukkan bentrok dengan data yang sudah ada di sistem."
+                },
+            )
+
+        return JSONResponse(
+            status_code=500, content={"detail": "Terjadi kesalahan integritas data pada server."}
+        )
 
     @app.exception_handler(AppException)
     async def app_exception_handler(request, exc: AppException):

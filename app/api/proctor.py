@@ -1,4 +1,5 @@
 from fastapi import APIRouter, Depends, status
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -170,3 +171,65 @@ def proctor_device_reset(
         exam_session_id=payload.exam_session_id,
         reason=payload.reason or "Device reset by proctor",
     )
+
+
+class BroadcastCommandRequest(BaseModel):
+    exam_session_id: int
+    message: str | None = None
+    extra_minutes: int | None = None
+
+
+@router.post("/commands/broadcast", status_code=status.HTTP_200_OK)
+def send_proctor_broadcast(
+    payload: BroadcastCommandRequest,
+    current_user=Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    """Pengawas mengumumkan pengumuman darurat atau menambah waktu ke seluruh siswa."""
+    from datetime import datetime, timedelta, timezone
+
+    from app.api.exam import BROADCAST_STORE
+
+    sess_id = payload.exam_session_id
+    if sess_id not in BROADCAST_STORE:
+        BROADCAST_STORE[sess_id] = []
+
+    if payload.message:
+        entry = {
+            "id": len(BROADCAST_STORE[sess_id]) + 1,
+            "message": payload.message,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        BROADCAST_STORE[sess_id].append(entry)
+
+    if payload.extra_minutes and payload.extra_minutes > 0:
+        from app.models.exam.enums import ExamAttemptStatus
+        from app.models.exam.exam_attempt import ExamAttempt
+
+        attempts = (
+            db.query(ExamAttempt)
+            .filter(
+                ExamAttempt.exam_session_id == sess_id,
+                ExamAttempt.status.in_([ExamAttemptStatus.IN_PROGRESS, ExamAttemptStatus.PAUSED]),
+            )
+            .all()
+        )
+
+        for a in attempts:
+            if a.deadline_at:
+                a.deadline_at = a.deadline_at + timedelta(minutes=payload.extra_minutes)
+            if a.remaining_seconds is not None:
+                a.remaining_seconds += payload.extra_minutes * 60
+        db.commit()
+
+        entry = {
+            "id": len(BROADCAST_STORE[sess_id]) + 1,
+            "message": f"⏱️ Pengawas menambahkan waktu ujian sebesar +{payload.extra_minutes} Menit!",
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        }
+        BROADCAST_STORE[sess_id].append(entry)
+
+    return {
+        "status": "SUCCESS",
+        "message": "Broadcast pengumuman dan penambahan waktu berhasil dikirim ke seluruh siswa!",
+    }

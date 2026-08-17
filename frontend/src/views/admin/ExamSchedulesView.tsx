@@ -565,7 +565,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
         showToast({ type: "error", title: "File Kosong", message: "File excel yang diupload tidak berisi data." });
         return;
       }
-      
+
       await examScheduleApi.importSchedulesXlsx(selectedPackage.public_id, rows);
       showToast({
         type: "success",
@@ -601,6 +601,8 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
         return <Badge variant="slate">COMPLETED</Badge>;
       case "ARCHIVED":
         return <Badge variant="slate">ARCHIVED</Badge>;
+      case "CANCELLED":
+        return <Badge variant="slate">DIBATALKAN</Badge>;
       default:
         return <Badge variant="slate">{status}</Badge>;
     }
@@ -1059,7 +1061,7 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
               </div>
             ) : (
               filteredSchedules.map((item) => (
-                <div key={item.public_id} className="glass-panel p-4 rounded-xl border border-slate-800 space-y-3">
+                <div key={item.public_id} className={`glass-panel p-4 rounded-xl border transition-all ${item.status === "CANCELLED" ? "opacity-60 grayscale bg-slate-950/60 border-slate-800/60" : "border-slate-800 space-y-3"}`}>
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <h3 className="text-sm font-bold text-slate-100">{item.name}</h3>

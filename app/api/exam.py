@@ -1,4 +1,4 @@
-﻿"""
+"""
 Exam API â€” Student-facing endpoints.
 Auth: Siswa (STUDENT role).
 """
@@ -6,8 +6,10 @@ Auth: Siswa (STUDENT role).
 import hashlib
 import os
 import random
+from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette import status
 
@@ -21,7 +23,73 @@ from app.schemas.exam.exam import (
 )
 from app.services.exam.exam_service import ExamService
 
-router = APIRouter(prefix="/api/v1/exam", tags=["Exam â€” Student"])
+router = APIRouter(prefix="/api/v1/exam", tags=["Exam — Student"])
+
+# Storage Telemetry Real-time & Broadcast Messages
+TELEMETRY_STORE: dict[int, dict] = {}
+BROADCAST_STORE: dict[int, list[dict]] = {}
+
+
+class TelemetryPayload(BaseModel):
+    battery_level: int | None = None
+    is_charging: bool | None = None
+    ping_ms: int | None = None
+    is_offline: bool | None = None
+    violation_type: str | None = None
+    violation_reason: str | None = None
+
+
+@router.post("/attempts/{attempt_id}/telemetry", status_code=status.HTTP_200_OK)
+def update_attempt_telemetry(
+    attempt_id: int,
+    payload: TelemetryPayload,
+    current_user=Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """Siswa mengirimkan data telemetry HP (baterai, ping, sinyal, dan event kecurangan/split-screen)."""
+    student_id = int(current_user["sub"])
+    from app.models.exam.enums import ExamAttemptStatus
+    from app.models.exam.exam_attempt import ExamAttempt
+
+    attempt = (
+        db.query(ExamAttempt)
+        .filter(ExamAttempt.id == attempt_id, ExamAttempt.student_id == student_id)
+        .first()
+    )
+
+    if not attempt:
+        raise HTTPException(status_code=404, detail="Exam attempt not found")
+
+    TELEMETRY_STORE[attempt_id] = {
+        "battery_level": payload.battery_level,
+        "is_charging": payload.is_charging,
+        "ping_ms": payload.ping_ms,
+        "is_offline": payload.is_offline,
+        "violation_type": payload.violation_type,
+        "violation_reason": payload.violation_reason,
+        "updated_at": datetime.now(timezone.utc).isoformat(),
+    }
+
+    if payload.violation_type in ["SPLIT_SCREEN", "APP_SWITCH", "UNPINNED"]:
+        attempt.status = ExamAttemptStatus.PAUSED
+        db.commit()
+        return {
+            "status": "LOCKED",
+            "requires_qr_rescan": True,
+            "message": f"Ujian dikunci karena terdeteksi {payload.violation_type}. Minta pengawas scan QR pembuka kunci.",
+        }
+
+    return {"status": "OK", "requires_qr_rescan": False}
+
+
+@router.get("/sessions/{session_id}/broadcasts", status_code=status.HTTP_200_OK)
+def get_session_broadcasts(
+    session_id: int,
+    current_user=Depends(require_role(UserRole.STUDENT)),
+):
+    """Mendapatkan pengumuman darurat / broadcast dari pengawas untuk sesi ujian ini."""
+    broadcasts = BROADCAST_STORE.get(session_id, [])
+    return {"broadcasts": broadcasts}
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -40,29 +108,66 @@ def list_my_schedules(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    from app.models.academic.student_class_enrollment import StudentClassEnrollment
-    from app.models.academic.exam_schedule import ExamSchedule
-    from app.models.exam.exam_session import ExamSession
-    from app.models.exam.exam_attempt import ExamAttempt
-    from app.models.exam.exam_checkin import ExamCheckin
-    from app.repositories.academic.subject_repository import subject_repository
-    from app.models.exam.enums import ExamSessionStatus
-    from app.utils.timezone import ensure_wib
     from datetime import datetime, timezone
 
-    enrollments = db.query(StudentClassEnrollment).filter(
-        StudentClassEnrollment.student_id == student_id,
-        StudentClassEnrollment.status == "ACTIVE"
-    ).all()
+    from app.models.academic.exam_schedule import ExamSchedule
+    from app.models.academic.student_class_enrollment import StudentClassEnrollment
+    from app.models.exam.enums import ExamSessionStatus
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.exam_checkin import ExamCheckin
+    from app.models.exam.exam_session import ExamSession
+    from app.repositories.academic.subject_repository import subject_repository
+    from app.utils.timezone import ensure_wib
+
+    enrollments = (
+        db.query(StudentClassEnrollment)
+        .filter(
+            StudentClassEnrollment.student_id == student_id,
+            StudentClassEnrollment.status == "ACTIVE",
+        )
+        .all()
+    )
     if not enrollments:
         return []
 
     class_ids = [e.class_id for e in enrollments]
-    schedules = db.query(ExamSchedule).filter(
-        ExamSchedule.school_id == school_id,
-        ExamSchedule.class_id.in_(class_ids),
-        ExamSchedule.status.in_(["READY", "ACTIVE"])
-    ).order_by(ExamSchedule.start_time.asc()).all()
+
+    # 1. Active class schedules
+    active_schedules = (
+        db.query(ExamSchedule)
+        .filter(
+            ExamSchedule.school_id == school_id,
+            ExamSchedule.class_id.in_(class_ids),
+            ExamSchedule.status.in_(["READY", "ACTIVE"]),
+        )
+        .all()
+    )
+
+    # 2. Preserve historical schedules where student has attempt or check-in (jejak histori akademik)
+    my_attempts = db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).all()
+    attempt_session_ids = [a.exam_session_id for a in my_attempts]
+
+    historical_schedule_ids = []
+    if attempt_session_ids:
+        attempt_sessions = (
+            db.query(ExamSession).filter(ExamSession.id.in_(attempt_session_ids)).all()
+        )
+        historical_schedule_ids.extend([se.schedule_id for se in attempt_sessions])
+
+    my_checkins = db.query(ExamCheckin).filter(ExamCheckin.student_id == student_id).all()
+    if my_checkins:
+        historical_schedule_ids.extend([c.schedule_id for c in my_checkins])
+
+    historical_schedules = []
+    if historical_schedule_ids:
+        historical_schedules = (
+            db.query(ExamSchedule)
+            .filter(ExamSchedule.id.in_(list(set(historical_schedule_ids))))
+            .all()
+        )
+
+    schedule_dict = {s.id: s for s in active_schedules + historical_schedules}
+    schedules = sorted(schedule_dict.values(), key=lambda s: s.start_time)
 
     res = []
     now_wib = ensure_wib(datetime.now(timezone.utc))
@@ -73,7 +178,9 @@ def list_my_schedules(
 
         if not session and s.status in ["READY", "ACTIVE"]:
             start_wib = ensure_wib(s.start_time)
-            sess_status = ExamSessionStatus.ACTIVE if now_wib >= start_wib else ExamSessionStatus.PLANNED
+            sess_status = (
+                ExamSessionStatus.ACTIVE if now_wib >= start_wib else ExamSessionStatus.PLANNED
+            )
             session = ExamSession(
                 schedule_id=s.id,
                 package_id=s.package_id or 0,
@@ -88,40 +195,147 @@ def list_my_schedules(
 
         attempt = None
         if session:
-            attempt = db.query(ExamAttempt).filter(
-                ExamAttempt.exam_session_id == session.id,
-                ExamAttempt.student_id == student_id
-            ).first()
+            attempt = (
+                db.query(ExamAttempt)
+                .filter(
+                    ExamAttempt.exam_session_id == session.id, ExamAttempt.student_id == student_id
+                )
+                .first()
+            )
 
         # Cek apakah siswa sudah checkin QR untuk jadwal ini
-        checkin = db.query(ExamCheckin).filter(
-            ExamCheckin.schedule_id == s.id,
-            ExamCheckin.student_id == student_id,
-        ).first()
+        checkin = (
+            db.query(ExamCheckin)
+            .filter(
+                ExamCheckin.schedule_id == s.id,
+                ExamCheckin.student_id == student_id,
+            )
+            .first()
+        )
 
-        res.append({
-            "schedule_id": s.id,
-            "session_id": session.id if session else None,
-            "title": s.title,
-            "subject_id": s.subject_id,
-            "subject_name": subj.name if subj else None,
-            "class_id": s.class_id,
-            "start_time": s.start_time,
-            "end_time": s.end_time,
-            "duration_minutes": s.duration_minutes,
-            "lock_browser": s.lock_browser,
-            "eyd_language_evaluation": s.eyd_language_evaluation,
-            "randomize_per_type": s.randomize_per_type,
-            "status": s.status,
-            "attempt_id": attempt.id if attempt else None,
-            "attempt_status": attempt.status.value if attempt else "NOT_STARTED",
-            "attempt_remaining_seconds": attempt.remaining_seconds if attempt else None,
-            "has_checked_in": checkin is not None,
-            "checked_in_at": checkin.checked_in_at.isoformat() if checkin else None,
-        })
+        res.append(
+            {
+                "schedule_id": s.id,
+                "session_id": session.id if session else None,
+                "title": s.title,
+                "subject_id": s.subject_id,
+                "subject_name": subj.name if subj else None,
+                "class_id": s.class_id,
+                "start_time": s.start_time,
+                "end_time": s.end_time,
+                "duration_minutes": s.duration_minutes,
+                "lock_browser": s.lock_browser,
+                "eyd_language_evaluation": s.eyd_language_evaluation,
+                "randomize_per_type": s.randomize_per_type,
+                "status": s.status,
+                "attempt_id": attempt.id if attempt else None,
+                "attempt_status": attempt.status.value if attempt else "NOT_STARTED",
+                "attempt_remaining_seconds": attempt.remaining_seconds if attempt else None,
+                "final_score": attempt.final_score if attempt else None,
+                "has_checked_in": checkin is not None,
+                "checked_in_at": checkin.checked_in_at.isoformat() if checkin else None,
+            }
+        )
 
     return res
 
+
+@router.get("/class-leaderboard", status_code=status.HTTP_200_OK)
+def get_class_leaderboard(
+    current_user=Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """Mendapatkan Leaderboard Nilai Rata-rata Ujian untuk Siswa di Kelas yang Sama."""
+    student_id = int(current_user["sub"])
+    school_id = current_user.get("school_id")
+    if not school_id:
+        raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
+
+    from sqlalchemy import func
+
+    from app.models.academic.student_class_enrollment import StudentClassEnrollment
+    from app.models.exam.enums import ExamAttemptStatus
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.security.auth_account import AuthAccount
+
+    # Get student active enrollment class
+    enrollment = (
+        db.query(StudentClassEnrollment)
+        .filter(
+            StudentClassEnrollment.student_id == student_id,
+            StudentClassEnrollment.status == "ACTIVE",
+        )
+        .first()
+    )
+
+    if not enrollment:
+        return {"rank_self": None, "leaderboard": []}
+
+    class_id = enrollment.class_id
+
+    # Get all active student IDs in this class
+    class_students = (
+        db.query(StudentClassEnrollment)
+        .filter(
+            StudentClassEnrollment.class_id == class_id, StudentClassEnrollment.status == "ACTIVE"
+        )
+        .all()
+    )
+    student_ids = [cs.student_id for cs in class_students]
+
+    # Calculate average final_score for each student in this class
+    results = (
+        db.query(
+            ExamAttempt.student_id,
+            func.avg(ExamAttempt.final_score).label("avg_score"),
+            func.count(ExamAttempt.id).label("total_exams"),
+        )
+        .filter(
+            ExamAttempt.student_id.in_(student_ids),
+            ExamAttempt.status.in_(
+                [ExamAttemptStatus.GRADED, ExamAttemptStatus.SUBMITTED, "GRADED", "SUBMITTED"]
+            ),
+            ExamAttempt.final_score.isnot(None),
+        )
+        .group_by(ExamAttempt.student_id)
+        .order_by(func.avg(ExamAttempt.final_score).desc())
+        .all()
+    )
+
+    # Map student names
+    accounts = db.query(AuthAccount).filter(AuthAccount.id.in_(student_ids)).all()
+    account_map = {a.id: a for a in accounts}
+
+    leaderboard = []
+    rank_self = None
+
+    for idx, (s_id, avg_sc, tot_ex) in enumerate(results):
+        acc = account_map.get(s_id)
+        name = acc.name or acc.username if acc else f"Siswa #{s_id}"
+        avg_val = round(float(avg_sc or 0.0), 1)
+        rank = idx + 1
+        is_me = s_id == student_id
+
+        if is_me:
+            rank_self = rank
+
+        leaderboard.append(
+            {
+                "rank": rank,
+                "student_id": s_id,
+                "student_name": name,
+                "avatar_initial": name[0].upper() if name else "S",
+                "avg_score": avg_val,
+                "total_exams": tot_ex,
+                "is_self": is_me,
+            }
+        )
+
+    return {
+        "rank_self": rank_self,
+        "total_class_students": len(student_ids),
+        "leaderboard": leaderboard[:10],
+    }
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -142,6 +356,7 @@ def get_qr_checkin_token(
     Token berlaku 10 menit dan di-sign dengan HMAC-SHA256."""
     import hmac
     import time
+
     from app.models.academic.exam_schedule import ExamSchedule
 
     schedule = db.get(ExamSchedule, schedule_id)
@@ -182,13 +397,12 @@ def student_checkin(
     """
     import hmac
     import time
+
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.exam.exam_checkin import ExamCheckin
 
     body = request.json() if hasattr(request, "json") else {}
     # FastAPI endpoint menerima JSON body â€” gunakan Pydantic inline
-    import json
-    from starlette.requests import Request as StarletteRequest
 
     # Baca body secara sinkron (endpoint ini sync)
     body_bytes = b""
@@ -214,7 +428,9 @@ def student_checkin(
 
     # Cek expiry
     if int(time.time()) > expires_ts:
-        raise HTTPException(status_code=400, detail="Token QR sudah kadaluarsa. Minta pengawas generate ulang.")
+        raise HTTPException(
+            status_code=400, detail="Token QR sudah kadaluarsa. Minta pengawas generate ulang."
+        )
 
     # Cek HMAC signature
     payload_str = f"{schedule_id}:{expires_ts}"
@@ -231,10 +447,14 @@ def student_checkin(
 
     # Upsert ExamCheckin
     try:
-        checkin = db.query(ExamCheckin).filter(
-            ExamCheckin.schedule_id == schedule_id,
-            ExamCheckin.student_id == student_id,
-        ).first()
+        checkin = (
+            db.query(ExamCheckin)
+            .filter(
+                ExamCheckin.schedule_id == schedule_id,
+                ExamCheckin.student_id == student_id,
+            )
+            .first()
+        )
 
         if checkin:
             # Update device_id jika berbeda (rebind pre-exam)
@@ -242,6 +462,7 @@ def student_checkin(
             checkin.ip_address = request.client.host if request.client else None
         else:
             from datetime import datetime, timezone
+
             checkin = ExamCheckin(
                 schedule_id=schedule_id,
                 student_id=student_id,
@@ -259,7 +480,7 @@ def student_checkin(
 
     return {
         "success": True,
-        "message": f"Absensi berhasil! Kamu terdaftar untuk ujian ini.",
+        "message": "Absensi berhasil! Kamu terdaftar untuk ujian ini.",
         "schedule_id": schedule_id,
         "schedule_title": schedule.title if hasattr(schedule, "title") else schedule.name,
         "start_time": schedule.start_time.isoformat() if schedule.start_time else None,
@@ -298,8 +519,8 @@ def start_attempt(
         ip_address=ip_address,
     )
 
-    from app.repositories.exam.snapshot_repository import snapshot_repository
     from app.models.exam.student_answer import StudentAnswer
+    from app.repositories.exam.snapshot_repository import snapshot_repository
 
     snapshot = snapshot_repository.get_by_session(db, session_id)
     questions_data = []
@@ -325,7 +546,10 @@ def start_attempt(
                 shuffled_opts = list(formatted_opts)
                 opt_rng.shuffle(shuffled_opts)
                 formatted_opts = [
-                    {"key": chr(65 + i), "text": o.get("text", str(o)) if isinstance(o, dict) else str(o)}
+                    {
+                        "key": chr(65 + i),
+                        "text": o.get("text", str(o)) if isinstance(o, dict) else str(o),
+                    }
                     for i, o in enumerate(shuffled_opts)
                 ]
 
@@ -348,7 +572,9 @@ def start_attempt(
             if q_item not in questions_data:
                 questions_data.append(q_item)
 
-    saved_answers = db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id == attempt.id).all()
+    saved_answers = (
+        db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id == attempt.id).all()
+    )
     answers_map = {}
     for sa in saved_answers:
         answers_map[sa.question_id] = {
@@ -456,9 +682,7 @@ async def _verify_ai_hmac(request: Request) -> None:
 
     sig_header = request.headers.get("X-AI-Signature", "")
     raw_body = await request.body()
-    expected = hmac.new(
-        secret.encode("utf-8"), raw_body, hashlib.sha256
-    ).hexdigest()
+    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(f"sha256={expected}", sig_header):
         raise HTTPException(status_code=403, detail="Invalid HMAC signature")

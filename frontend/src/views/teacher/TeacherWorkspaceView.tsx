@@ -11,6 +11,7 @@ import { QuestionBankView } from "./QuestionBankView";
 import { TeacherAssignmentsView } from "./TeacherAssignmentsView";
 import { TeacherProctorView } from "./TeacherProctorView";
 import { TeacherGradingView } from "./TeacherGradingView";
+import { TeacherExamHistoryView } from "./TeacherExamHistoryView";
 import {
   BookOpen,
   FolderOpen,
@@ -97,6 +98,10 @@ export function TeacherWorkspaceView({ initialPath = "/teacher/dashboard", onNav
 
     if (currentPath === "/teacher/grading") {
       return <TeacherGradingView />;
+    }
+
+    if (currentPath === "/teacher/history") {
+      return <TeacherExamHistoryView />;
     }
 
     if (currentPath === "/teacher/packages" || currentPath.startsWith("/teacher/packages")) {

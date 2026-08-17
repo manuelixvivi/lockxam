@@ -28,10 +28,6 @@ from app.exceptions.base import BusinessException
 from app.models.exam.ai_event_log import AiGradingEventLog
 from app.models.exam.answer_evaluation import ExamAnswerEvaluation
 from app.models.exam.device_session import DeviceSession
-from app.models.exam.exam_attempt import ExamAttempt
-from app.models.exam.exam_session import ExamSession
-from app.models.exam.package_snapshot import ExamPackageSnapshot
-from app.models.exam.student_answer import StudentAnswer
 from app.models.exam.enums import (
     DeviceSessionStatus,
     ExamAttemptStatus,
@@ -39,7 +35,10 @@ from app.models.exam.enums import (
     GradingSource,
     GradingStatus,
 )
-from app.schemas.exam.exam import ExamPackageSnapshotPayload, ProctorCommandRequest
+from app.models.exam.exam_attempt import ExamAttempt
+from app.models.exam.exam_session import ExamSession
+from app.models.exam.package_snapshot import ExamPackageSnapshot
+from app.models.exam.student_answer import StudentAnswer
 from app.repositories.exam.ai_event_repository import ai_event_repository
 from app.repositories.exam.attempt_repository import attempt_repository
 from app.repositories.exam.device_session_repository import device_session_repository
@@ -47,7 +46,7 @@ from app.repositories.exam.evaluation_repository import evaluation_repository
 from app.repositories.exam.exam_session_repository import exam_session_repository
 from app.repositories.exam.snapshot_repository import snapshot_repository
 from app.repositories.exam.student_answer_repository import student_answer_repository
-
+from app.schemas.exam.exam import ExamPackageSnapshotPayload, ProctorCommandRequest
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Helpers
@@ -55,7 +54,11 @@ from app.repositories.exam.student_answer_repository import student_answer_repos
 
 
 def generate_deterministic_shuffled_order(
-    questions: list[dict], session_id: int, student_id: int, version: int, randomize_per_type: bool = True
+    questions: list[dict],
+    session_id: int,
+    student_id: int,
+    version: int,
+    randomize_per_type: bool = True,
 ) -> list[int]:
     """Deterministik shuffle per-question-type (PG → IS → ES) atau acak menyeluruh, seeded dengan sha256."""
     seed_str = f"{session_id}_{student_id}_{version}"
@@ -80,7 +83,9 @@ def generate_deterministic_shuffled_order(
         combined = list(questions)
         rng.shuffle(combined)
 
-    return [q.get("question_id", q.get("id")) for q in combined if q.get("question_id") or q.get("id")]
+    return [
+        q.get("question_id", q.get("id")) for q in combined if q.get("question_id") or q.get("id")
+    ]
 
 
 def calculate_final_score(total_score: float, total_max_score: float) -> float:
@@ -151,15 +156,17 @@ class ExamService:
 
     @staticmethod
     def _lazy_create_package_snapshot(db: Session, session: ExamSession) -> ExamPackageSnapshot:
-        from app.models.academic.exam_snapshot import ExamSnapshot
         from app.models.academic.exam_schedule import ExamSchedule
+        from app.models.academic.exam_snapshot import ExamSnapshot
         from app.repositories.teacher.question_package_repository import question_package_repository
 
         schedule = db.query(ExamSchedule).filter(ExamSchedule.id == session.schedule_id).first()
         if not schedule:
             raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
 
-        acad_snap = db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == schedule.id).first()
+        acad_snap = (
+            db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == schedule.id).first()
+        )
 
         questions_list = []
         source_pkg_id = 0
@@ -181,20 +188,23 @@ class ExamService:
                         elif isinstance(opt, dict):
                             formatted_opts.append(opt)
 
-                questions_list.append({
-                    "id": q.get("question_id") or q.get("id"),
-                    "type": q.get("type", "PG"),
-                    "content": q.get("content", ""),
-                    "options": formatted_opts,
-                    "answer_key": q.get("answer_key", ""),
-                    "max_score": float(q.get("score", q.get("max_score", 5.0))),
-                })
+                questions_list.append(
+                    {
+                        "id": q.get("question_id") or q.get("id"),
+                        "type": q.get("type", "PG"),
+                        "content": q.get("content", ""),
+                        "options": formatted_opts,
+                        "answer_key": q.get("answer_key", ""),
+                        "max_score": float(q.get("score", q.get("max_score", 5.0))),
+                    }
+                )
         elif schedule.package_id:
             pkg = question_package_repository.get_by_id(db, schedule.package_id)
             if pkg:
                 source_pkg_id = pkg.id
                 owner_id = pkg.owner_teacher_account_id or owner_id
                 from app.repositories.teacher.question_repository import question_repository
+
                 pkg_items = question_package_repository.get_package_items(db, pkg.id)
                 for item in pkg_items:
                     q = question_repository.get_by_id(db, item.question_id)
@@ -207,14 +217,16 @@ class ExamService:
                                     formatted_opts.append({"key": chr(65 + idx), "text": opt})
                                 elif isinstance(opt, dict):
                                     formatted_opts.append(opt)
-                        questions_list.append({
-                            "id": q.id,
-                            "type": q.type,
-                            "content": q.content,
-                            "options": formatted_opts,
-                            "answer_key": q.answer_key or "",
-                            "max_score": float(item.score_override or 5.0),
-                        })
+                        questions_list.append(
+                            {
+                                "id": q.id,
+                                "type": q.type,
+                                "content": q.content,
+                                "options": formatted_opts,
+                                "answer_key": q.answer_key or "",
+                                "max_score": float(item.score_override or 5.0),
+                            }
+                        )
 
         if not questions_list:
             raise BusinessException(
@@ -258,6 +270,23 @@ class ExamService:
             if not session or session.status != ExamSessionStatus.ACTIVE:
                 raise BusinessException("Ujian tidak aktif atau tidak ditemukan.", status_code=400)
 
+            # EXAM-QR-01: Validate QR Attendance Checkin Requirement
+            from app.models.exam.exam_checkin import ExamCheckin
+
+            checkin = (
+                db.query(ExamCheckin)
+                .filter(
+                    ExamCheckin.schedule_id == session.schedule_id,
+                    ExamCheckin.student_id == student_id,
+                )
+                .first()
+            )
+            if not checkin:
+                raise BusinessException(
+                    "Anda belum melakukan absensi QR Code pengawas. Harap scan QR absensi terlebih dahulu sebelum memulai ujian.",
+                    status_code=400,
+                )
+
             existing = attempt_repository.get_by_session_and_student(db, session_id, student_id)
             if existing:
                 # EXAM-FIX-11: Resume dari Device Reset (PAUSED + remaining_seconds != NULL)
@@ -295,12 +324,20 @@ class ExamService:
                 snapshot = ExamService._lazy_create_package_snapshot(db, session)
 
             rand_per_type = True
-            if snapshot and hasattr(snapshot, "snapshot_data") and isinstance(snapshot.snapshot_data, dict):
+            if (
+                snapshot
+                and hasattr(snapshot, "snapshot_data")
+                and isinstance(snapshot.snapshot_data, dict)
+            ):
                 rules = snapshot.snapshot_data.get("rules_config", {})
                 rand_per_type = rules.get("randomize_per_type", True)
 
             shuffled_ids = generate_deterministic_shuffled_order(
-                snapshot.questions_json, session_id, student_id, snapshot.snapshot_version, randomize_per_type=rand_per_type
+                snapshot.questions_json,
+                session_id,
+                student_id,
+                snapshot.snapshot_version,
+                randomize_per_type=rand_per_type,
             )
 
             now = datetime.now(timezone.utc)
@@ -324,6 +361,7 @@ class ExamService:
                 # Auto-mark BAP attendance as PRESENT for this student
                 try:
                     from app.services.teacher.proctor_service import ProctorService
+
                     ProctorService.auto_mark_student_present(db, session.schedule_id, student_id)
                 except Exception:
                     pass
@@ -331,9 +369,7 @@ class ExamService:
                 db.rollback()
                 if "exam_attempts" in str(e.orig):
                     # Race condition: sibling request sudah membuat attempt
-                    return attempt_repository.get_by_session_and_student(
-                        db, session_id, student_id
-                    )
+                    return attempt_repository.get_by_session_and_student(db, session_id, student_id)
                 raise
 
             device = DeviceSession(
@@ -500,16 +536,26 @@ class ExamService:
                 else:
                     has_essay = True
 
-                evaluation = ExamAnswerEvaluation(
-                    exam_attempt_id=attempt_id,
-                    question_id=q_id,
-                    score=score,
-                    max_score=max_score,
-                    grading_status=status,
-                    grading_source=source,
-                    grading_version=1,
+                existing_eval = evaluation_repository.get_by_attempt_and_question_with_lock(
+                    db, attempt_id, q_id
                 )
-                evaluation_repository.create(db, evaluation)
+                if existing_eval:
+                    existing_eval.score = score
+                    existing_eval.max_score = max_score
+                    existing_eval.grading_status = status
+                    existing_eval.grading_source = source
+                    existing_eval.grading_version = 1
+                else:
+                    evaluation = ExamAnswerEvaluation(
+                        exam_attempt_id=attempt_id,
+                        question_id=q_id,
+                        score=score,
+                        max_score=max_score,
+                        grading_status=status,
+                        grading_source=source,
+                        grading_version=1,
+                    )
+                    evaluation_repository.create(db, evaluation)
 
             if has_essay:
                 attempt.status = ExamAttemptStatus.GRADING
@@ -603,9 +649,7 @@ class ExamService:
             attempt_for_auth = attempt_repository.get_with_lock(db, evaluation.exam_attempt_id)
             if not attempt_for_auth:
                 raise BusinessException("Attempt tidak ditemukan.", status_code=404)
-            snapshot = snapshot_repository.get_by_session(
-                db, attempt_for_auth.exam_session_id
-            )
+            snapshot = snapshot_repository.get_by_session(db, attempt_for_auth.exam_session_id)
             if not snapshot or snapshot.owner_teacher_account_id != teacher_account_id:
                 raise BusinessException(
                     "Akses ditolak: Anda bukan pemilik paket ujian ini.", status_code=403
@@ -678,9 +722,7 @@ class ExamService:
     # ──────────────────────────────────────────────────
 
     @staticmethod
-    def proctor_unlock_attempt(
-        db: Session, attempt_id: int, exam_session_id: int
-    ) -> ExamAttempt:
+    def proctor_unlock_attempt(db: Session, attempt_id: int, exam_session_id: int) -> ExamAttempt:
         """Membuka kembali kunci attempt siswa (Resume Ujian)."""
         try:
             attempt = attempt_repository.get_with_lock(db, attempt_id)
@@ -734,6 +776,7 @@ class ExamService:
             # 1b. Revoke active UserSessions so student can immediately log in from replacement HP
             now = datetime.now(timezone.utc)
             from app.models.security.user_session import UserSession
+
             active_auth_sessions = (
                 db.query(UserSession)
                 .filter(
@@ -751,9 +794,7 @@ class ExamService:
                 and attempt.deadline_at
                 and attempt.deadline_at > now
             ):
-                attempt.remaining_seconds = int(
-                    (attempt.deadline_at - now).total_seconds()
-                )
+                attempt.remaining_seconds = int((attempt.deadline_at - now).total_seconds())
                 attempt.deadline_at = None
 
             attempt.status = ExamAttemptStatus.PAUSED

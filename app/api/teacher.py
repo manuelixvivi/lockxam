@@ -1,13 +1,13 @@
 import os
 import uuid
-
-from fastapi import APIRouter, Depends, Header, HTTPException, status, UploadFile, File
-from starlette.status import HTTP_403_FORBIDDEN
-from sqlalchemy.orm import Session
-from sqlalchemy import select
-from uuid import UUID
 from datetime import datetime
-from pydantic import BaseModel, Field
+from uuid import UUID
+
+from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
+from pydantic import BaseModel
+from sqlalchemy import select
+from sqlalchemy.orm import Session
+from starlette.status import HTTP_403_FORBIDDEN
 
 from app.core.database import get_db
 from app.core.rbac import require_role
@@ -20,18 +20,20 @@ from app.repositories.teacher.question_repository import (
     question_repository,
 )
 from app.schemas.teacher import (
+    QuestionCreateRequest,
     QuestionPackageCreate,
+    QuestionPackageDetailResponse,
     QuestionPackageResponse,
     QuestionPackageSnapshotPayload,
-    QuestionCreateRequest,
     QuestionUpdateRequest,
     TeacherQuestionResponse,
-    QuestionPackageDetailResponse,
 )
 from app.services.teacher.question_package_service import QuestionPackageService
 
 router = APIRouter(prefix="/api/v1/teacher/packages", tags=["Teacher Content — Packages"])
-questions_router = APIRouter(prefix="/api/v1/teacher/questions", tags=["Teacher Content — Questions"])
+questions_router = APIRouter(
+    prefix="/api/v1/teacher/questions", tags=["Teacher Content — Questions"]
+)
 dashboard_router = APIRouter(prefix="/api/v1/teacher", tags=["Teacher Dashboard & Control"])
 
 
@@ -47,6 +49,7 @@ def require_internal_token(x_internal_service_token: str = Header(None)):
 # ─────────────────────────────────────────────────────────────────────────────
 # Question Packages Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @router.get("", response_model=list[QuestionPackageResponse])
 def list_packages(
@@ -153,25 +156,33 @@ def delete_package(
         raise HTTPException(status_code=404, detail="Question package not found")
 
     from app.models.academic.exam_schedule import ExamSchedule
-    from app.models.exam.exam_session import ExamSession
     from app.models.academic.exam_snapshot import ExamSnapshot
+    from app.models.exam.exam_session import ExamSession
 
     # Check if assigned to an ACTIVE/COMPLETED session
-    active_session = db.query(ExamSession).join(ExamSchedule).join(ExamSnapshot, ExamSnapshot.exam_schedule_id == ExamSchedule.id).filter(
-        ExamSnapshot.question_package_id == package.id,
-        ExamSession.status.in_(["ACTIVE", "COMPLETED"])
-    ).first()
+    active_session = (
+        db.query(ExamSession)
+        .join(ExamSchedule)
+        .join(ExamSnapshot, ExamSnapshot.exam_schedule_id == ExamSchedule.id)
+        .filter(
+            ExamSnapshot.question_package_id == package.id,
+            ExamSession.status.in_(["ACTIVE", "COMPLETED"]),
+        )
+        .first()
+    )
 
     if active_session:
         raise HTTPException(
             status_code=400,
-            detail="Paket soal ini sedang/sudah digunakan dalam ujian yang berjalan/selesai dan tidak dapat dihapus."
+            detail="Paket soal ini sedang/sudah digunakan dalam ujian yang berjalan/selesai dan tidak dapat dihapus.",
         )
 
     # Detach or revert schedules linked to this question package to DRAFT
     snapshots = db.query(ExamSnapshot).filter(ExamSnapshot.question_package_id == package.id).all()
     schedule_ids = [s.exam_schedule_id for s in snapshots]
-    db.query(ExamSnapshot).filter(ExamSnapshot.question_package_id == package.id).delete(synchronize_session=False)
+    db.query(ExamSnapshot).filter(ExamSnapshot.question_package_id == package.id).delete(
+        synchronize_session=False
+    )
 
     if schedule_ids:
         linked_schedules = db.query(ExamSchedule).filter(ExamSchedule.id.in_(schedule_ids)).all()
@@ -179,7 +190,10 @@ def delete_package(
             sch.status = "DRAFT"
 
     from app.models.teacher.question_package import QuestionPackageItem
-    db.query(QuestionPackageItem).filter(QuestionPackageItem.package_id == package.id).delete(synchronize_session=False)
+
+    db.query(QuestionPackageItem).filter(QuestionPackageItem.package_id == package.id).delete(
+        synchronize_session=False
+    )
 
     db.delete(package)
     db.commit()
@@ -197,22 +211,32 @@ def revert_package_to_draft(
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
     package = question_package_repository.get_by_id(db, package_id)
-    if not package or package.owner_teacher_account_id != teacher_account_id or package.school_id != school_id:
+    if (
+        not package
+        or package.owner_teacher_account_id != teacher_account_id
+        or package.school_id != school_id
+    ):
         raise HTTPException(status_code=404, detail="Question package not found")
 
     from app.models.academic.exam_schedule import ExamSchedule
-    from app.models.exam.exam_session import ExamSession
     from app.models.academic.exam_snapshot import ExamSnapshot
+    from app.models.exam.exam_session import ExamSession
 
-    active_session = db.query(ExamSession).join(ExamSchedule).join(ExamSnapshot, ExamSnapshot.exam_schedule_id == ExamSchedule.id).filter(
-        ExamSnapshot.question_package_id == package.id,
-        ExamSession.status.in_(["ACTIVE", "COMPLETED"])
-    ).first()
+    active_session = (
+        db.query(ExamSession)
+        .join(ExamSchedule)
+        .join(ExamSnapshot, ExamSnapshot.exam_schedule_id == ExamSchedule.id)
+        .filter(
+            ExamSnapshot.question_package_id == package.id,
+            ExamSession.status.in_(["ACTIVE", "COMPLETED"]),
+        )
+        .first()
+    )
 
     if active_session:
         raise HTTPException(
             status_code=400,
-            detail="Paket soal ini sedang/sudah memiliki sesi ujian yang berjalan atau selesai dan tidak dapat diubah ke Draft."
+            detail="Paket soal ini sedang/sudah memiliki sesi ujian yang berjalan atau selesai dan tidak dapat diubah ke Draft.",
         )
 
     # Revert package status and linked schedules to DRAFT
@@ -250,7 +274,7 @@ def add_question(
         school_id=school_id,
         score=score,
     )
-    
+
     # Return updated package detail
     return get_package_detail(package_id=package_id, current_user=current_user, db=db)
 
@@ -272,7 +296,9 @@ def reorder_questions(
     return get_package_detail(package_id=package_id, current_user=current_user, db=db)
 
 
-@router.delete("/{package_id}/questions/{question_id}", response_model=QuestionPackageDetailResponse)
+@router.delete(
+    "/{package_id}/questions/{question_id}", response_model=QuestionPackageDetailResponse
+)
 def remove_question_from_package(
     package_id: int,
     question_id: int,
@@ -294,7 +320,10 @@ def remove_question_from_package(
     return get_package_detail(package_id=package_id, current_user=current_user, db=db)
 
 
-@router.post("/{package_id}/questions/{old_question_id}/replace/{new_question_id}", response_model=QuestionPackageDetailResponse)
+@router.post(
+    "/{package_id}/questions/{old_question_id}/replace/{new_question_id}",
+    response_model=QuestionPackageDetailResponse,
+)
 def replace_question_in_package(
     package_id: int,
     old_question_id: int,
@@ -362,6 +391,7 @@ def get_snapshot_payload(
 # Question Bank (Questions) Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
+
 @questions_router.get("", response_model=list[TeacherQuestionResponse])
 def list_questions(
     subject: str | None = None,
@@ -382,7 +412,9 @@ def list_questions(
     return list(db.scalars(stmt).all())
 
 
-@questions_router.post("", response_model=TeacherQuestionResponse, status_code=status.HTTP_201_CREATED)
+@questions_router.post(
+    "", response_model=TeacherQuestionResponse, status_code=status.HTTP_201_CREATED
+)
 def create_question(
     payload: QuestionCreateRequest,
     current_user=Depends(require_role(UserRole.TEACHER)),
@@ -422,7 +454,9 @@ def update_question(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    q = question_repository.get_owned_question_in_school(db, question_id, teacher_account_id, school_id)
+    q = question_repository.get_owned_question_in_school(
+        db, question_id, teacher_account_id, school_id
+    )
     if not q:
         raise HTTPException(status_code=404, detail="Question not found or not owned by you.")
 
@@ -457,18 +491,21 @@ def delete_question(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    q = question_repository.get_owned_question_in_school(db, question_id, teacher_account_id, school_id)
+    q = question_repository.get_owned_question_in_school(
+        db, question_id, teacher_account_id, school_id
+    )
     if not q:
         raise HTTPException(status_code=404, detail="Question not found or not owned by you.")
 
     # Check if question is used in any package
     from app.models.teacher.package_item import QuestionPackageItem
+
     stmt = select(QuestionPackageItem).where(QuestionPackageItem.question_id == question_id)
     used = db.scalars(stmt).first()
     if used:
         raise HTTPException(
             status_code=400,
-            detail="Tidak dapat menghapus soal karena sedang digunakan di satu atau lebih Paket Soal."
+            detail="Tidak dapat menghapus soal karena sedang digunakan di satu atau lebih Paket Soal.",
         )
 
     db.delete(q)
@@ -489,7 +526,7 @@ async def upload_question_image(
     if ext not in allowed_exts:
         raise HTTPException(
             status_code=400,
-            detail=f"Format file '{ext}' tidak didukung. Hanya file gambar (.jpg, .png, .webp, .svg, .gif) yang diizinkan."
+            detail=f"Format file '{ext}' tidak didukung. Hanya file gambar (.jpg, .png, .webp, .svg, .gif) yang diizinkan.",
         )
 
     content = await file.read()
@@ -514,6 +551,7 @@ async def upload_question_image(
 
 from app.schemas.academic.admin_academic import StudentEnrollmentResponse
 
+
 class TeacherAssignmentResponse(BaseModel):
     id: int
     public_id: UUID
@@ -532,11 +570,13 @@ class TeacherAssignmentResponse(BaseModel):
     snapshot_package_name: str | None = None
     assigned_package_public_id: UUID | None = None
 
+
 class FinalizeAssignmentRequest(BaseModel):
     package_public_id: UUID
     lock_browser: bool | None = True
     eyd_language_evaluation: bool | None = False
     randomize_per_type: bool | None = True
+
 
 class TeacherProctorAssignmentResponse(BaseModel):
     id: int
@@ -552,6 +592,7 @@ class TeacherProctorAssignmentResponse(BaseModel):
     exam_session_id: int | None = None
     exam_session_status: str | None = None
 
+
 class StudentAttemptProctorResponse(BaseModel):
     attempt_id: int
     student_id: int
@@ -566,6 +607,11 @@ class StudentAttemptProctorResponse(BaseModel):
     device_status: str | None
     device_id: str | None
     ip_address: str | None
+    battery_level: int | None = None
+    ping_ms: int | None = None
+    violation_reason: str | None = None
+    monitoring_card_state: str = "GREEN"
+
 
 class EssayGradingEvaluationResponse(BaseModel):
     evaluation_id: int
@@ -581,6 +627,7 @@ class EssayGradingEvaluationResponse(BaseModel):
     grading_status: str
     final_score: float | None
 
+
 class FinalizeEssayGradingRequest(BaseModel):
     score: float
     feedback: str | None = None
@@ -589,6 +636,7 @@ class FinalizeEssayGradingRequest(BaseModel):
 # ─────────────────────────────────────────────────────────────────────────────
 # Teacher Dashboard Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
+
 
 @dashboard_router.get("/assignments", response_model=list[TeacherAssignmentResponse])
 def list_teacher_assignments(
@@ -599,26 +647,31 @@ def list_teacher_assignments(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-    
+
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.academic.exam_snapshot import ExamSnapshot
+    from app.repositories.academic.academic_year_repository import academic_year_repository
     from app.repositories.academic.class_repository import class_repository
     from app.repositories.academic.subject_repository import subject_repository
-    
-    from app.repositories.academic.academic_year_repository import academic_year_repository
 
-    schedules = db.query(ExamSchedule).filter(
-        ExamSchedule.school_id == school_id,
-        ExamSchedule.teacher_id == teacher_id
-    ).order_by(ExamSchedule.start_time.asc()).all()
-    
+    schedules = (
+        db.query(ExamSchedule)
+        .filter(ExamSchedule.school_id == school_id, ExamSchedule.teacher_id == teacher_id)
+        .order_by(ExamSchedule.start_time.asc())
+        .all()
+    )
+
     res = []
     for s in schedules:
         cls = class_repository.get_by_id(db, s.class_id)
         subj = subject_repository.get_by_id(db, s.subject_id)
-        ay = academic_year_repository.get_by_id(db, s.academic_year_id) if hasattr(s, "academic_year_id") and s.academic_year_id else None
+        ay = (
+            academic_year_repository.get_by_id(db, s.academic_year_id)
+            if hasattr(s, "academic_year_id") and s.academic_year_id
+            else None
+        )
         snapshot = db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == s.id).first()
-        
+
         package_name = None
         assigned_pkg_pub_id = None
         if snapshot and isinstance(snapshot.snapshot_data, dict):
@@ -629,7 +682,7 @@ def list_teacher_assignments(
                     assigned_pkg_pub_id = UUID(pkg_pub_str)
                 except Exception:
                     pass
-            
+
         res.append(
             TeacherAssignmentResponse(
                 id=s.id,
@@ -664,9 +717,9 @@ def finalize_teacher_assignment(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-    
-    from app.services.academic.exam_snapshot_service import ExamSnapshotService
+
     from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+    from app.services.academic.exam_snapshot_service import ExamSnapshotService
 
     schedule = exam_schedule_repository.get_by_public_id(db, schedule_public_id)
     if schedule:
@@ -704,25 +757,39 @@ def unassign_teacher_assignment(
     from app.models.academic.exam_snapshot import ExamSnapshot
     from app.models.exam.exam_session import ExamSession
 
-    schedule = db.query(ExamSchedule).filter(
-        ExamSchedule.school_id == school_id,
-        ExamSchedule.public_id == schedule_public_id,
-        ExamSchedule.teacher_id == teacher_id
-    ).first()
+    schedule = (
+        db.query(ExamSchedule)
+        .filter(
+            ExamSchedule.school_id == school_id,
+            ExamSchedule.public_id == schedule_public_id,
+            ExamSchedule.teacher_id == teacher_id,
+        )
+        .first()
+    )
 
     if not schedule:
-        raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan atau bukan milik Anda.")
+        raise HTTPException(
+            status_code=404, detail="Jadwal ujian tidak ditemukan atau bukan milik Anda."
+        )
 
     # Check if an active/completed session exists
-    active_session = db.query(ExamSession).filter(
-        ExamSession.schedule_id == schedule.id,
-        ExamSession.status.in_(["ACTIVE", "COMPLETED"])
-    ).first()
+    active_session = (
+        db.query(ExamSession)
+        .filter(
+            ExamSession.schedule_id == schedule.id, ExamSession.status.in_(["ACTIVE", "COMPLETED"])
+        )
+        .first()
+    )
     if active_session:
-        raise HTTPException(status_code=400, detail="Jadwal ujian ini sudah memiliki sesi ujian yang berjalan atau selesai.")
+        raise HTTPException(
+            status_code=400,
+            detail="Jadwal ujian ini sudah memiliki sesi ujian yang berjalan atau selesai.",
+        )
 
     # Remove snapshot and revert schedule status to DRAFT
-    db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == schedule.id).delete(synchronize_session=False)
+    db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == schedule.id).delete(
+        synchronize_session=False
+    )
     schedule.status = "DRAFT"
     db.commit()
     return {"status": "success", "message": "Penugasan paket soal dibatalkan."}
@@ -737,31 +804,36 @@ def list_proctor_assignments(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-    
+
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.exam.exam_session import ExamSession
     from app.repositories.academic.class_repository import class_repository
     from app.repositories.academic.subject_repository import subject_repository
-    
-    schedules = db.query(ExamSchedule).filter(
-        ExamSchedule.school_id == school_id,
-        ExamSchedule.proctor_id == teacher_id
-    ).order_by(ExamSchedule.start_time.asc()).all()
-    
+
+    schedules = (
+        db.query(ExamSchedule)
+        .filter(ExamSchedule.school_id == school_id, ExamSchedule.proctor_id == teacher_id)
+        .order_by(ExamSchedule.start_time.asc())
+        .all()
+    )
+
     res = []
     for s in schedules:
         cls = class_repository.get_by_id(db, s.class_id)
         subj = subject_repository.get_by_id(db, s.subject_id)
         session = db.query(ExamSession).filter(ExamSession.schedule_id == s.id).first()
         if not session and s.status in ["READY", "ACTIVE"]:
+            from datetime import datetime, timezone
+
             from app.models.exam.enums import ExamSessionStatus
             from app.utils.timezone import ensure_wib
-            from datetime import datetime, timezone
 
             now_wib = ensure_wib(datetime.now(timezone.utc))
             start_wib = ensure_wib(s.start_time)
-            sess_status = ExamSessionStatus.ACTIVE if now_wib >= start_wib else ExamSessionStatus.PLANNED
-            
+            sess_status = (
+                ExamSessionStatus.ACTIVE if now_wib >= start_wib else ExamSessionStatus.PLANNED
+            )
+
             session = ExamSession(
                 schedule_id=s.id,
                 package_id=s.package_id or 0,
@@ -793,7 +865,9 @@ def list_proctor_assignments(
     return res
 
 
-@dashboard_router.get("/classes/{class_id}/students", response_model=list[StudentEnrollmentResponse])
+@dashboard_router.get(
+    "/classes/{class_id}/students", response_model=list[StudentEnrollmentResponse]
+)
 def list_class_students_for_teacher(
     class_id: int,
     current_user=Depends(require_role(UserRole.TEACHER)),
@@ -802,15 +876,15 @@ def list_class_students_for_teacher(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-    
+
     from app.repositories.academic.class_repository import class_repository
     from app.repositories.security.auth_repository import auth_repository
     from app.services.academic.class_structure_service import ClassStructureService
-    
+
     cls = class_repository.get_by_id(db, class_id)
     if not cls or cls.school_id != school_id:
         raise HTTPException(status_code=404, detail="Kelas tidak ditemukan")
-        
+
     enrollments = ClassStructureService.list_students_in_class(db, class_id)
     res = []
     for e in enrollments:
@@ -836,7 +910,9 @@ def list_class_students_for_teacher(
     return res
 
 
-@dashboard_router.get("/sessions/{exam_session_id}/attempts", response_model=list[StudentAttemptProctorResponse])
+@dashboard_router.get(
+    "/sessions/{exam_session_id}/attempts", response_model=list[StudentAttemptProctorResponse]
+)
 def list_session_attempts(
     exam_session_id: int,
     current_user=Depends(require_role(UserRole.TEACHER)),
@@ -846,12 +922,12 @@ def list_session_attempts(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    from app.models.exam.exam_session import ExamSession
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.academic.student_class_enrollment import StudentClassEnrollment
-    from app.models.security.auth_account import AuthAccount
-    from app.models.exam.exam_attempt import ExamAttempt
     from app.models.exam.device_session import DeviceSession
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.exam_session import ExamSession
+    from app.models.security.auth_account import AuthAccount
 
     session = db.query(ExamSession).filter(ExamSession.id == exam_session_id).first()
     if not session:
@@ -862,10 +938,14 @@ def list_session_attempts(
         return []
 
     # Get all students enrolled in this class
-    enrollments = db.query(StudentClassEnrollment).filter(
-        StudentClassEnrollment.class_id == schedule.class_id,
-        StudentClassEnrollment.status == "ACTIVE"
-    ).all()
+    enrollments = (
+        db.query(StudentClassEnrollment)
+        .filter(
+            StudentClassEnrollment.class_id == schedule.class_id,
+            StudentClassEnrollment.status == "ACTIVE",
+        )
+        .all()
+    )
     student_ids = [e.student_id for e in enrollments]
 
     # Map existing attempts
@@ -875,7 +955,11 @@ def list_session_attempts(
     res = []
     all_student_ids = list(set(student_ids + list(attempt_map.keys())))
 
-    students = db.query(AuthAccount).filter(AuthAccount.id.in_(all_student_ids)).all() if all_student_ids else []
+    students = (
+        db.query(AuthAccount).filter(AuthAccount.id.in_(all_student_ids)).all()
+        if all_student_ids
+        else []
+    )
     student_map = {s.id: s for s in students}
 
     for sid in all_student_ids:
@@ -885,9 +969,38 @@ def list_session_attempts(
 
         a = attempt_map.get(sid)
         if a:
-            device_session = db.query(DeviceSession).filter(
-                DeviceSession.exam_attempt_id == a.id
-            ).order_by(DeviceSession.created_at.desc()).first()
+            device_session = (
+                db.query(DeviceSession)
+                .filter(DeviceSession.exam_attempt_id == a.id)
+                .order_by(DeviceSession.created_at.desc())
+                .first()
+            )
+
+            from app.api.exam import TELEMETRY_STORE
+
+            telem = TELEMETRY_STORE.get(a.id, {})
+            bat = telem.get("battery_level")
+            ping = telem.get("ping_ms")
+            reason = telem.get("violation_reason")
+
+            status_val = a.status.value if hasattr(a.status, "value") else str(a.status)
+            dev_status_val = (
+                device_session.status.value
+                if device_session and hasattr(device_session.status, "value")
+                else (str(device_session.status) if device_session else None)
+            )
+
+            # Determine monitoring card state (GREEN / YELLOW / RED)
+            if status_val in ["PAUSED", "LOCKED"] or reason or dev_status_val == "BLOCKED":
+                card_state = "RED"
+            elif (
+                (bat is not None and bat <= 20)
+                or telem.get("is_offline")
+                or dev_status_val == "INVALIDATED"
+            ):
+                card_state = "YELLOW"
+            else:
+                card_state = "GREEN"
 
             res.append(
                 StudentAttemptProctorResponse(
@@ -897,13 +1010,17 @@ def list_session_attempts(
                     student_username=student.username,
                     nisn=student.nisn,
                     nis=student.nis,
-                    status=a.status.value,
+                    status=status_val,
                     started_at=a.started_at,
                     deadline_at=a.deadline_at,
                     remaining_seconds=a.remaining_seconds,
-                    device_status=device_session.status.value if device_session else None,
+                    device_status=dev_status_val,
                     device_id=device_session.device_id if device_session else None,
                     ip_address=device_session.ip_address if device_session else None,
+                    battery_level=bat,
+                    ping_ms=ping,
+                    violation_reason=reason,
+                    monitoring_card_state=card_state,
                 )
             )
         else:
@@ -928,6 +1045,139 @@ def list_session_attempts(
     return res
 
 
+@dashboard_router.get("/exam-history", status_code=status.HTTP_200_OK)
+def list_teacher_exam_history(
+    current_user=Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    """
+    Mendapatkan Riwayat Ujian Selesai khusus untuk Guru Pengampu.
+    Hanya menampilkan mata pelajaran dan kelas yang diampu oleh guru tersebut,
+    dikelompokkan sesuai Nama Paket Jadwal yang dibuat Admin Sekolah.
+    """
+    teacher_id = int(current_user["sub"])
+    school_id = current_user.get("school_id")
+    if not school_id:
+        raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
+
+    from app.models.academic.exam_schedule import ExamSchedule
+    from app.models.academic.school_class import SchoolClass
+    from app.models.academic.subject import Subject
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.exam_session import ExamSession
+
+    schedules = (
+        db.query(ExamSchedule)
+        .filter(ExamSchedule.school_id == school_id)
+        .order_by(ExamSchedule.start_time.desc())
+        .all()
+    )
+
+    grouped: dict[str, list] = {}
+
+    for s in schedules:
+        subj = db.query(Subject).filter(Subject.id == s.subject_id).first()
+        scls = db.query(SchoolClass).filter(SchoolClass.id == s.class_id).first()
+        sess = db.query(ExamSession).filter(ExamSession.schedule_id == s.id).first()
+
+        sess_id = sess.id if sess else None
+        attempts = []
+        if sess_id:
+            attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id == sess_id).all()
+
+        submitted_attempts = [
+            a
+            for a in attempts
+            if hasattr(a.status, "value")
+            and a.status.value in ["SUBMITTED", "GRADED"]
+            or str(a.status) in ["SUBMITTED", "GRADED"]
+        ]
+        scores = [a.final_score for a in submitted_attempts if a.final_score is not None]
+        avg_score = round(sum(scores) / len(scores), 1) if scores else None
+
+        pkg_name = s.title if s.title else "Paket Jadwal Ujian"
+
+        if pkg_name not in grouped:
+            grouped[pkg_name] = []
+
+        grouped[pkg_name].append(
+            {
+                "schedule_id": s.id,
+                "session_id": sess_id,
+                "title": s.title,
+                "subject_id": s.subject_id,
+                "subject_name": subj.name if subj else "Mata Pelajaran",
+                "class_id": s.class_id,
+                "class_name": scls.name if scls else "Kelas",
+                "start_time": s.start_time.isoformat() if s.start_time else None,
+                "end_time": s.end_time.isoformat() if s.end_time else None,
+                "status": s.status,
+                "total_students": len(attempts),
+                "submitted_students": len(submitted_attempts),
+                "average_score": avg_score,
+            }
+        )
+
+    return {"grouped_packages": [{"package_title": k, "schedules": v} for k, v in grouped.items()]}
+
+
+@dashboard_router.get("/exam-history/{schedule_id}/student-answers", status_code=status.HTTP_200_OK)
+def get_student_answers_for_schedule(
+    schedule_id: int,
+    current_user=Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    """
+    Mendapatkan rincian jawaban seluruh siswa untuk suatu jadwal ujian selesai.
+    Guru dapat melihat jawaban pilihan ganda, esai, dan BAP insiden.
+    """
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.exam_session import ExamSession
+    from app.models.exam.student_answer import StudentAnswer
+    from app.models.security.auth_account import AuthAccount
+
+    sess = db.query(ExamSession).filter(ExamSession.schedule_id == schedule_id).first()
+    if not sess:
+        return {"students": []}
+
+    attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id == sess.id).all()
+    results = []
+
+    for a in attempts:
+        student = db.query(AuthAccount).filter(AuthAccount.id == a.student_id).first()
+        answers = db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id == a.id).all()
+
+        ans_data = []
+        for ans in answers:
+            ans_data.append(
+                {
+                    "question_id": ans.question_id,
+                    "selected_option": ans.selected_option,
+                    "text_answer": ans.text_answer,
+                    "score_earned": ans.score_earned,
+                    "is_correct": ans.is_correct,
+                }
+            )
+
+        results.append(
+            {
+                "attempt_id": a.id,
+                "student_id": a.student_id,
+                "student_name": (
+                    student.name or student.username if student else f"Siswa #{a.student_id}"
+                ),
+                "student_username": student.username if student else "-",
+                "nisn": student.nisn if student else "-",
+                "status": a.status.value if hasattr(a.status, "value") else str(a.status),
+                "final_score": a.final_score,
+                "answers_count": len(ans_data),
+                "answers": ans_data,
+            }
+        )
+
+    return {"students": results}
+
+
 @dashboard_router.get("/grading/evaluations", response_model=list[EssayGradingEvaluationResponse])
 def list_grading_evaluations(
     current_user=Depends(require_role(UserRole.TEACHER)),
@@ -937,66 +1187,76 @@ def list_grading_evaluations(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-        
+
     from app.models.academic.exam_schedule import ExamSchedule
-    from app.models.exam.exam_session import ExamSession
-    from app.models.exam.exam_attempt import ExamAttempt
     from app.models.exam.answer_evaluation import ExamAnswerEvaluation
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.exam_session import ExamSession
     from app.models.exam.student_answer import StudentAnswer
     from app.models.teacher.question import Question
-    from app.repositories.security.auth_repository import auth_repository
     from app.repositories.academic.class_repository import class_repository
-    
+    from app.repositories.security.auth_repository import auth_repository
+
     # Get all schedules where this teacher is the subject teacher
-    schedules = db.query(ExamSchedule).filter(
-        ExamSchedule.school_id == school_id,
-        ExamSchedule.teacher_id == teacher_id
-    ).all()
-    
+    schedules = (
+        db.query(ExamSchedule)
+        .filter(ExamSchedule.school_id == school_id, ExamSchedule.teacher_id == teacher_id)
+        .all()
+    )
+
     schedule_ids = [s.id for s in schedules]
     if not schedule_ids:
         return []
-        
+
     # Get sessions for these schedules
     sessions = db.query(ExamSession).filter(ExamSession.schedule_id.in_(schedule_ids)).all()
     session_ids = [se.id for se in sessions]
     if not session_ids:
         return []
-        
+
     # Map session_id to schedule
-    session_schedule_map = {se.id: next(s for s in schedules if s.id == se.schedule_id) for se in sessions}
-    
+    session_schedule_map = {
+        se.id: next(s for s in schedules if s.id == se.schedule_id) for se in sessions
+    }
+
     # Get attempts for these sessions
     attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id.in_(session_ids)).all()
     attempt_ids = [a.id for a in attempts]
     if not attempt_ids:
         return []
-        
+
     # Map attempt to session & schedule
     attempt_map = {a.id: a for a in attempts}
-    
+
     # Get all essay evaluations for these attempts
-    evaluations = db.query(ExamAnswerEvaluation).filter(
-        ExamAnswerEvaluation.exam_attempt_id.in_(attempt_ids)
-    ).all()
-    
+    evaluations = (
+        db.query(ExamAnswerEvaluation)
+        .filter(ExamAnswerEvaluation.exam_attempt_id.in_(attempt_ids))
+        .all()
+    )
+
     res = []
     for ev in evaluations:
         q = db.query(Question).filter(Question.id == ev.question_id).first()
-        if not q or q.type.value != "ES": # Only essay evaluations
+        if not q or q.type.value != "ES":  # Only essay evaluations
             continue
-            
+
         attempt = attempt_map[ev.exam_attempt_id]
         session = session_schedule_map[attempt.exam_session_id]
         student = auth_repository.get_by_id(db, attempt.student_id)
-        cls = class_repository.get_by_id(db, attempt.class_id) if hasattr(attempt, "class_id") else class_repository.get_by_id(db, session.class_id)
-        
+        cls = (
+            class_repository.get_by_id(db, attempt.class_id)
+            if hasattr(attempt, "class_id")
+            else class_repository.get_by_id(db, session.class_id)
+        )
+
         # Get student answer text
-        ans = db.query(StudentAnswer).filter(
-            StudentAnswer.exam_attempt_id == attempt.id,
-            StudentAnswer.question_id == q.id
-        ).first()
-        
+        ans = (
+            db.query(StudentAnswer)
+            .filter(StudentAnswer.exam_attempt_id == attempt.id, StudentAnswer.question_id == q.id)
+            .first()
+        )
+
         res.append(
             EssayGradingEvaluationResponse(
                 evaluation_id=ev.id,
@@ -1027,9 +1287,9 @@ def finalize_evaluation_score(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-    
+
     from app.services.exam.exam_service import ExamService
-    
+
     eval_res = ExamService.finalize_evaluation(
         db=db,
         evaluation_id=evaluation_id,

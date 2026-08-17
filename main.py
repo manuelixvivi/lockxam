@@ -5,7 +5,10 @@ from fastapi.staticfiles import StaticFiles
 from sqlalchemy import text
 
 # Ensure uploads directory exists
-os.makedirs("uploads/questions", exist_ok=True)
+try:
+    os.makedirs("uploads/questions", exist_ok=True)
+except Exception:
+    pass
 
 from app import (
     models as _models,  # noqa: F401  # Ensure all SQLAlchemy models are registered with Base.metadata

@@ -43,4 +43,3 @@ ignore_missing_imports = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 asyncio_mode = "auto"
-addopts = "--cov=app --cov-report=term-missing --cov-report=xml"

@@ -1,5 +1,5 @@
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Generic, TypeVar
 
 from fastapi import HTTPException
@@ -29,31 +29,41 @@ class BaseRepository(Generic[ModelType]):
     def get_by_id(self, db: Session, obj_id: Any) -> ModelType | None:
         return db.scalar(select(self.model).where(self.model.id == obj_id))  # type: ignore[attr-defined]
 
+    def get_by_public_id(self, db: Session, public_id: Any) -> ModelType | None:
+        if hasattr(self.model, "public_id"):
+            return db.scalar(select(self.model).where(self.model.public_id == public_id))  # type: ignore[attr-defined]
+        return None
+
     def get_all(self, db: Session) -> list[ModelType]:
         return list(db.scalars(select(self.model)).all())
 
     def create(self, db: Session, obj: ModelType) -> ModelType:
         db.add(obj)
+        db.flush()
         return obj
 
     def create_many(self, db: Session, objs: list[ModelType]) -> list[ModelType]:
         db.add_all(objs)
+        db.flush()
         return objs
 
     def update(self, db: Session, obj: ModelType) -> ModelType:
         db.add(obj)
+        db.flush()
         return obj
 
     def update_many(self, db: Session, objs: list[ModelType]) -> list[ModelType]:
         db.add_all(objs)
+        db.flush()
         return objs
 
     def delete(self, db: Session, obj: ModelType) -> None:
         db.delete(obj)
+        db.flush()
 
     def soft_delete(self, db: Session, obj: ModelType) -> ModelType:
         if hasattr(obj, "deleted_at"):
-            obj.deleted_at = datetime.utcnow()
+            obj.deleted_at = datetime.now(timezone.utc)
         elif hasattr(obj, "is_deleted"):
             obj.is_deleted = True
         elif hasattr(obj, "is_active"):
@@ -64,6 +74,7 @@ class BaseRepository(Generic[ModelType]):
                 "(missing 'deleted_at', 'is_deleted', or 'is_active' attributes)."
             )
         db.add(obj)
+        db.flush()
         return obj
 
     def exists(self, db: Session, obj_id: Any) -> bool:

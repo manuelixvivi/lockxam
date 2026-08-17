@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from sqlalchemy.orm import Session
@@ -12,7 +12,7 @@ class SessionService:
 
     @staticmethod
     def create_session() -> dict:
-        now = datetime.utcnow()
+        now = datetime.now(timezone.utc)
         return {
             "session_id": create_uuid(),
             "access_jti": create_uuid(),

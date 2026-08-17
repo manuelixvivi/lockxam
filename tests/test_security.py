@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 import pytest
 from jose import jwt
@@ -88,7 +88,7 @@ def test_session_idle_timeout(client, test_superadmin, db):
 
     # 2. Simulate 3 hours of inactivity in the database
     db_session = db.query(UserSession).filter(UserSession.id == session_id).first()
-    db_session.last_activity_at = datetime.utcnow() - timedelta(hours=3)
+    db_session.last_activity_at = datetime.now(timezone.utc) - timedelta(hours=3)
     db.commit()
 
     # 3. Accessing /me should now fail because of inactivity

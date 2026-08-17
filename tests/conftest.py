@@ -1,6 +1,6 @@
 import os
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 import pytest
 from fastapi.testclient import TestClient
@@ -14,14 +14,29 @@ from app.models.security.auth_account import AuthAccount
 from main import app
 
 DATABASE_URL = os.getenv("DATABASE_URL", "")
-engine = create_engine(DATABASE_URL)
+engine = create_engine(DATABASE_URL, echo=True)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
 @pytest.fixture(scope="session", autouse=True)
 def setup_db():
-    # Make sure all tables exist before running test suite
+    # Ensure all tables exist without dropping existing development data
     Base.metadata.create_all(bind=engine)
+    with engine.connect() as conn:
+        try:
+            from sqlalchemy import text
+            conn.execute(text("ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS target_type VARCHAR(20) DEFAULT 'ALL_CLASS';"))
+            conn.execute(text("ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS allowed_student_ids JSON;"))
+            conn.commit()
+        except Exception:
+            pass
+    from app.database.seed_master import seed_master_data
+
+    db = TestingSessionLocal()
+    try:
+        seed_master_data(db)
+    finally:
+        db.close()
     yield
 
 
@@ -69,13 +84,18 @@ def client(db):
 def test_school(db):
     school = db.query(School).first()
     if not school:
+        from app.models.master.school_level import SchoolLevel
+
+        lvl = db.query(SchoolLevel).first()
         school = School(
             public_id=uuid.uuid4(),
-            code=f"SCH_{uuid.uuid4().hex[:4]}",
+            npsn="12345678",
+            code="SCH_12345678",
             name="Test School",
+            school_level_id=lvl.id,
             address="Test Address",
-            created_at=datetime.utcnow(),
-            updated_at=datetime.utcnow(),
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc),
         )
         db.add(school)
         db.flush()
@@ -95,8 +115,8 @@ def test_superadmin(db, test_school):
         password_hash=hashed,
         role="SUPERADMIN",
         is_active=True,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
     db.add(acc)
     db.flush()
@@ -117,8 +137,8 @@ def test_teacher(db, test_school):
         password_hash=hashed,
         role="TEACHER",
         is_active=True,
-        created_at=datetime.utcnow(),
-        updated_at=datetime.utcnow(),
+        created_at=datetime.now(timezone.utc),
+        updated_at=datetime.now(timezone.utc),
     )
     db.add(acc)
     db.flush()

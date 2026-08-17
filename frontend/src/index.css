@@ -1,0 +1,265 @@
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&family=JetBrains+Mono:wght@400;500;600&display=swap');
+@import "tailwindcss";
+
+/* Adminator-inspired Blue-Green theme for Equigrade v3 */
+
+:root {
+  /* Primary 1: Blue (#2196f3) */
+  --color-primary-50: hsl(207, 95%, 96%);
+  --color-primary-100: hsl(207, 90%, 90%);
+  --color-primary-200: hsl(207, 85%, 80%);
+  --color-primary-300: hsl(207, 85%, 72%);
+  --color-primary-400: hsl(207, 85%, 65%);
+  --color-primary-500: hsl(207, 90%, 54%); /* Main Accent: Blue */
+  --color-primary-600: hsl(207, 85%, 46%);
+  --color-primary-700: hsl(207, 80%, 38%);
+  --color-primary-800: hsl(207, 80%, 30%);
+  --color-primary-900: hsl(207, 80%, 22%);
+  --color-primary-950: hsl(207, 80%, 15%);
+
+  /* Primary 2 / Success: Light Green (#2ecc71) */
+  --color-success-50: hsl(145, 80%, 96%);
+  --color-success-100: hsl(145, 75%, 90%);
+  --color-success-300: hsl(145, 75%, 72%);
+  --color-success-400: hsl(145, 65%, 60%);
+  --color-success-500: hsl(145, 63%, 49%); /* Secondary Accent: Light Green */
+  --color-success-600: hsl(145, 63%, 42%);
+  --color-success-700: hsl(145, 63%, 34%);
+
+  /* Purple */
+  --color-purple-300: hsl(270, 75%, 75%);
+  --color-purple-400: hsl(270, 70%, 65%);
+  --color-purple-500: hsl(270, 65%, 55%);
+  --color-purple-600: hsl(270, 60%, 45%);
+
+  /* Amber */
+  --color-amber-300: hsl(38, 92%, 70%);
+  --color-amber-400: hsl(38, 92%, 60%);
+  --color-amber-500: hsl(38, 92%, 50%);
+  --color-amber-600: hsl(38, 92%, 40%);
+
+  /* Status Colors */
+  --color-warning-500: hsl(38, 92%, 50%);
+  --color-danger-500: hsl(354, 85%, 54%);
+
+  /* Backgrounds & Surfaces (Dark Mode Default) */
+  --bg-app: hsl(222, 47%, 7%);
+  --bg-surface-1: hsl(222, 35%, 12%);
+  --bg-surface-2: hsl(222, 28%, 18%);
+  --bg-glass: rgba(17, 24, 39, 0.85);
+  --border-subtle: hsl(222, 20%, 18%);
+  --border-strong: hsl(207, 90%, 54%);
+
+  /* Typography Colors */
+  --text-main: hsl(210, 40%, 98%);
+  --text-muted: hsl(215, 16%, 70%);
+  --text-dim: hsl(215, 12%, 50%);
+
+  /* Radii */
+  --radius-sm: 6px;
+  --radius-md: 10px;
+  --radius-lg: 16px;
+  --radius-full: 9999px;
+
+  /* Elevation / Shadows */
+  --glass-blur: blur(16px) saturate(180%);
+  --shadow-sm: 0 2px 4px rgba(0, 0, 0, 0.2);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.35);
+  --shadow-glow: 0 0 24px rgba(33, 150, 243, 0.2);
+}
+
+/* Light / White Mode Overrides */
+.light {
+  /* Increase contrast of text colors in light mode comfortably (not too dark, maintaining premium feel) */
+  --color-primary-50: hsl(207, 95%, 96%);
+  --color-primary-100: hsl(207, 90%, 90%);
+  --color-primary-200: hsl(207, 80%, 75%);
+  --color-primary-300: hsl(207, 80%, 46%); /* Soft but readable blue */
+  --color-primary-400: hsl(207, 80%, 40%); /* Slightly darker blue */
+  --color-primary-500: hsl(207, 85%, 48%);
+  --color-primary-600: hsl(207, 85%, 42%);
+  --color-primary-700: hsl(207, 85%, 35%);
+  --color-primary-800: hsl(207, 85%, 28%);
+  --color-primary-900: hsl(207, 85%, 20%);
+
+  --color-success-300: hsl(145, 65%, 42%); /* Soft readable green */
+  --color-success-400: hsl(145, 65%, 36%);
+  --color-success-500: hsl(145, 60%, 42%);
+  --color-success-600: hsl(145, 60%, 34%);
+
+  --color-purple-300: hsl(270, 65%, 46%); /* Soft readable purple */
+  --color-purple-400: hsl(270, 65%, 40%);
+  --color-purple-500: hsl(270, 60%, 46%);
+  --color-purple-600: hsl(270, 60%, 36%);
+
+  --color-amber-300: hsl(30, 80%, 44%); /* Soft readable amber/brown */
+  --color-amber-400: hsl(30, 80%, 38%);
+  --color-amber-500: hsl(30, 75%, 44%);
+  --color-amber-600: hsl(30, 75%, 36%);
+
+  /* Backgrounds & Surfaces (Light Mode) */
+  --bg-app: hsl(210, 20%, 97%); /* Light grey background */
+  --bg-surface-1: hsl(0, 0%, 100%); /* White surfaces */
+  --bg-surface-2: hsl(210, 16%, 93%); /* Subtle grey */
+  --bg-glass: rgba(255, 255, 255, 0.9);
+  --border-subtle: hsl(210, 14%, 89%);
+  --border-strong: hsl(207, 90%, 54%);
+
+  /* Typography Colors */
+  --text-main: hsl(220, 15%, 16%); /* Dark text */
+  --text-muted: hsl(220, 12%, 40%);
+  --text-dim: hsl(220, 10%, 60%);
+
+  --shadow-sm: 0 1px 3px rgba(0, 0, 0, 0.05);
+  --shadow-md: 0 4px 12px rgba(0, 0, 0, 0.08);
+  --shadow-glow: 0 0 16px rgba(33, 150, 243, 0.1);
+}
+
+@theme {
+  /* Mapping ALL slate shades so that text adapts to light/dark mode */
+  --color-slate-50: var(--text-main);
+  --color-slate-100: var(--text-main);
+  --color-slate-200: var(--text-main);
+  --color-slate-300: var(--text-muted);
+  --color-slate-400: var(--text-muted);
+  --color-slate-500: var(--text-dim);
+  --color-slate-600: var(--text-dim);
+  
+  /* Mapping background slate slots */
+  --color-slate-950: var(--bg-app);
+  --color-slate-900: var(--bg-surface-1);
+  --color-slate-800: var(--bg-surface-2);
+  --color-slate-700: var(--border-subtle);
+  
+  /* Primary/Indigo mapping */
+  --color-indigo-50: var(--color-primary-50);
+  --color-indigo-100: var(--color-primary-100);
+  --color-indigo-200: var(--color-primary-200);
+  --color-indigo-300: var(--color-primary-300);
+  --color-indigo-400: var(--color-primary-400);
+  --color-indigo-500: var(--color-primary-500);
+  --color-indigo-600: var(--color-primary-600);
+  --color-indigo-700: var(--color-primary-700);
+  --color-indigo-800: var(--color-primary-800);
+  --color-indigo-900: var(--color-primary-900);
+  --color-indigo-950: var(--color-primary-950);
+  
+  /* Success/Emerald mapping */
+  --color-emerald-50: var(--color-success-50);
+  --color-emerald-100: var(--color-success-100);
+  --color-emerald-300: var(--color-success-300);
+  --color-emerald-400: var(--color-success-400);
+  --color-emerald-500: var(--color-success-500);
+  --color-emerald-600: var(--color-success-600);
+  --color-emerald-700: var(--color-success-700);
+
+  /* Purple mapping */
+  --color-purple-300: var(--color-purple-300);
+  --color-purple-400: var(--color-purple-400);
+  --color-purple-500: var(--color-purple-500);
+  --color-purple-600: var(--color-purple-600);
+
+  /* Amber mapping */
+  --color-amber-300: var(--color-amber-300);
+  --color-amber-400: var(--color-amber-400);
+  --color-amber-500: var(--color-amber-500);
+  --color-amber-600: var(--color-amber-600);
+}
+
+body {
+  font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+  background-color: var(--bg-app);
+  color: var(--text-main);
+  line-height: 1.5;
+  font-size: 15px;
+  -webkit-font-smoothing: antialiased;
+  min-height: 100vh;
+  transition: background-color 0.2s ease, color 0.2s ease;
+}
+
+code, pre, .font-mono {
+  font-family: 'JetBrains Mono', monospace;
+}
+
+/* Glassmorphic Panel Utility */
+.glass-panel {
+  background: var(--bg-glass);
+  backdrop-filter: var(--glass-blur);
+  -webkit-backdrop-filter: var(--glass-blur);
+  border: 1px solid var(--border-subtle);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  transition: background-color 0.2s ease, border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+/* Custom Scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: var(--bg-app);
+}
+::-webkit-scrollbar-thumb {
+  background: var(--bg-surface-2);
+  border-radius: var(--radius-full);
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--border-strong);
+}
+
+/* Animated Message Box & Toast Keyframes */
+@keyframes msgBoxSpringIn {
+  0% {
+    opacity: 0;
+    transform: translateY(-24px) scale(0.92);
+  }
+  60% {
+    opacity: 1;
+    transform: translateY(4px) scale(1.02);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+@keyframes msgBoxPulseBeacon {
+  0%, 100% {
+    transform: scale(1);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.4);
+    opacity: 0.3;
+  }
+}
+
+.animate-msgbox-in {
+  animation: msgBoxSpringIn 0.38s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-beacon-pulse {
+  animation: msgBoxPulseBeacon 1.8s ease-in-out infinite;
+}
+
+/* Anti-Select & Copy Protection Rules */
+.no-select,
+.select-none,
+body.disable-selection,
+.cbt-engine-container {
+  -webkit-user-select: none !important;
+  -moz-user-select: none !important;
+  -ms-user-select: none !important;
+  user-select: none !important;
+  -webkit-touch-callout: none !important;
+}
+
+/* Allow text selection ONLY on input and textarea for essay typing */
+input,
+textarea {
+  -webkit-user-select: text !important;
+  -moz-user-select: text !important;
+  -ms-user-select: text !important;
+  user-select: text !important;
+}

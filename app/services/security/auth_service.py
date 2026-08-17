@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from uuid import UUID
 
 from fastapi import Request
@@ -8,6 +8,8 @@ from app.core.security import (
     create_refresh_token,
     create_user_token,
     create_uuid,
+    hash_password,
+    validate_password_strength,
     verify_password,
     verify_token,
 )
@@ -39,9 +41,15 @@ class AuthService:
         attempt_record = login_attempt_repository.get_attempt(db, ip_address, username)
 
         if attempt_record:
-            if attempt_record.blocked_until and attempt_record.blocked_until > datetime.utcnow():
+            if attempt_record.blocked_until and attempt_record.blocked_until > datetime.now(
+                timezone.utc
+            ):
                 locked_mins = (
-                    int((attempt_record.blocked_until - datetime.utcnow()).total_seconds() / 60) + 1
+                    int(
+                        (attempt_record.blocked_until - datetime.now(timezone.utc)).total_seconds()
+                        / 60
+                    )
+                    + 1
                 )
                 raise AuthenticationException(
                     f"Too many failed login attempts. Account temporarily locked. "
@@ -54,8 +62,37 @@ class AuthService:
                 login_attempt_repository.update(db, attempt_record)
 
         try:
+            # Detect whether request is coming from APK
+            user_agent = request.headers.get("user-agent", "")
+            x_client_app = request.headers.get("x-client-app", "")
+            is_apk = (
+                "Lockxam" in user_agent
+                or "LockxamBrowser" in user_agent
+                or "EquigradeApp" in user_agent
+                or x_client_app == "lockxam_apk"
+            )
+
             # 2. Authenticate
             account = AuthService._authenticate(db, username, data.password)
+
+            # 3. Enforce Access Rules: Student role ONLY allowed via APK
+            role_str = account.role.value if hasattr(account.role, "value") else str(account.role)
+            if role_str in ["STUDENT", UserRole.STUDENT] and not is_apk:
+                dev_bypass = request.headers.get("x-lockxam-dev-bypass") == "true"
+                if not dev_bypass:
+                    raise PermissionException(
+                        "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK. "
+                        "Silakan gunakan aplikasi Android Lockxam."
+                    )
+
+            # 4. Enforce Single Device Binding for Student Role
+            if role_str in ["STUDENT", UserRole.STUDENT]:
+                active_sessions = session_repository.get_active_sessions_by_user(db, account.id)
+                if active_sessions:
+                    raise PermissionException(
+                        "Akun siswa ini sedang aktif/terikat pada perangkat lain. "
+                        "Pengeluaran akun dari perangkat sebelumnya memerlukan verifikasi pengawas."
+                    )
 
             # Reset rate limit attempt counter on successful login
             if attempt_record:
@@ -63,14 +100,15 @@ class AuthService:
                 attempt_record.blocked_until = None
                 login_attempt_repository.update(db, attempt_record)
 
-            # 3. Start session and log activity (adds to db session but doesn't commit yet)
+            # 5. Start session and log activity
             session = AuthService._create_session(db, request, account)
 
-            # 4. Commit the entire transaction atomically (commits session, log, and last_login)
+            # 6. Commit transaction
             db.commit()
 
-            # 5. Build and return response
-            return AuthService._build_login_response(account, session)
+            # 7. Build and return response (90 days / 3 months for APK, 12 hours for Web)
+            expires_delta = timedelta(days=90) if is_apk else timedelta(hours=12)
+            return AuthService._build_login_response(account, session, expires_delta=expires_delta)
 
         except AuthenticationException as ae:
             # Log failed login attempt for rate limiting
@@ -79,15 +117,15 @@ class AuthService:
                     ip_address=ip_address,
                     username=username,
                     attempts=1,
-                    last_attempt_at=datetime.utcnow(),
+                    last_attempt_at=datetime.now(timezone.utc),
                 )
                 login_attempt_repository.create(db, attempt_record)
             else:
                 attempt_record.attempts += 1
-                attempt_record.last_attempt_at = datetime.utcnow()
+                attempt_record.last_attempt_at = datetime.now(timezone.utc)
 
             if attempt_record.attempts >= 5:
-                attempt_record.blocked_until = datetime.utcnow() + timedelta(minutes=15)
+                attempt_record.blocked_until = datetime.now(timezone.utc) + timedelta(minutes=15)
 
             login_attempt_repository.update(db, attempt_record)
             db.commit()
@@ -115,9 +153,9 @@ class AuthService:
 
             # Revoke session
             user_session.revoked = True
-            user_session.revoked_at = datetime.utcnow()
+            user_session.revoked_at = datetime.now(timezone.utc)
             user_session.revoked_reason = SessionRevokedReason.LOGOUT
-            user_session.last_activity_at = datetime.utcnow()
+            user_session.last_activity_at = datetime.now(timezone.utc)
             session_repository.update(db, user_session)
 
             # Log activity
@@ -164,14 +202,14 @@ class AuthService:
             if user_session.revoked:
                 raise AuthenticationException("Session has been revoked")
 
-            if user_session.expires_at < datetime.utcnow():
+            if user_session.expires_at < datetime.now(timezone.utc):
                 raise AuthenticationException("Session has expired")
 
             # Validate refresh_token_jti for rotation
             if str(user_session.refresh_token_jti) != refresh_jti:
                 # Token reuse detected! Revoke the entire session immediately (replay attack protection)
                 user_session.revoked = True
-                user_session.revoked_at = datetime.utcnow()
+                user_session.revoked_at = datetime.now(timezone.utc)
                 user_session.revoked_reason = SessionRevokedReason.REFRESH_TOKEN_REUSE_DETECTED
                 session_repository.update(db, user_session)
                 db.commit()
@@ -185,7 +223,7 @@ class AuthService:
 
             user_session.access_token_jti = UUID(new_access_jti)
             user_session.refresh_token_jti = UUID(new_refresh_jti)
-            user_session.last_activity_at = datetime.utcnow()
+            user_session.last_activity_at = datetime.now(timezone.utc)
             session_repository.update(db, user_session)
 
             # Log activity
@@ -259,13 +297,13 @@ class AuthService:
 
             # Mark session as revoked
             user_session.revoked = True
-            user_session.revoked_at = datetime.utcnow()
+            user_session.revoked_at = datetime.now(timezone.utc)
             user_session.revoked_reason = (
                 SessionRevokedReason.ADMIN_FORCE_LOGOUT
                 if role in [UserRole.SUPERADMIN, UserRole.ADMIN]
                 else SessionRevokedReason.USER_FORCE_LOGOUT
             )
-            user_session.last_activity_at = datetime.utcnow()
+            user_session.last_activity_at = datetime.now(timezone.utc)
             session_repository.update(db, user_session)
 
             # Log activity
@@ -292,9 +330,9 @@ class AuthService:
 
             for s in sessions:
                 s.revoked = True
-                s.revoked_at = datetime.utcnow()
+                s.revoked_at = datetime.now(timezone.utc)
                 s.revoked_reason = SessionRevokedReason.LOGOUT_ALL
-                s.last_activity_at = datetime.utcnow()
+                s.last_activity_at = datetime.now(timezone.utc)
                 session_repository.update(db, s)
 
                 ActivityService.log_activity(
@@ -312,11 +350,29 @@ class AuthService:
             raise
 
     @staticmethod
+    def change_password(db: Session, current_user: dict, old_password: str, new_password: str) -> None:
+        user_id = int(current_user["sub"])
+        account = auth_repository.get_by_id(db, user_id)
+        if not account:
+            raise AuthenticationException("Akun tidak ditemukan.")
+
+        if not verify_password(old_password, account.password_hash):
+            raise BusinessException("Kata sandi lama tidak sesuai.", status_code=400)
+
+        validate_password_strength(new_password)
+        account.password_hash = hash_password(new_password)
+        account.must_change_password = False
+        db.commit()
+
+    @staticmethod
     def _authenticate(db: Session, username: str, password: str):
         account = auth_repository.get_by_username(db, username)
+        if not account and "@" in username:
+            account = auth_repository.get_by_username(db, username.split("@")[0])
 
         if not account:
             raise AuthenticationException("Invalid credentials")
+
 
         if not verify_password(password, account.password_hash):
             raise AuthenticationException("Invalid credentials")
@@ -324,10 +380,26 @@ class AuthService:
         if not account.is_active:
             raise PermissionException("Account is inactive")
 
-        account.last_login = datetime.utcnow()
+        # Check school subscription status (Block login if SUSPENDED)
+        if account.school_id and account.role in [UserRole.ADMIN, "SCHOOL_ADMIN", UserRole.TEACHER, "TEACHER"]:
+            from app.models.license.school_license import SchoolLicense
+
+            latest_license = (
+                db.query(SchoolLicense)
+                .filter(SchoolLicense.school_id == account.school_id)
+                .order_by(SchoolLicense.created_at.desc())
+                .first()
+            )
+            if latest_license and latest_license.status in ["SUSPENDED", "PAUSED"]:
+                raise PermissionException(
+                    "Layanan subscription sekolah Anda sedang dijeda / ditangguhkan oleh SuperAdmin. Akses login ditolak."
+                )
+
+        account.last_login = datetime.now(timezone.utc)
         auth_repository.update_last_login(db, account)
 
         return account
+
 
     @staticmethod
     def _create_session(db: Session, request: Request, account) -> dict:
@@ -356,13 +428,14 @@ class AuthService:
         return session
 
     @staticmethod
-    def _build_login_response(account, session) -> LoginResponse:
+    def _build_login_response(account, session, expires_delta: timedelta | None = None) -> LoginResponse:
         access_token = create_user_token(
             user_id=account.id,
             role=account.role,
             school_id=account.school_id,
             session_id=session["session_id"],
             access_jti=session["access_jti"],
+            expires_delta=expires_delta,
         )
 
         refresh_token = create_refresh_token(
@@ -378,4 +451,5 @@ class AuthService:
             refresh_token=refresh_token,
             role=account.role,
             school_id=account.school_id,
+            must_change_password=account.must_change_password,
         )

@@ -1,7 +1,7 @@
+import logging
 import uuid
 from datetime import UTC, datetime, timedelta
 
-from fastapi import HTTPException
 from jose import JWTError, jwt
 
 from app.core.security.keys import (
@@ -12,15 +12,21 @@ from app.core.security.keys import (
     SECRET_KEY,
     SECRETS,
 )
+from app.exceptions import AuthenticationException
+
+logger = logging.getLogger(__name__)
 
 
 def create_uuid() -> str:
     return str(uuid.uuid4())
 
 
-def create_access_token(data: dict) -> str:
+def create_access_token(data: dict, expires_delta: timedelta | None = None) -> str:
     to_encode = data.copy()
-    expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    if expires_delta:
+        expire = datetime.now(UTC) + expires_delta
+    else:
+        expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
 
     # Sign with active Key ID and attach to header
@@ -42,12 +48,17 @@ def verify_token(token: str) -> dict | None:
         payload = jwt.decode(token, secret, algorithms=[ALGORITHM])
         return payload
     except JWTError as e:
-        print("JWT ERROR:", e)
+        logger.warning("JWT verification failed: %s", e)
         return None
 
 
 def create_user_token(
-    user_id: int, role: str, school_id: int | None, session_id: str, access_jti: str
+    user_id: int,
+    role: str,
+    school_id: int | None,
+    session_id: str,
+    access_jti: str,
+    expires_delta: timedelta | None = None,
 ) -> str:
     return create_access_token(
         {
@@ -58,7 +69,8 @@ def create_user_token(
             "jti": access_jti,
             "type": "access",
             "ver": 1,  # Token Version
-        }
+        },
+        expires_delta=expires_delta,
     )
 
 
@@ -86,5 +98,5 @@ def create_refresh_token(
 def get_payload(token: str) -> dict:
     payload = verify_token(token)
     if not payload:
-        raise HTTPException(status_code=401, detail="Invalid token")
+        raise AuthenticationException("Invalid token")
     return payload

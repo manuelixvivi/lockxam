@@ -23,31 +23,44 @@ def require_any_role(*allowed_roles: str):
 
 
 def require_superadmin():
-    return require_role(UserRole.SUPERADMIN)
+    return require_role(UserRole.SUPERADMIN, "SUPERADMIN")
 
 
 def require_admin():
-    return require_role(UserRole.ADMIN)
+    return require_role(UserRole.ADMIN, "SCHOOL_ADMIN")
 
 
 def require_teacher():
-    return require_role(UserRole.TEACHER)
+    return require_role(UserRole.TEACHER, "TEACHER")
 
 
 def require_student():
-    return require_role(UserRole.STUDENT)
+    return require_role(UserRole.STUDENT, "STUDENT")
 
 
 def require_staff():
-    return require_role(UserRole.SUPERADMIN, UserRole.ADMIN)
+    return require_role(UserRole.SUPERADMIN, "SUPERADMIN", UserRole.ADMIN, "SCHOOL_ADMIN")
 
 
 def require_academic_staff():
-    return require_role(UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.TEACHER)
+    return require_role(
+        UserRole.SUPERADMIN, "SUPERADMIN", UserRole.ADMIN, "SCHOOL_ADMIN", UserRole.TEACHER, "TEACHER"
+    )
+
 
 
 def require_authenticated():
-    return require_role(UserRole.SUPERADMIN, UserRole.ADMIN, UserRole.TEACHER, UserRole.STUDENT)
+    return require_role(
+        UserRole.SUPERADMIN,
+        "SUPERADMIN",
+        UserRole.ADMIN,
+        "SCHOOL_ADMIN",
+        UserRole.TEACHER,
+        "TEACHER",
+        UserRole.STUDENT,
+        "STUDENT",
+    )
+
 
 
 def is_superadmin(current_user):

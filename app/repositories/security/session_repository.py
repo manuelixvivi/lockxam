@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -28,7 +28,7 @@ class SessionRepository(BaseRepository[UserSession]):
             .where(
                 UserSession.auth_account_id == user_id,
                 UserSession.revoked == False,
-                UserSession.expires_at > datetime.utcnow(),
+                UserSession.expires_at > datetime.now(timezone.utc),
             )
             .order_by(UserSession.created_at.desc())
         )

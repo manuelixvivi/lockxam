@@ -16,5 +16,16 @@ class AuthRepository(BaseRepository[AuthAccount]):
     def update_last_login(self, db: Session, account: AuthAccount) -> AuthAccount:
         return self.update(db, account)
 
+    def list_teachers_by_school(self, db: Session, school_id: int) -> list[AuthAccount]:
+        from app.models.security.enums import UserRole
+        return list(
+            db.scalars(
+                select(AuthAccount).where(
+                    AuthAccount.school_id == school_id,
+                    AuthAccount.role.in_([UserRole.TEACHER, "TEACHER"]),
+                )
+            ).all()
+        )
+
 
 auth_repository = AuthRepository()

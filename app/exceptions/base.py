@@ -28,3 +28,19 @@ class BusinessException(AppException):
 
     def __init__(self, message: str, status_code: int = 400):
         super().__init__(message, status_code=status_code)
+
+
+class LicenseExpiredException(AppException):
+
+    def __init__(
+        self,
+        message: str = "School license has expired. This operation is not allowed in READ_ONLY mode.",
+    ):
+        super().__init__(message, status_code=403)
+
+
+class AcademicValidationException(AppException):
+
+    def __init__(self, errors: list[str]):
+        super().__init__("Academic period verification failed", status_code=400)
+        self.errors = errors

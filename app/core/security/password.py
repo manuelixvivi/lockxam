@@ -1,31 +1,29 @@
 import re
 
-from passlib.context import CryptContext
+import bcrypt
 
 from app.exceptions import ValidationException
 
-pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
-
-# bcrypt has a hard limit of 72 bytes. Truncate to avoid ValueError on strict runtimes.
+# bcrypt hard limit is 72 bytes.
 _BCRYPT_MAX_BYTES = 72
 
 
-def _truncate(password: str) -> str:
-    """Encode to UTF-8 and truncate to 72 bytes, then decode back safely."""
+def _to_bytes(password: str) -> bytes:
+    """Encode password to UTF-8 and truncate to 72 bytes."""
     encoded = password.encode("utf-8")
-    if len(encoded) > _BCRYPT_MAX_BYTES:
-        encoded = encoded[:_BCRYPT_MAX_BYTES]
-        # Avoid splitting a multi-byte character
-        return encoded.decode("utf-8", errors="ignore")
-    return password
+    return encoded[:_BCRYPT_MAX_BYTES]
 
 
 def hash_password(password: str) -> str:
-    return pwd_context.hash(_truncate(password))
+    hashed = bcrypt.hashpw(_to_bytes(password), bcrypt.gensalt(rounds=12))
+    return hashed.decode("utf-8")
 
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
-    return pwd_context.verify(_truncate(plain_password), hashed_password)
+    try:
+        return bcrypt.checkpw(_to_bytes(plain_password), hashed_password.encode("utf-8"))
+    except Exception:
+        return False
 
 
 def validate_password_strength(password: str) -> None:

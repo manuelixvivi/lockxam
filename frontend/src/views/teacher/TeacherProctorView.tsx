@@ -107,10 +107,11 @@ export function TeacherProctorView() {
 
     const fetchToken = async () => {
       try {
-        const res = await apiClient.get<{ qr_token: string }>(
+        const res = await apiClient.get<any>(
           `/api/v1/exam/schedules/${qrDuty.id}/qr-token`
         );
-        setQrToken(res.qr_token);
+        const tokenVal = res?.token || res?.qr_token || "";
+        setQrToken(tokenVal);
         setQrCountdown(30);
       } catch (err) {
         console.error("QR token fetch error:", err);
@@ -786,17 +787,30 @@ export function TeacherProctorView() {
       </Modal>
 
       {/* Modal QR Code */}
-      <Modal isOpen={isQrOpen} onClose={() => setIsQrOpen(false)} title={`QR Absenssi: ${qrDuty?.title || ""}`} maxWidth="sm">
+      <Modal isOpen={isQrOpen} onClose={() => setIsQrOpen(false)} title={`QR Absensi: ${qrDuty?.title || ""}`} maxWidth="sm">
         <div className="space-y-4 text-center text-xs">
-          <p className="text-slate-300">Tampilkan QR Code ini di laptop pengawas agar discan oleh HP siswa.</p>
+          <p className="text-slate-300">Tampilkan QR Code ini di layar pengawas agar discan oleh siswa melalui aplikasi HP.</p>
           {qrToken ? (
-            <div className="p-4 bg-white rounded-2xl inline-block border-4 border-indigo-500/40">
-              <img src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrToken)}`} alt="QR Token Absen" className="w-56 h-56 mx-auto" />
+            <div className="p-4 bg-white rounded-2xl inline-block border-4 border-indigo-500/40 shadow-xl">
+              <img
+                src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrToken)}`}
+                onError={(e) => {
+                  // Fallback to Google Charts QR API if primary CDN fails/times out
+                  (e.target as HTMLImageElement).src = `https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=${encodeURIComponent(qrToken)}`;
+                }}
+                alt="QR Token Absen"
+                className="w-56 h-56 mx-auto object-contain"
+              />
             </div>
           ) : (
-            <div className="w-56 h-56 mx-auto bg-slate-900 rounded-2xl flex items-center justify-center"><RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" /></div>
+            <div className="w-56 h-56 mx-auto bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2 border border-slate-800">
+              <RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" />
+              <span className="text-slate-400 text-[11px]">Membuat Token QR Absen...</span>
+            </div>
           )}
-          <div className="flex items-center justify-center gap-2 text-slate-400 font-mono text-[11px]"><RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" /> Auto refresh dalam <strong>{qrCountdown} detik</strong></div>
+          <div className="flex items-center justify-center gap-2 text-slate-400 font-mono text-[11px]">
+            <RefreshCw className="w-3.5 h-3.5 animate-spin text-indigo-400" /> Auto refresh dalam <strong>{qrCountdown} detik</strong>
+          </div>
         </div>
       </Modal>
 

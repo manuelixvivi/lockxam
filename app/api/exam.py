@@ -360,8 +360,9 @@ def get_qr_checkin_token(
     from app.models.academic.exam_schedule import ExamSchedule
 
     schedule = db.get(ExamSchedule, schedule_id)
-    if not schedule:
-        raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan.")
+    title = f"Jadwal Ujian #{schedule_id}"
+    if schedule:
+        title = getattr(schedule, "title", getattr(schedule, "name", f"Jadwal Ujian #{schedule_id}"))
 
     # Token: base64url( schedule_id | expires_ts | hmac )
     secret = os.environ.get("SECRET_KEY", "equigrade-secret")
@@ -372,8 +373,9 @@ def get_qr_checkin_token(
 
     return {
         "schedule_id": schedule_id,
-        "schedule_title": schedule.title if hasattr(schedule, "title") else schedule.name,
+        "schedule_title": title,
         "token": token,
+        "qr_token": token,
         "expires_in_seconds": 600,
     }
 

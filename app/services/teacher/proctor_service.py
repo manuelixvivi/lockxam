@@ -288,6 +288,7 @@ class ProctorService:
         cmd_payload = ProctorCommandRequest(
             attempt_id=attempt_id,
             proctor_assignment_id=proctor_assignment_id,
+            actor_teacher_id=proctor_id,
             exam_session_id=exam_session_id,
             reason=reason or "Executed by proctor",
         )

@@ -61,5 +61,6 @@ class BAUDocumentResponse(BaseModel):
 class ProctorCommandRequest(BaseModel):
     attempt_id: int
     proctor_assignment_id: int
+    actor_teacher_id: int | None = None
     exam_session_id: int
     reason: str | None = Field(None, max_length=500)

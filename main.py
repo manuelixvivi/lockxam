@@ -71,8 +71,8 @@ register_exception_handlers(app)
 app.include_router(health_router)
 
 
-@app.get("/")
-async def root():
+@app.get("/api/info")
+async def root_info():
     return {"message": "EquiGrade API Running"}
 
 

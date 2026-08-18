@@ -9,11 +9,22 @@ from sqlalchemy.types import TypeDecorator
 
 load_dotenv()
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
+DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
-print("DATABASE_URL =", DATABASE_URL)
+# Sanitize DATABASE_URL for SQLAlchemy 2.0
+if DATABASE_URL.startswith("postgres://"):
+    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-engine = create_engine(DATABASE_URL, echo=True)
+# Fallback if DATABASE_URL is empty, invalid, or incorrectly set to https://...
+if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.startswith("https://"):
+    print(f"WARNING: Invalid DATABASE_URL protocol detected ('{DATABASE_URL}'). Falling back to temporary SQLite DB.")
+    DATABASE_URL = "sqlite:////tmp/lockxam.db"
+
+connect_args = {}
+if DATABASE_URL.startswith("sqlite"):
+    connect_args = {"check_same_thread": False}
+
+engine = create_engine(DATABASE_URL, connect_args=connect_args, echo=False)
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

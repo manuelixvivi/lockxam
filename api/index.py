@@ -8,5 +8,5 @@ if root_dir not in sys.path:
 
 from main import app
 
-# Top-level ASGI handler for Vercel Serverless Functions
+# Top-level FastAPI ASGI handler for Vercel Serverless
 app = app

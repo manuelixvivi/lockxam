@@ -47,7 +47,11 @@ except Exception as _err:
 app = FastAPI(title="EquiGrade API", version="1.0.0")
 
 # Serve uploaded static files securely
-app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+try:
+    os.makedirs("uploads/questions", exist_ok=True)
+    app.mount("/uploads", StaticFiles(directory="uploads"), name="uploads")
+except Exception as _static_err:
+    print(f"Static files mount skipped: {_static_err}")
 
 # Register RequestContextMiddleware for tracking latency, Request ID, IP, user agent
 app.add_middleware(RequestContextMiddleware)

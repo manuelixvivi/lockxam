@@ -281,45 +281,27 @@ class ProctorService:
                 "Akses ditolak: Penugasan pengawas tidak valid.", status_code=403
             )
 
-        # 3. Kirim Signed Internal Command ke Exam Domain
-        import os
+        # 3. Direct Execution via ExamService (avoiding HTTP loopback connection failures in Serverless)
+        from app.schemas.exam.exam import ProctorCommandRequest
+        from app.services.exam.exam_service import ExamService
 
-        import httpx
+        cmd_payload = ProctorCommandRequest(
+            attempt_id=attempt_id,
+            proctor_assignment_id=proctor_assignment_id,
+            exam_session_id=exam_session_id,
+            reason=reason or "Executed by proctor",
+        )
 
-        exam_domain_url = os.getenv("EXAM_DOMAIN_URL", "http://localhost:8000")
-        internal_token = os.getenv("INTERNAL_SERVICE_TOKEN", "equigrade-internal-secret-token")
+        if endpoint in ["lock-student", "lock"]:
+            ExamService.proctor_lock_attempt(db=db, payload=cmd_payload)
+        elif endpoint in ["unlock-student", "unlock"]:
+            ExamService.proctor_unlock_attempt(db=db, attempt_id=attempt_id, exam_session_id=exam_session_id)
+        elif endpoint == "device-reset":
+            ExamService.proctor_reset_device(db=db, payload=cmd_payload)
+        else:
+            raise BusinessException(f"Perintah pengawas '{endpoint}' tidak dikenal.", status_code=400)
 
-        headers = {
-            "X-Internal-Token": internal_token,
-            "Content-Type": "application/json",
+        return {
+            "status": "SUCCESS",
+            "message": f"Perintah {endpoint} berhasil dieksekusi untuk siswa.",
         }
-
-        data = {
-            "attempt_id": attempt_id,
-            "proctor_assignment_id": proctor_assignment_id,
-            "actor_teacher_id": proctor_id,
-            "exam_session_id": exam_session_id,
-            "reason": reason,
-        }
-
-        try:
-            # Mode Pengujian: Kembalikan mock respon untuk menghindari kegagalan koneksi HTTP saat unit tests
-            if os.getenv("TESTING") == "True":
-                return {"message": f"Command {endpoint} mock-executed successfully"}
-
-            response = httpx.post(
-                f"{exam_domain_url}/api/v1/exam/commands/{endpoint}",
-                json=data,
-                headers=headers,
-                timeout=5.0,
-            )
-            if response.status_code != 200:
-                raise BusinessException(
-                    f"Gagal mengirim komando ke Exam Domain: {response.text}",
-                    status_code=response.status_code,
-                )
-            return response.json()
-        except httpx.RequestError as e:
-            raise BusinessException(
-                f"Gagal menghubungi Exam Domain: {str(e)}", status_code=502
-            ) from e

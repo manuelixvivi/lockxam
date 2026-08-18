@@ -366,7 +366,7 @@ def get_qr_checkin_token(
 
     # Token: base64url( schedule_id | expires_ts | hmac )
     secret = os.environ.get("SECRET_KEY", "equigrade-secret")
-    expires_ts = int(time.time()) + 600  # 10 menit
+    expires_ts = int(time.time()) + 60  # 1 menit (60 detik)
     payload_str = f"{schedule_id}:{expires_ts}"
     sig = hmac.new(secret.encode(), payload_str.encode(), hashlib.sha256).hexdigest()[:16]
     token = f"{schedule_id}:{expires_ts}:{sig}"
@@ -376,7 +376,7 @@ def get_qr_checkin_token(
         "schedule_title": title,
         "token": token,
         "qr_token": token,
-        "expires_in_seconds": 600,
+        "expires_in_seconds": 60,
     }
 
 

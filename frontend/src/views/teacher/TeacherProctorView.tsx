@@ -112,7 +112,8 @@ export function TeacherProctorView() {
         );
         const tokenVal = res?.token || res?.qr_token || "";
         setQrToken(tokenVal);
-        setQrCountdown(30);
+        const ttl = res?.expires_in_seconds || 60;
+        setQrCountdown(ttl);
       } catch (err) {
         console.error("QR token fetch error:", err);
       }
@@ -123,7 +124,7 @@ export function TeacherProctorView() {
       setQrCountdown((prev) => {
         if (prev <= 1) {
           fetchToken();
-          return 30;
+          return 60;
         }
         return prev - 1;
       });

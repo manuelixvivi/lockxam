@@ -1,5 +1,6 @@
 import datetime as dt
 import os
+import urllib.parse
 from datetime import datetime
 
 from dotenv import load_dotenv
@@ -14,6 +15,18 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 # Sanitize DATABASE_URL for SQLAlchemy 2.0
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+
+# Auto-encode '@' in password if multiple '@' exist in DATABASE_URL
+if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:
+    try:
+        scheme_and_auth, host_and_db = DATABASE_URL.rsplit("@", 1)
+        scheme, auth = scheme_and_auth.split("://", 1)
+        if ":" in auth:
+            user, password = auth.split(":", 1)
+            encoded_password = urllib.parse.quote_plus(password)
+            DATABASE_URL = f"{scheme}://{user}:{encoded_password}@{host_and_db}"
+    except Exception as _parse_err:
+        print(f"URL parse notice: {_parse_err}")
 
 # Fallback if DATABASE_URL is empty, invalid, or incorrectly set to https://...
 if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.startswith("https://"):

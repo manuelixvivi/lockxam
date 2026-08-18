@@ -122,8 +122,22 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     try {
       const lib = await loadJsQR();
       if (!lib) throw new Error("jsQR library gagal dimuat.");
-      const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+
+      // Robust camera fallback chain for Android WebView & mobile browsers
+      let stream: MediaStream | null = null;
+      try {
+        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+      } catch (_envErr) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+        } catch (_userErr) {
+          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+        }
+      }
+
+      if (!stream) throw new Error("Tidak dapat mengakses kamera HP.");
       streamRef.current = stream;
+
       if (videoRef.current) {
         videoRef.current.srcObject = stream;
         videoRef.current.play();
@@ -144,7 +158,7 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
         }, 200);
       }
     } catch (err: any) {
-      setCameraError(err?.name === "NotAllowedError" ? "Izin kamera ditolak. Aktifkan di pengaturan browser HP." : `Kamera error: ${err?.message}`);
+      setCameraError(err?.name === "NotAllowedError" ? "Izin kamera ditolak. Aktifkan izin kamera di pengaturan HP / browser." : `Kamera error: ${err?.message}`);
     }
   }, [stopCamera, performCheckin]);
 

@@ -138,25 +138,31 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
       if (!stream) throw new Error("Tidak dapat mengakses kamera HP.");
       streamRef.current = stream;
 
-      if (videoRef.current) {
-        videoRef.current.srcObject = stream;
-        videoRef.current.play();
-        setIsCameraActive(true);
-        scanIntervalRef.current = setInterval(() => {
-          if (!videoRef.current || !canvasRef.current) return;
-          const video = videoRef.current;
-          if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
-          const canvas = canvasRef.current;
-          canvas.width = video.videoWidth;
-          canvas.height = video.videoHeight;
-          const ctx = canvas.getContext("2d");
-          if (!ctx) return;
-          ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-          const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-          const code = lib(imageData.data, canvas.width, canvas.height);
-          if (code?.data) { stopCamera(); performCheckin(code.data); }
-        }, 200);
-      }
+      setIsCameraActive(true);
+
+      setTimeout(() => {
+        if (videoRef.current) {
+          videoRef.current.srcObject = stream;
+          videoRef.current.setAttribute("playsinline", "true");
+          videoRef.current.setAttribute("autoplay", "true");
+          videoRef.current.play().catch((e) => console.warn("Video play error:", e));
+        }
+      }, 50);
+
+      scanIntervalRef.current = setInterval(() => {
+        if (!videoRef.current || !canvasRef.current) return;
+        const video = videoRef.current;
+        if (video.readyState !== video.HAVE_ENOUGH_DATA) return;
+        const canvas = canvasRef.current;
+        canvas.width = video.videoWidth;
+        canvas.height = video.videoHeight;
+        const ctx = canvas.getContext("2d");
+        if (!ctx) return;
+        ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = lib(imageData.data, canvas.width, canvas.height);
+        if (code?.data) { stopCamera(); performCheckin(code.data); }
+      }, 200);
     } catch (err: any) {
       setCameraError(err?.name === "NotAllowedError" ? "Izin kamera ditolak. Aktifkan izin kamera di pengaturan HP / browser." : `Kamera error: ${err?.message}`);
     }
@@ -636,7 +642,13 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
               <div className="relative w-full aspect-square bg-slate-950 rounded-2xl overflow-hidden border-2 border-indigo-500/50 flex items-center justify-center">
                 {isCameraActive ? (
                   <>
-                    <video ref={videoRef} className="w-full h-full object-cover" playsInline muted />
+                    <video
+                      ref={videoRef}
+                      autoPlay
+                      playsInline
+                      muted
+                      className="w-full h-full object-cover"
+                    />
                     <canvas ref={canvasRef} className="hidden" />
                     <div className="absolute inset-0 border-2 border-indigo-400/40 rounded-2xl pointer-events-none flex items-center justify-center">
                       <ScanLine className="w-32 h-32 text-indigo-400 animate-pulse opacity-70" />

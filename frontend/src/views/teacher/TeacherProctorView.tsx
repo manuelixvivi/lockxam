@@ -515,27 +515,39 @@ export function TeacherProctorView() {
                           </div>
                         </td>
 
-                        <td className="py-3 px-4 text-right space-x-1.5">
-                          {att.status === "IN_PROGRESS" && (
-                            <Button
-                              variant="danger"
-                              size="sm"
-                              leftIcon={<Lock className="w-3 h-3" />}
-                              onClick={() => handleOpenCommandModal(att, "lock")}
-                            >
-                              Kunci
-                            </Button>
-                          )}
-                          {att.status === "PAUSED" && (
-                            <Button
-                              variant="primary"
-                              size="sm"
-                              leftIcon={<Unlock className="w-3 h-3" />}
-                              onClick={() => handleOpenCommandModal(att, "unlock")}
-                            >
-                              Buka Kunci
-                            </Button>
-                          )}
+                        <td className="py-3 px-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            {att.status === "IN_PROGRESS" && (
+                              <Button
+                                variant="danger"
+                                size="sm"
+                                leftIcon={<Lock className="w-3 h-3" />}
+                                onClick={() => handleOpenCommandModal(att, "lock")}
+                              >
+                                Kunci
+                              </Button>
+                            )}
+                            {att.status === "PAUSED" && (
+                              <Button
+                                variant="primary"
+                                size="sm"
+                                leftIcon={<Unlock className="w-3 h-3" />}
+                                onClick={() => handleOpenCommandModal(att, "unlock")}
+                              >
+                                Buka Kunci
+                              </Button>
+                            )}
+                            {att.status !== "SUBMITTED" && att.status !== "GRADED" && (
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                leftIcon={<RefreshCw className="w-3 h-3 text-amber-400" />}
+                                onClick={() => handleOpenCommandModal(att, "reset")}
+                              >
+                                Rebind Perangkat
+                              </Button>
+                            )}
+                          </div>
                         </td>
                       </tr>
                     );
@@ -567,19 +579,33 @@ export function TeacherProctorView() {
                           {att.student_username} {att.nisn ? `| NISN: ${att.nisn}` : ""}
                         </div>
                       </div>
-                      <Badge
-                        variant={
-                          att.status === "SUBMITTED" || att.status === "GRADED"
-                            ? "emerald"
-                            : att.status === "IN_PROGRESS"
-                            ? "indigo"
-                            : att.status === "PAUSED"
-                            ? "amber"
-                            : "slate"
-                        }
-                      >
-                        {att.status === "NOT_STARTED" ? "Belum Ujian" : att.status}
-                      </Badge>
+                      <div className="flex flex-col items-end gap-1">
+                        <Badge
+                          variant={
+                            att.status === "SUBMITTED" || att.status === "GRADED"
+                              ? "emerald"
+                              : att.status === "IN_PROGRESS"
+                              ? "indigo"
+                              : att.status === "PAUSED"
+                              ? "amber"
+                              : "slate"
+                          }
+                        >
+                          {att.status === "NOT_STARTED" ? "Belum Ujian" : att.status}
+                        </Badge>
+
+                        {/* Status Perangkat Badge on Mobile */}
+                        {att.device_status === "ACTIVE" && (
+                          <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" /> HP Terkunci
+                          </span>
+                        )}
+                        {att.device_status === "BLOCKED" && (
+                          <span className="text-[10px] text-amber-400 font-semibold flex items-center gap-1">
+                            <AlertTriangle className="w-3 h-3" /> Terdeteksi Keluar
+                          </span>
+                        )}
+                      </div>
                     </div>
 
                     {att.violation_reason && (
@@ -588,8 +614,8 @@ export function TeacherProctorView() {
                       </div>
                     )}
 
-                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800/80">
-                      <div className="flex items-center gap-3">
+                    <div className="flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-2 text-xs pt-2 border-t border-slate-800/80">
+                      <div className="flex items-center justify-between sm:justify-start gap-3 bg-slate-950/60 p-2 rounded-xl border border-slate-850">
                         <span
                           className={`flex items-center gap-1 font-mono font-bold ${
                             att.battery_level !== undefined && att.battery_level !== null && att.battery_level <= 20
@@ -607,7 +633,7 @@ export function TeacherProctorView() {
                       </div>
 
                       {/* Live Control Action Buttons on Mobile */}
-                      <div className="flex items-center gap-2">
+                      <div className="flex items-center justify-end gap-2 pt-1 sm:pt-0">
                         {att.status === "IN_PROGRESS" && (
                           <Button
                             variant="danger"
@@ -615,7 +641,7 @@ export function TeacherProctorView() {
                             leftIcon={<Lock className="w-3.5 h-3.5" />}
                             onClick={() => handleOpenCommandModal(att, "lock")}
                           >
-                            Kunci Siswa
+                            Kunci
                           </Button>
                         )}
                         {att.status === "PAUSED" && (
@@ -626,6 +652,16 @@ export function TeacherProctorView() {
                             onClick={() => handleOpenCommandModal(att, "unlock")}
                           >
                             Buka Kunci
+                          </Button>
+                        )}
+                        {att.status !== "SUBMITTED" && att.status !== "GRADED" && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            leftIcon={<RefreshCw className="w-3.5 h-3.5 text-amber-400" />}
+                            onClick={() => handleOpenCommandModal(att, "reset")}
+                          >
+                            Rebind HP
                           </Button>
                         )}
                       </div>

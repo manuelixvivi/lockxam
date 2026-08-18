@@ -101,26 +101,3 @@ app.include_router(admin_subject_router)
 app.include_router(admin_class_router)
 app.include_router(admin_exam_schedule_router)
 
-# ─── React SPA Static Files & Fallback Routing ─────────────────────────────
-from fastapi.responses import FileResponse
-from fastapi import HTTPException
-
-frontend_dist = os.path.join(os.path.dirname(__file__), "frontend", "dist")
-
-if os.path.exists(frontend_dist):
-    assets_dir = os.path.join(frontend_dist, "assets")
-    if os.path.exists(assets_dir):
-        app.mount("/assets", StaticFiles(directory=assets_dir), name="spa_assets")
-
-    @app.get("/{full_path:path}")
-    async def serve_spa_frontend(full_path: str):
-        if full_path.startswith("api"):
-            raise HTTPException(status_code=404, detail="Not Found")
-        file_path = os.path.join(frontend_dist, full_path)
-        if os.path.exists(file_path) and os.path.isfile(file_path):
-            return FileResponse(file_path)
-        index_file = os.path.join(frontend_dist, "index.html")
-        if os.path.exists(index_file):
-            return FileResponse(index_file)
-        raise HTTPException(status_code=404, detail="Frontend index.html not found")
-

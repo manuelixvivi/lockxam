@@ -413,6 +413,7 @@ export function TeacherProctorView() {
               </div>
             </div>
 
+            {/* Desktop Table View */}
             <div className="overflow-x-auto hidden md:block">
               <table className="w-full border-collapse text-left text-xs">
                 <thead>
@@ -541,6 +542,97 @@ export function TeacherProctorView() {
                   })}
                 </tbody>
               </table>
+            </div>
+
+            {/* Mobile Card List View (< md) */}
+            <div className="space-y-3 block md:hidden">
+              {filteredAttempts.map((att) => {
+                const isRed = att.monitoring_card_state === "RED";
+                const isYellow = att.monitoring_card_state === "YELLOW";
+                return (
+                  <div
+                    key={att.student_id}
+                    className={`p-4 rounded-2xl border flex flex-col gap-3 transition-colors ${
+                      isRed
+                        ? "bg-rose-950/40 border-rose-500/50 text-rose-200"
+                        : isYellow
+                        ? "bg-amber-950/30 border-amber-500/50 text-amber-200"
+                        : "bg-slate-900/60 border-slate-800 text-slate-200"
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div>
+                        <div className="font-black text-sm text-slate-100">{att.student_name}</div>
+                        <div className="text-[11px] text-slate-400 mt-0.5">
+                          {att.student_username} {att.nisn ? `| NISN: ${att.nisn}` : ""}
+                        </div>
+                      </div>
+                      <Badge
+                        variant={
+                          att.status === "SUBMITTED" || att.status === "GRADED"
+                            ? "emerald"
+                            : att.status === "IN_PROGRESS"
+                            ? "indigo"
+                            : att.status === "PAUSED"
+                            ? "amber"
+                            : "slate"
+                        }
+                      >
+                        {att.status === "NOT_STARTED" ? "Belum Ujian" : att.status}
+                      </Badge>
+                    </div>
+
+                    {att.violation_reason && (
+                      <div className="p-2 bg-rose-500/20 rounded-xl border border-rose-500/30 text-[11px] font-bold text-rose-300">
+                        🚨 Pelanggaran: {att.violation_reason}
+                      </div>
+                    )}
+
+                    <div className="flex items-center justify-between text-xs pt-1 border-t border-slate-800/80">
+                      <div className="flex items-center gap-3">
+                        <span
+                          className={`flex items-center gap-1 font-mono font-bold ${
+                            att.battery_level !== undefined && att.battery_level !== null && att.battery_level <= 20
+                              ? "text-rose-400 animate-pulse"
+                              : "text-slate-300"
+                          }`}
+                        >
+                          <BatteryCharging className="w-3.5 h-3.5" />
+                          {att.battery_level !== undefined && att.battery_level !== null ? `${att.battery_level}%` : "-"}
+                        </span>
+                        <span className="flex items-center gap-1 font-mono text-[11px] text-slate-400">
+                          <Wifi className="w-3.5 h-3.5 text-indigo-400" />
+                          {att.ping_ms !== undefined && att.ping_ms !== null ? (att.ping_ms > 1000 ? "Offline" : `${att.ping_ms}ms`) : "-"}
+                        </span>
+                      </div>
+
+                      {/* Live Control Action Buttons on Mobile */}
+                      <div className="flex items-center gap-2">
+                        {att.status === "IN_PROGRESS" && (
+                          <Button
+                            variant="danger"
+                            size="sm"
+                            leftIcon={<Lock className="w-3.5 h-3.5" />}
+                            onClick={() => handleOpenCommandModal(att, "lock")}
+                          >
+                            Kunci Siswa
+                          </Button>
+                        )}
+                        {att.status === "PAUSED" && (
+                          <Button
+                            variant="primary"
+                            size="sm"
+                            leftIcon={<Unlock className="w-3.5 h-3.5" />}
+                            onClick={() => handleOpenCommandModal(att, "unlock")}
+                          >
+                            Buka Kunci
+                          </Button>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
             </div>
           </div>
         </div>
@@ -679,9 +771,43 @@ export function TeacherProctorView() {
             <div className="p-8 text-center"><RefreshCw className="w-8 h-8 text-indigo-500 animate-spin mx-auto" /><p className="text-slate-400 mt-2">Memuat Berita Acara...</p></div>
           ) : (
             <>
-              <div className="grid grid-cols-2 gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-850">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 bg-slate-900/60 p-3 rounded-xl border border-slate-850">
                 <div><span className="text-slate-500 block">Mata Pelajaran:</span><strong className="text-slate-200">{bapDuty?.subject_name}</strong></div>
                 <div><span className="text-slate-500 block">Kelas:</span><strong className="text-slate-200">{bapDuty?.class_name}</strong></div>
+                <div><span className="text-slate-500 block">Total Peserta:</span><strong className="text-indigo-400">{attempts.length} Siswa</strong></div>
+                <div><span className="text-slate-500 block">Status BAP:</span><strong className="text-emerald-400">SIAP DITERBITKAN</strong></div>
+              </div>
+
+              {/* Student Attendance List Breakdown in BAP */}
+              <div className="space-y-2">
+                <label className="block text-slate-400 font-semibold">Daftar Kehadiran & Status Siswa Dalam BAP ({attempts.length} Siswa):</label>
+                <div className="max-h-48 overflow-y-auto space-y-2 pr-1 border border-slate-800 rounded-xl p-2.5 bg-slate-950/60">
+                  {attempts.length === 0 ? (
+                    <p className="text-slate-500 text-center py-3 italic">Buka "Live Monitoring" terlebih dahulu untuk sinkronisasi daftar siswa kelas.</p>
+                  ) : (
+                    attempts.map((att) => (
+                      <div key={att.student_id} className="p-2 bg-slate-900/80 rounded-xl border border-slate-850 flex items-center justify-between gap-2">
+                        <div>
+                          <span className="font-bold text-slate-200 block text-[11px]">{att.student_name}</span>
+                          <span className="text-[10px] text-slate-400 font-mono">{att.student_username} {att.nisn ? `| NISN: ${att.nisn}` : ""}</span>
+                        </div>
+                        <Badge
+                          variant={
+                            att.status === "SUBMITTED" || att.status === "GRADED"
+                              ? "emerald"
+                              : att.status === "IN_PROGRESS"
+                              ? "indigo"
+                              : att.status === "PAUSED"
+                              ? "amber"
+                              : "slate"
+                          }
+                        >
+                          {att.status === "NOT_STARTED" ? "Belum Ujian" : att.status}
+                        </Badge>
+                      </div>
+                    ))
+                  )}
+                </div>
               </div>
 
               <div>

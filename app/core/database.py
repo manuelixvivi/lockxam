@@ -16,6 +16,10 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
+# Auto-convert Neon connection string to use Neon's pgBouncer pooler for serverless speed
+if ".neon.tech" in DATABASE_URL and "-pooler" not in DATABASE_URL:
+    DATABASE_URL = DATABASE_URL.replace(".neon.tech", "-pooler.neon.tech")
+
 # Auto-encode '@' in password if multiple '@' exist in DATABASE_URL
 if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:
     try:
@@ -34,10 +38,23 @@ if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.starts
     DATABASE_URL = "sqlite:////tmp/lockxam.db"
 
 connect_args = {}
+engine_kwargs = {"echo": False}
+
 if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
+else:
+    # Serverless database pool optimization for PostgreSQL / Neon / Supabase
+    engine_kwargs.update(
+        {
+            "pool_pre_ping": True,
+            "pool_size": 10,
+            "max_overflow": 20,
+            "pool_recycle": 300,
+            "pool_timeout": 10,
+        }
+    )
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args, echo=False)
+engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

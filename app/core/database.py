@@ -16,9 +16,17 @@ DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 if DATABASE_URL.startswith("postgres://"):
     DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
 
-# Auto-convert Neon connection string to use Neon's pgBouncer pooler for serverless speed
+# Safely convert Neon direct endpoint to Neon pgBouncer pooler endpoint
 if ".neon.tech" in DATABASE_URL and "-pooler" not in DATABASE_URL:
-    DATABASE_URL = DATABASE_URL.replace(".neon.tech", "-pooler.neon.tech")
+    try:
+        parts = DATABASE_URL.split("@", 1)
+        if len(parts) == 2:
+            host_and_rest = parts[1]
+            host_parts = host_and_rest.split(".", 1)
+            if len(host_parts) == 2 and not host_parts[0].endswith("-pooler"):
+                DATABASE_URL = f"{parts[0]}@{host_parts[0]}-pooler.{host_parts[1]}"
+    except Exception as _neon_err:
+        print(f"Neon pooler parse notice: {_neon_err}")
 
 # Auto-encode '@' in password if multiple '@' exist in DATABASE_URL
 if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:

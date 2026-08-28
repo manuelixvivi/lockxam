@@ -144,3 +144,7 @@ def test_teacher(db, test_school):
     db.flush()
 
     return {"account": acc, "username": username, "password": password}
+
+
+from tests.test_academic_administration_api import api_test_data
+

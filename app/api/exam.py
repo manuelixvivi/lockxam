@@ -16,21 +16,21 @@ from starlette import status
 from app.core.database import get_db
 from app.core.rbac import require_role
 from app.models.security.enums import UserRole
+from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
+from app.repositories.academic.subject_repository import subject_repository
+from app.repositories.exam.attempt_repository import attempt_repository
+from app.repositories.exam.checkin_repository import checkin_repository
+from app.repositories.exam.exam_session_repository import exam_session_repository
+from app.repositories.exam.student_answer_repository import student_answer_repository
+from app.repositories.security.auth_repository import auth_repository
+from app.repositories.teacher.proctor_event_repository import proctor_event_repository
 from app.schemas.exam.exam import (
     AICallbackRequest,
     ExamAttemptResponse,
     StudentAnswerResponse,
 )
 from app.services.exam.exam_service import ExamService
-from app.repositories.exam.attempt_repository import attempt_repository
-from app.repositories.exam.exam_session_repository import exam_session_repository
-from app.repositories.exam.student_answer_repository import student_answer_repository
-from app.repositories.exam.checkin_repository import checkin_repository
-from app.repositories.teacher.proctor_event_repository import proctor_event_repository
-from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
-from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
-from app.repositories.academic.subject_repository import subject_repository
-from app.repositories.security.auth_repository import auth_repository
 
 router = APIRouter(prefix="/api/v1/exam", tags=["Exam — Student"])
 
@@ -56,7 +56,9 @@ def update_attempt_telemetry(
 ):
     """Siswa mengirimkan data telemetry HP (baterai, ping, sinyal, dan event kecurangan/split-screen)."""
     student_id = int(current_user["sub"])
-    attempt = attempt_repository.get_by_id_and_student(db, attempt_id=attempt_id, student_id=student_id)
+    attempt = attempt_repository.get_by_id_and_student(
+        db, attempt_id=attempt_id, student_id=student_id
+    )
 
     if not attempt:
         raise HTTPException(status_code=404, detail="Exam attempt not found")
@@ -73,6 +75,7 @@ def update_attempt_telemetry(
 
     if payload.violation_type in ["SPLIT_SCREEN", "APP_SWITCH", "UNPINNED"]:
         from app.models.exam.enums import ExamAttemptStatus
+
         attempt.status = ExamAttemptStatus.PAUSED
         db.commit()
         return {
@@ -143,7 +146,9 @@ def list_my_schedules(
 
     historical_schedules = []
     if historical_schedule_ids:
-        historical_schedules = exam_schedule_repository.get_by_ids(db, list(set(historical_schedule_ids)))
+        historical_schedules = exam_schedule_repository.get_by_ids(
+            db, list(set(historical_schedule_ids))
+        )
 
     schedule_dict = {s.id: s for s in active_schedules + historical_schedules}
     schedules = sorted(schedule_dict.values(), key=lambda s: s.start_time)
@@ -165,6 +170,7 @@ def list_my_schedules(
             start_wib = ensure_wib(s.start_time)
             from app.models.exam.enums import ExamSessionStatus
             from app.models.exam.exam_session import ExamSession
+
             sess_status = (
                 ExamSessionStatus.ACTIVE if now_wib >= start_wib else ExamSessionStatus.PLANNED
             )
@@ -183,6 +189,7 @@ def list_my_schedules(
             start_wib = ensure_wib(s.start_time)
             if now_wib >= start_wib:
                 from app.models.exam.enums import ExamSessionStatus
+
                 session.status = ExamSessionStatus.ACTIVE
                 db.commit()
 
@@ -231,12 +238,7 @@ def get_class_leaderboard(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    from sqlalchemy import func
 
-    from app.models.academic.student_class_enrollment import StudentClassEnrollment
-    from app.models.exam.enums import ExamAttemptStatus
-    from app.models.exam.exam_attempt import ExamAttempt
-    from app.models.security.auth_account import AuthAccount
 
     enrollment = student_enrollment_repository.get_active_by_student(db, student_id)
 
@@ -312,7 +314,9 @@ def get_qr_checkin_token(
     schedule = exam_schedule_repository.get_by_id(db, schedule_id)
     title = f"Jadwal Ujian #{schedule_id}"
     if schedule:
-        title = getattr(schedule, "title", getattr(schedule, "name", f"Jadwal Ujian #{schedule_id}"))
+        title = getattr(
+            schedule, "title", getattr(schedule, "name", f"Jadwal Ujian #{schedule_id}")
+        )
 
     # Token: base64url( schedule_id | expires_ts | hmac )
     secret = os.environ.get("SECRET_KEY", "equigrade-secret")
@@ -358,16 +362,21 @@ def student_checkin(
     import hmac
     import time
 
-    from app.models.academic.exam_schedule import ExamSchedule
     from app.models.exam.exam_checkin import ExamCheckin
 
     raw_token: str = request.query_params.get("token", "").strip()
     expected_schedule_id_raw = request.query_params.get("expected_schedule_id")
-    expected_schedule_id = int(expected_schedule_id_raw) if expected_schedule_id_raw and expected_schedule_id_raw.isdigit() else None
+    expected_schedule_id = (
+        int(expected_schedule_id_raw)
+        if expected_schedule_id_raw and expected_schedule_id_raw.isdigit()
+        else None
+    )
     device_id: str = request.headers.get("X-Device-Id", "unknown")
 
     if not raw_token:
-        raise HTTPException(status_code=422, detail="Token QR atau Kode PIN 6-digit wajib disertakan.")
+        raise HTTPException(
+            status_code=422, detail="Token QR atau Kode PIN 6-digit wajib disertakan."
+        )
 
     clean_pin = raw_token.replace("-", "").replace(" ", "").upper()
 
@@ -387,11 +396,19 @@ def student_checkin(
         schedule_id = int(schedule_id_str)
         expires_ts = int(expires_ts_str)
     except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Format token QR atau Kode PIN 6-digit tidak valid.")
+        raise HTTPException(
+            status_code=400, detail="Format token QR atau Kode PIN 6-digit tidak valid."
+        )
 
     if expected_schedule_id and expected_schedule_id != schedule_id:
         target_schedule = exam_schedule_repository.get_by_id(db, schedule_id)
-        target_title = getattr(target_schedule, "title", getattr(target_schedule, "name", f"Jadwal #{schedule_id}")) if target_schedule else f"Jadwal #{schedule_id}"
+        target_title = (
+            getattr(
+                target_schedule, "title", getattr(target_schedule, "name", f"Jadwal #{schedule_id}")
+            )
+            if target_schedule
+            else f"Jadwal #{schedule_id}"
+        )
         raise HTTPException(
             status_code=400,
             detail=f"Token QR ini milik mata pelajaran '{target_title}'. Silakan scan QR sesuai jadwal ujian yang Anda buka!",
@@ -442,6 +459,7 @@ def student_checkin(
         # Auto-mark student present in Proctor BAP / BAU Document
         try:
             from app.services.teacher.proctor_service import ProctorService
+
             ProctorService.auto_mark_student_present(db, schedule_id, student_id)
         except Exception as _bau_err:
             print(f"[Checkin BAP Sync Warning] {_bau_err}")

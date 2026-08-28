@@ -90,13 +90,15 @@ class AuthService:
                 active_sessions = session_repository.get_active_sessions_by_user(db, account.id)
                 if active_sessions:
                     # Cek (1) apakah siswa sudah scan QR presensi, atau (2) attempt pengerjaan ujian sedang aktif
-                    from app.repositories.exam.checkin_repository import checkin_repository
                     from app.repositories.exam.attempt_repository import attempt_repository
+                    from app.repositories.exam.checkin_repository import checkin_repository
 
                     my_checkins = checkin_repository.get_by_student(db, account.id)
                     has_checkin = bool(my_checkins)
 
-                    active_attempts = attempt_repository.get_active_or_paused(db, student_id=account.id)
+                    active_attempts = attempt_repository.get_active_or_paused(
+                        db, student_id=account.id
+                    )
                     active_exam = active_attempts[0] if active_attempts else None
 
                     if has_checkin or active_exam:
@@ -381,7 +383,9 @@ class AuthService:
             raise
 
     @staticmethod
-    def change_password(db: Session, current_user: dict, old_password: str, new_password: str) -> None:
+    def change_password(
+        db: Session, current_user: dict, old_password: str, new_password: str
+    ) -> None:
         user_id = int(current_user["sub"])
         account = auth_repository.get_by_id(db, user_id)
         if not account:
@@ -404,7 +408,6 @@ class AuthService:
         if not account:
             raise AuthenticationException("Invalid credentials")
 
-
         if not verify_password(password, account.password_hash):
             raise AuthenticationException("Invalid credentials")
 
@@ -412,7 +415,12 @@ class AuthService:
             raise PermissionException("Account is inactive")
 
         # Check school subscription status (Block login if SUSPENDED)
-        if account.school_id and account.role in [UserRole.ADMIN, "SCHOOL_ADMIN", UserRole.TEACHER, "TEACHER"]:
+        if account.school_id and account.role in [
+            UserRole.ADMIN,
+            "SCHOOL_ADMIN",
+            UserRole.TEACHER,
+            "TEACHER",
+        ]:
             from app.repositories.license.school_license_repository import school_license_repository
 
             latest_license = school_license_repository.get_latest_license(db, account.school_id)
@@ -426,9 +434,10 @@ class AuthService:
 
         return account
 
-
     @staticmethod
-    def _create_session(db: Session, request: Request, account, expires_delta: timedelta | None = None) -> dict:
+    def _create_session(
+        db: Session, request: Request, account, expires_delta: timedelta | None = None
+    ) -> dict:
         session = SessionService.create_session(expires_delta)
 
         ip_address = request.client.host if request.client else None
@@ -454,7 +463,9 @@ class AuthService:
         return session
 
     @staticmethod
-    def _build_login_response(account, session, expires_delta: timedelta | None = None) -> LoginResponse:
+    def _build_login_response(
+        account, session, expires_delta: timedelta | None = None
+    ) -> LoginResponse:
         access_token = create_user_token(
             user_id=account.id,
             role=account.role,

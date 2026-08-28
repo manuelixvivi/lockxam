@@ -347,7 +347,12 @@ def test_api_create_package_success(client, test_teacher, db, test_school):
 
     res = client.post(
         "/api/v1/teacher/packages",
-        json={"name": "UTS Kimia", "class_level": "XI", "subject": "Kimia", "target_counts": {"PG": 20}},
+        json={
+            "name": "UTS Kimia",
+            "class_level": "XI",
+            "subject": "Kimia",
+            "target_counts": {"PG": 20},
+        },
         headers={"Authorization": f"Bearer {token}"},
     )
     assert res.status_code == 201

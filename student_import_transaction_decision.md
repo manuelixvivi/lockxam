@@ -1,8 +1,8 @@
 # Student Import Transaction Decision Audit
 
-**Batch**: Batch 1 — Student Bulk Import Remediation  
-**Topic**: Transaction Ownership Decision Audit  
-**Date**: 2026-08-28  
+**Batch**: Batch 1 — Student Bulk Import Remediation
+**Topic**: Transaction Ownership Decision Audit
+**Date**: 2026-08-28
 
 ---
 

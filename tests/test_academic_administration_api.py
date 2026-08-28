@@ -1,19 +1,17 @@
 import uuid
 from datetime import datetime, timedelta, timezone
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
 
-from app.core.security import create_access_token, hash_password
+from app.core.security import hash_password
 from app.models.academic.academic_semester import AcademicSemester
 from app.models.academic.academic_year import AcademicYear
-from app.models.academic.class_entity import ClassEntity
-from app.models.academic.enums import AcademicStatus, EnrollmentStatus
-from app.models.academic.subject import Subject
+from app.models.academic.enums import AcademicStatus
 from app.models.master.school_level import SchoolLevel
 from app.models.school.school import School
 from app.models.security.auth_account import AuthAccount
-from main import app
 
 
 @pytest.fixture
@@ -185,7 +183,11 @@ def test_subject_api_and_teacher_competency(client: TestClient, api_test_data):
     # 1. Create Subject (Matematika)
     res = client.post(
         "/api/v1/admin/subjects",
-        json={"code": "mat-10", "name": "Matematika Wajib Kelas 10", "description": "Kurikulum Nasional"},
+        json={
+            "code": "mat-10",
+            "name": "Matematika Wajib Kelas 10",
+            "description": "Kurikulum Nasional",
+        },
         headers=headers_a,
     )
     assert res.status_code == 201
@@ -252,10 +254,18 @@ def test_student_enrollment_and_mutation_history(client: TestClient, api_test_da
     student = api_test_data["student_1"]
 
     # Create Class A and Class B
-    res_a = client.post("/api/v1/admin/classes", json={"academic_year_id": year_2025.id, "name": "X-IPA-1"}, headers=headers_a)
+    res_a = client.post(
+        "/api/v1/admin/classes",
+        json={"academic_year_id": year_2025.id, "name": "X-IPA-1"},
+        headers=headers_a,
+    )
     class_a_id = res_a.json()["id"]
 
-    res_b = client.post("/api/v1/admin/classes", json={"academic_year_id": year_2025.id, "name": "X-IPA-2"}, headers=headers_a)
+    res_b = client.post(
+        "/api/v1/admin/classes",
+        json={"academic_year_id": year_2025.id, "name": "X-IPA-2"},
+        headers=headers_a,
+    )
     class_b_id = res_b.json()["id"]
 
     # 1. Enroll to Class A
@@ -310,21 +320,38 @@ def test_candidate_teacher_api_and_class_assignment(client: TestClient, api_test
     teacher_bio = api_test_data["teacher_bio_a"]
 
     # 1. Create Class
-    res_cls = client.post("/api/v1/admin/classes", json={"academic_year_id": year_2025.id, "name": "XI-IPA-1"}, headers=headers_a)
+    res_cls = client.post(
+        "/api/v1/admin/classes",
+        json={"academic_year_id": year_2025.id, "name": "XI-IPA-1"},
+        headers=headers_a,
+    )
     class_id = res_cls.json()["id"]
 
     # 2. Create Subject (Matematika)
-    res_sub = client.post("/api/v1/admin/subjects", json={"code": "MAT-XI", "name": "Matematika Peminatan XI"}, headers=headers_a)
+    res_sub = client.post(
+        "/api/v1/admin/subjects",
+        json={"code": "MAT-XI", "name": "Matematika Peminatan XI"},
+        headers=headers_a,
+    )
     subject_id = res_sub.json()["id"]
 
     # 3. Assign Subject to Class
-    client.post(f"/api/v1/admin/classes/{class_id}/subjects", json={"subject_id": subject_id}, headers=headers_a)
+    client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects",
+        json={"subject_id": subject_id},
+        headers=headers_a,
+    )
 
     # 4. Assign Math competency ONLY to teacher_math
-    client.post(f"/api/v1/admin/subjects/{subject_id}/teachers/{teacher_math.id}", headers=headers_a)
+    client.post(
+        f"/api/v1/admin/subjects/{subject_id}/teachers/{teacher_math.id}", headers=headers_a
+    )
 
     # 5. TEST CANDIDATE TEACHER API
-    res_candidates = client.get(f"/api/v1/admin/classes/{class_id}/subjects/{subject_id}/teacher-candidates", headers=headers_a)
+    res_candidates = client.get(
+        f"/api/v1/admin/classes/{class_id}/subjects/{subject_id}/teacher-candidates",
+        headers=headers_a,
+    )
     assert res_candidates.status_code == 200
     candidates = res_candidates.json()
     assert len(candidates) == 1
@@ -359,15 +386,33 @@ def test_exam_schedule_api(client: TestClient, api_test_data):
     teacher_math = api_test_data["teacher_math_a"]
 
     # Setup Class, Subject, and Class-Subject-Teacher
-    res_cls = client.post("/api/v1/admin/classes", json={"academic_year_id": year_2025.id, "name": "XII-MIPA-1"}, headers=headers_a)
+    res_cls = client.post(
+        "/api/v1/admin/classes",
+        json={"academic_year_id": year_2025.id, "name": "XII-MIPA-1"},
+        headers=headers_a,
+    )
     class_id = res_cls.json()["id"]
 
-    res_sub = client.post("/api/v1/admin/subjects", json={"code": "MAT-XII", "name": "Matematika XII"}, headers=headers_a)
+    res_sub = client.post(
+        "/api/v1/admin/subjects",
+        json={"code": "MAT-XII", "name": "Matematika XII"},
+        headers=headers_a,
+    )
     subject_id = res_sub.json()["id"]
 
-    client.post(f"/api/v1/admin/subjects/{subject_id}/teachers/{teacher_math.id}", headers=headers_a)
-    client.post(f"/api/v1/admin/classes/{class_id}/subjects", json={"subject_id": subject_id}, headers=headers_a)
-    client.post(f"/api/v1/admin/classes/{class_id}/subjects/{subject_id}/teachers", json={"teacher_id": teacher_math.id}, headers=headers_a)
+    client.post(
+        f"/api/v1/admin/subjects/{subject_id}/teachers/{teacher_math.id}", headers=headers_a
+    )
+    client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects",
+        json={"subject_id": subject_id},
+        headers=headers_a,
+    )
+    client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects/{subject_id}/teachers",
+        json={"teacher_id": teacher_math.id},
+        headers=headers_a,
+    )
 
     # 1. Create Exam Schedule
     now = datetime.now(timezone.utc)
@@ -416,7 +461,9 @@ def test_tenant_isolation_and_rbac(client: TestClient, api_test_data):
     year_2025 = api_test_data["year_2025"]
 
     # School A creates a Subject
-    res = client.post("/api/v1/admin/subjects", json={"code": "FIS-10", "name": "Fisika"}, headers=headers_a)
+    res = client.post(
+        "/api/v1/admin/subjects", json={"code": "FIS-10", "name": "Fisika"}, headers=headers_a
+    )
     assert res.status_code == 201
     subject_public_id = res.json()["public_id"]
 
@@ -425,16 +472,23 @@ def test_tenant_isolation_and_rbac(client: TestClient, api_test_data):
     assert res_b.status_code == 404
 
     # 2. Non-admin (Teacher) cannot create subjects or classes
-    res_t = client.post("/api/v1/admin/subjects", json={"code": "KIM-10", "name": "Kimia"}, headers=headers_teacher)
+    res_t = client.post(
+        "/api/v1/admin/subjects", json={"code": "KIM-10", "name": "Kimia"}, headers=headers_teacher
+    )
     assert res_t.status_code == 403
 
     # 3. Non-admin (Student) cannot create subjects or classes
-    res_s = client.post("/api/v1/admin/classes", json={"academic_year_id": year_2025.id, "name": "X-1"}, headers=headers_student)
+    res_s = client.post(
+        "/api/v1/admin/classes",
+        json={"academic_year_id": year_2025.id, "name": "X-1"},
+        headers=headers_student,
+    )
     assert res_s.status_code == 403
 
 
 def test_exam_schedule_packages_and_import(client: TestClient, api_test_data, db):
     import traceback
+
     try:
         headers_a = api_test_data["headers_admin_a"]
         year_2025 = api_test_data["year_2025"]
@@ -443,6 +497,7 @@ def test_exam_schedule_packages_and_import(client: TestClient, api_test_data, db
 
         # 1. Create a proctor teacher with a teacher_code
         from app.services.school.staff_service import SchoolStaffService
+
         teacher, _ = SchoolStaffService.create_teacher(
             db=db,
             school_id=school_a.id,
@@ -457,25 +512,37 @@ def test_exam_schedule_packages_and_import(client: TestClient, api_test_data, db
         db.commit()
 
         # Create Subject & Class
-        res_subj = client.post("/api/v1/admin/subjects", json={"code": "KIMIA", "name": "Kimia Dasar"}, headers=headers_a)
+        res_subj = client.post(
+            "/api/v1/admin/subjects",
+            json={"code": "KIMIA", "name": "Kimia Dasar"},
+            headers=headers_a,
+        )
         assert res_subj.status_code == 201
         subj_id = res_subj.json()["id"]
 
-        res_cls = client.post("/api/v1/admin/classes", json={"academic_year_id": year_2025.id, "name": "XII IPA 2"}, headers=headers_a)
+        res_cls = client.post(
+            "/api/v1/admin/classes",
+            json={"academic_year_id": year_2025.id, "name": "XII IPA 2"},
+            headers=headers_a,
+        )
         assert res_cls.status_code == 201
         class_id = res_cls.json()["id"]
 
         # Assign Teacher to handle subject in class (required by invariant EXAM-SCHEDULE-001)
         # Let's assign our teacher_math to teach Kimia in XII IPA 2
         teacher_math = api_test_data["teacher_math_a"]
-        
+
         # Assign competency to teacher first
         from app.services.academic.subject_service import SubjectService
+
         SubjectService.assign_teacher_competency(db, school_a.id, teacher_math.id, subj_id)
-        
+
         # Assign teacher to class subject
         from app.services.academic.class_structure_service import ClassStructureService
-        ClassStructureService.assign_teacher_to_class_subject(db, school_a.id, class_id, subj_id, teacher_math.id)
+
+        ClassStructureService.assign_teacher_to_class_subject(
+            db, school_a.id, class_id, subj_id, teacher_math.id
+        )
         db.commit()
 
         # 2. Create Exam Schedule Package
@@ -498,7 +565,7 @@ def test_exam_schedule_packages_and_import(client: TestClient, api_test_data, db
                 "Tanggal Ujian": "2026-10-12",
                 "Jam Mulai": "07:30",
                 "Jam Selesai": "09:00",
-                "Kode Pengawas": "P-HEBAT"
+                "Kode Pengawas": "P-HEBAT",
             }
         ]
 
@@ -525,7 +592,9 @@ def test_exam_schedule_packages_and_import(client: TestClient, api_test_data, db
         assert any(str(p["public_id"]) == str(pkg_public_id) for p in res_list.json())
 
         # 5. Delete Package
-        res_del = client.delete(f"/api/v1/admin/exam-schedules/packages/{pkg_public_id}", headers=headers_a)
+        res_del = client.delete(
+            f"/api/v1/admin/exam-schedules/packages/{pkg_public_id}", headers=headers_a
+        )
         assert res_del.status_code == 204
     except Exception as e:
         print("TEST EXCEPTION OCCURRED:", e)
@@ -568,17 +637,29 @@ def test_exam_schedule_class_overlap_validation(client: TestClient, api_test_dat
     sub2_id = res_sub2.json()["id"]
 
     # 3. Assign Subjects to Class and assign Teacher competencies
-    client.post(f"/api/v1/admin/classes/{class_id}/subjects", json={"subject_id": sub1_id}, headers=headers_a)
-    client.post(f"/api/v1/admin/classes/{class_id}/subjects", json={"subject_id": sub2_id}, headers=headers_a)
+    client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects",
+        json={"subject_id": sub1_id},
+        headers=headers_a,
+    )
+    client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects",
+        json={"subject_id": sub2_id},
+        headers=headers_a,
+    )
 
-    from app.services.academic.subject_service import SubjectService
     from app.services.academic.class_structure_service import ClassStructureService
+    from app.services.academic.subject_service import SubjectService
 
     SubjectService.assign_teacher_competency(db, school_a.id, teacher_math.id, sub1_id)
-    ClassStructureService.assign_teacher_to_class_subject(db, school_a.id, class_id, sub1_id, teacher_math.id)
+    ClassStructureService.assign_teacher_to_class_subject(
+        db, school_a.id, class_id, sub1_id, teacher_math.id
+    )
 
     SubjectService.assign_teacher_competency(db, school_a.id, teacher_bio.id, sub2_id)
-    ClassStructureService.assign_teacher_to_class_subject(db, school_a.id, class_id, sub2_id, teacher_bio.id)
+    ClassStructureService.assign_teacher_to_class_subject(
+        db, school_a.id, class_id, sub2_id, teacher_bio.id
+    )
     db.commit()
 
     # 4. Create first Exam Schedule manually (08:00 - 09:30)
@@ -659,7 +740,7 @@ def test_exam_schedule_class_overlap_validation(client: TestClient, api_test_dat
             "Tanggal Ujian": "2026-12-10",
             "Jam Mulai": "09:00",
             "Jam Selesai": "10:30",
-        }
+        },
     ]
     res_import1 = client.post(
         f"/api/v1/admin/exam-schedules/packages/{pkg_public_id}/import",
@@ -698,7 +779,7 @@ def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
     res_cls = client.post(
         "/api/v1/admin/classes",
         json={"academic_year_id": year_2025.id, "name": "X-IPA-5", "grade_level": "X"},
-        headers=headers_a
+        headers=headers_a,
     )
     assert res_cls.status_code == 201
     class_id = res_cls.json()["id"]
@@ -707,7 +788,7 @@ def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
     res_sub1 = client.post(
         "/api/v1/admin/subjects",
         json={"code": "MAT-BULK", "name": "Matematika Bulk"},
-        headers=headers_a
+        headers=headers_a,
     )
     assert res_sub1.status_code == 201
     sub1_id = res_sub1.json()["id"]
@@ -715,7 +796,7 @@ def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
     res_sub2 = client.post(
         "/api/v1/admin/subjects",
         json={"code": "FIS-BULK", "name": "Fisika Bulk"},
-        headers=headers_a
+        headers=headers_a,
     )
     assert res_sub2.status_code == 201
     sub2_id = res_sub2.json()["id"]
@@ -727,7 +808,7 @@ def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
     res_assign = client.post(
         f"/api/v1/admin/classes/{class_id}/subjects/bulk-assign",
         json={"subject_ids": [sub1_id, sub2_id]},
-        headers=headers_a
+        headers=headers_a,
     )
     assert res_assign.status_code == 200
     assert res_assign.json()["assigned_count"] == 2
@@ -745,7 +826,7 @@ def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
     res_teach = client.post(
         f"/api/v1/admin/classes/{class_id}/subjects/{sub1_id}/teachers",
         json={"teacher_id": teacher_math.id},
-        headers=headers_a
+        headers=headers_a,
     )
     assert res_teach.status_code == 200
 
@@ -753,7 +834,7 @@ def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
     res_remove = client.post(
         f"/api/v1/admin/classes/{class_id}/subjects/bulk-remove",
         json={"subject_ids": [sub1_id]},
-        headers=headers_a
+        headers=headers_a,
     )
     assert res_remove.status_code == 200
     assert res_remove.json()["removed_count"] == 1
@@ -766,9 +847,8 @@ def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
     assert subjects_in_class_after[0]["subject_id"] == sub2_id
 
     # Verify that the master subject 'Matematika Bulk' still exists in the school's master subject list!
-    res_master_subj = client.get(f"/api/v1/admin/subjects", headers=headers_a)
+    res_master_subj = client.get("/api/v1/admin/subjects", headers=headers_a)
     assert res_master_subj.status_code == 200
     master_subjects = res_master_subj.json()
     master_subject_ids = [s["id"] for s in master_subjects]
     assert sub1_id in master_subject_ids
-

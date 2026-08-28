@@ -22,7 +22,7 @@ export const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onNavigate, onChang
 
   useEffect(() => {
     if (!user) return;
-    
+
     let list = [];
     if (role === "SUPER_ADMIN" || role === "SUPERADMIN") {
       list = [
@@ -219,7 +219,7 @@ export const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onNavigate, onChang
                 <p className="text-xs font-semibold text-slate-400">Masuk sebagai:</p>
                 <p className="text-xs font-bold text-slate-200 mt-0.5 truncate">{user?.full_name}</p>
               </div>
-              
+
               {role === "SCHOOL_ADMIN" && onNavigate && (
                 <button
                   onClick={() => {
@@ -232,7 +232,7 @@ export const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onNavigate, onChang
                   <span>Profil Sekolah</span>
                 </button>
               )}
-              
+
               {onChangePasswordClick && (
                 <button
                   onClick={() => {

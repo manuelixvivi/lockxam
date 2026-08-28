@@ -41,7 +41,9 @@ class QuestionPackageRepository(BaseRepository[QuestionPackage]):
         )
         return db.execute(stmt).scalar() or 0
 
-    def get_item(self, db: Session, package_id: int, question_id: int) -> QuestionPackageItem | None:
+    def get_item(
+        self, db: Session, package_id: int, question_id: int
+    ) -> QuestionPackageItem | None:
         stmt = select(QuestionPackageItem).where(
             QuestionPackageItem.package_id == package_id,
             QuestionPackageItem.question_id == question_id,
@@ -60,7 +62,17 @@ class QuestionPackageRepository(BaseRepository[QuestionPackage]):
         db.delete(item)
 
     def delete_by_owner(self, db: Session, owner_teacher_id: int) -> None:
-        pkgs = self.get_by_owner_and_tenant(db, owner_teacher_id, school_id=None) if hasattr(self, 'get_by_owner') else list(db.scalars(select(QuestionPackage).where(QuestionPackage.owner_teacher_account_id == owner_teacher_id)).all())
+        pkgs = (
+            self.get_by_owner_and_tenant(db, owner_teacher_id, school_id=None)
+            if hasattr(self, "get_by_owner")
+            else list(
+                db.scalars(
+                    select(QuestionPackage).where(
+                        QuestionPackage.owner_teacher_account_id == owner_teacher_id
+                    )
+                ).all()
+            )
+        )
         for p in pkgs:
             items = self.list_items(db, p.id)
             for it in items:

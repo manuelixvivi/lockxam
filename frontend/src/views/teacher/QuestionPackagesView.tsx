@@ -45,12 +45,12 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
   const [name, setName] = useState("");
   const [classLevel, setClassLevel] = useState("");
   const [subject, setSubject] = useState("");
-  
+
   // Targets
   const [targetPG, setTargetPG] = useState("10");
   const [targetIS, setTargetIS] = useState("5");
   const [targetES, setTargetES] = useState("2");
-  
+
   const [isCreating, setIsCreating] = useState(false);
 
   // Refresh profile on mount to get fresh assigned subjects
@@ -140,7 +140,7 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
       showToast({ type: "success", title: "Paket soal baru berhasil dibuat." });
       setIsAddModalOpen(false);
       setName("");
-      
+
       // Navigate or select details
       if (onSelectPackage) {
         onSelectPackage(created.id);

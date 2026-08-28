@@ -1,9 +1,9 @@
 # Import Remediation Plan
 
-**System**: EquiGrade x Lockxam v3.0  
-**Audit Date**: 2026-08-28  
-**QA Auditor**: Antigravity QA Auditor  
-**Document Version**: 1.0 (Proposal)  
+**System**: EquiGrade x Lockxam v3.0
+**Audit Date**: 2026-08-28
+**QA Auditor**: Antigravity QA Auditor
+**Document Version**: 1.0 (Proposal)
 **Status**: 🔴 PROPOSED — AWAITING REVIEW
 
 ---
@@ -90,5 +90,5 @@ Rather than immediately editing all codebase endpoints, the remediation will be 
   - `schools(code)`
   - `schools(domain)`
   - `classes(school_id, academic_year_id, name)` (ACADEMIC-CLASS-001)
-  
+
 Any SQLAlchemy insertion must catch `IntegrityError`, perform a transaction rollback, and map the database conflict to the correct validation error payload.

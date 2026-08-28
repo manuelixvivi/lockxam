@@ -1,4 +1,5 @@
 import os
+
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -14,20 +15,21 @@ from app import (
     models as _models,  # noqa: F401  # Ensure all SQLAlchemy models are registered with Base.metadata
 )
 from app.api.academic import router as academic_router
-from app.api.admin_subject import router as admin_subject_router
 from app.api.admin_class import router as admin_class_router
 from app.api.admin_exam_schedule import router as admin_exam_schedule_router
+from app.api.admin_subject import router as admin_subject_router
 from app.api.auth import router as auth_router
+from app.api.exam import router as exam_router
+from app.api.exam_command import router as exam_command_router
 from app.api.health import router as health_router
 from app.api.license import router as license_router
 from app.api.master import router as master_router
+from app.api.proctor import router as proctor_router
 from app.api.school import router as school_router
-from app.api.teacher import router as teacher_router, questions_router, dashboard_router
 from app.api.school_staff import router as school_staff_router
 from app.api.school_student import router as school_student_router
-from app.api.proctor import router as proctor_router
-from app.api.exam import router as exam_router
-from app.api.exam_command import router as exam_command_router
+from app.api.teacher import dashboard_router, questions_router
+from app.api.teacher import router as teacher_router
 from app.core.database import Base, SessionLocal, engine
 from app.database.seed_master import seed_master_data
 from app.exceptions import register_exception_handlers
@@ -112,8 +114,13 @@ if os.path.exists(dist_path):
 
     @app.get("/{full_path:path}")
     async def serve_spa(full_path: str):
-        if full_path.startswith("api") or full_path.startswith("uploads") or full_path.startswith("health"):
+        if (
+            full_path.startswith("api")
+            or full_path.startswith("uploads")
+            or full_path.startswith("health")
+        ):
             from fastapi import HTTPException
+
             raise HTTPException(status_code=404, detail="Not Found")
         target_file = os.path.join(dist_path, full_path)
         if full_path and os.path.isfile(target_file):
@@ -123,6 +130,5 @@ if os.path.exists(dist_path):
 
 if __name__ == "__main__":
     import uvicorn
+
     uvicorn.run("main:app", host="0.0.0.0", port=1409, reload=True)
-
-

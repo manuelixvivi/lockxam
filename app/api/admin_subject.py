@@ -1,21 +1,22 @@
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.rbac import require_admin
 from app.exceptions.base import BusinessException
-from app.schemas.common.import_validation import ImportResponse
 from app.schemas.academic.admin_academic import (
+    SubjectBulkDeactivateRequest,
+    SubjectBulkDeleteRequest,
     SubjectCreateRequest,
+    SubjectImportRequest,
     SubjectResponse,
     SubjectUpdateRequest,
     TeacherCandidateResponse,
     TeacherSubjectResponse,
-    SubjectBulkDeleteRequest,
-    SubjectBulkDeactivateRequest,
-    SubjectImportRequest,
 )
+from app.schemas.common.import_validation import ImportResponse
 from app.services.academic.subject_service import SubjectService
 from app.services.security.activity_service import ActivityService
 
@@ -25,9 +26,7 @@ router = APIRouter(prefix="/api/v1/admin/subjects", tags=["School Admin — Subj
 def _get_school_id(current_user: dict) -> int:
     school_id = current_user.get("school_id")
     if not school_id:
-        raise BusinessException(
-            "Akun admin tidak terikat dengan sekolah manapun.", status_code=400
-        )
+        raise BusinessException("Akun admin tidak terikat dengan sekolah manapun.", status_code=400)
     return school_id
 
 
@@ -83,6 +82,7 @@ def get_subject(
 ):
     school_id = _get_school_id(current_user)
     from app.repositories.academic.subject_repository import subject_repository
+
     subj = subject_repository.get_by_public_id(db, public_id)
     if not subj or subj.school_id != school_id:
         raise BusinessException("Mata pelajaran tidak ditemukan.", status_code=404)
@@ -162,6 +162,7 @@ def bulk_delete_subjects(
 ):
     school_id = _get_school_id(current_user)
     from app.repositories.academic.subject_repository import subject_repository
+
     for sid in data.subject_ids:
         subj = subject_repository.get_by_id(db, sid)
         if subj and subj.school_id == school_id:
@@ -178,6 +179,7 @@ def bulk_deactivate_subjects(
 ):
     school_id = _get_school_id(current_user)
     from app.repositories.academic.subject_repository import subject_repository
+
     for sid in data.subject_ids:
         subj = subject_repository.get_by_id(db, sid)
         if subj and subj.school_id == school_id:
@@ -194,6 +196,7 @@ def bulk_activate_subjects(
 ):
     school_id = _get_school_id(current_user)
     from app.repositories.academic.subject_repository import subject_repository
+
     for sid in data.subject_ids:
         subj = subject_repository.get_by_id(db, sid)
         if subj and subj.school_id == school_id:
@@ -202,6 +205,7 @@ def bulk_activate_subjects(
 
 
 # ── Teacher Subject Competency Mapping ──
+
 
 @router.post("/{subject_id}/teachers/{teacher_id}", response_model=TeacherSubjectResponse)
 def assign_teacher_competency(
@@ -220,6 +224,7 @@ def assign_teacher_competency(
 
     from app.repositories.academic.subject_repository import subject_repository
     from app.repositories.security.auth_repository import auth_repository
+
     teacher = auth_repository.get_by_id(db, teacher_id)
     subj = subject_repository.get_by_id(db, subject_id)
 
@@ -320,6 +325,7 @@ def import_subjects(
     db: Session = Depends(get_db),
 ):
     from fastapi.responses import JSONResponse
+
     from app.schemas.common.import_validation import ImportResponse, ImportRowError
 
     school_id = _get_school_id(current_user)
@@ -341,7 +347,7 @@ def import_subjects(
                 message="Impor mata pelajaran gagal karena terdapat kesalahan validasi.",
                 imported_count=0,
                 errors=row_errors,
-            ).model_dump()
+            ).model_dump(),
         )
 
     # Logging activity
@@ -356,9 +362,7 @@ def import_subjects(
         method=request.method,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
-        metadata={
-            "subjects_count": len(created_subjects)
-        },
+        metadata={"subjects_count": len(created_subjects)},
     )
 
     db.commit()
@@ -369,4 +373,3 @@ def import_subjects(
         imported_count=len(created_subjects),
         data=created_subjects,
     )
-

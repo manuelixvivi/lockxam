@@ -2,14 +2,13 @@ from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
 import pytest
-
 from sqlalchemy.orm import Session
 
 from app.core.security.password import hash_password
+from app.models.license.school_license import SchoolLicense
 from app.models.master.license_type import LicenseType
 from app.models.school.school import School
 from app.models.security.auth_account import AuthAccount
-from app.models.license.school_license import SchoolLicense
 from app.models.security.enums import UserRole
 from app.services.license.license_service import LicenseService
 

@@ -137,7 +137,7 @@ export function TeacherGradingView() {
   // Unified display schedules combining Exam History and Evaluations
   const displaySchedules = useMemo(() => {
     const list: any[] = [];
-    
+
     examHistoryPackages.forEach((pkg) => {
       (pkg.schedules || []).forEach((sch: any) => {
         list.push({

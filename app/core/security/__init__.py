@@ -26,6 +26,9 @@ from app.core.security.keys import (
     ALGORITHM as ALGORITHM,
 )
 from app.core.security.keys import (
+    COOKIE_SECURE as COOKIE_SECURE,
+)
+from app.core.security.keys import (
     REFRESH_TOKEN_EXPIRE_DAYS as REFRESH_TOKEN_EXPIRE_DAYS,
 )
 from app.core.security.keys import (
@@ -42,7 +45,4 @@ from app.core.security.password import (
 )
 from app.core.security.password import (
     verify_password as verify_password,
-)
-from app.core.security.keys import (
-    COOKIE_SECURE as COOKIE_SECURE,
 )

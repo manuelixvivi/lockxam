@@ -26,18 +26,18 @@ export const copyToClipboard = async (text: string): Promise<boolean> => {
   textarea.style.boxShadow = "none";
   textarea.style.background = "transparent";
   textarea.style.opacity = "0";
-  
+
   document.body.appendChild(textarea);
   textarea.focus();
   textarea.select();
-  
+
   let success = false;
   try {
     success = document.execCommand("copy");
   } catch (err) {
     // Fail silently without logging sensitive context
   }
-  
+
   document.body.removeChild(textarea);
   return success;
 };

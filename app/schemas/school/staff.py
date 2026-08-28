@@ -1,5 +1,6 @@
 from datetime import datetime
 from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -69,4 +70,3 @@ class TeacherImportItem(BaseModel):
 
 class TeacherImportRequest(BaseModel):
     teachers: list[TeacherImportItem]
-

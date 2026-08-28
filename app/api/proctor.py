@@ -189,7 +189,8 @@ def send_proctor_broadcast(
     db: Session = Depends(get_db),
 ):
     """Pengawas mengumumkan pengumuman darurat atau menambah waktu ke seluruh siswa (Ter-persitasi di DB)."""
-    from datetime import datetime, timedelta, timezone
+    from datetime import timedelta
+
     from app.models.teacher.proctor_event import ProctorAuditEvent
 
     sess_id = payload.exam_session_id

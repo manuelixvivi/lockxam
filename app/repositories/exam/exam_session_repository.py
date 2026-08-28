@@ -27,7 +27,6 @@ class ExamSessionRepository(BaseRepository[ExamSession]):
         stmt = select(ExamSession)
         return list(db.scalars(stmt).all())
 
-
     def list_by_schedule_id(self, db: Session, schedule_id: int) -> list[ExamSession]:
         stmt = select(ExamSession).where(ExamSession.schedule_id == schedule_id)
         return list(db.scalars(stmt).all())

@@ -50,8 +50,8 @@ def create_school(
         "school": school,
         "admin_credentials": {
             "username": getattr(school, "admin_username", None),
-            "temporary_password": getattr(school, "temporary_password", "")
-        }
+            "temporary_password": getattr(school, "temporary_password", ""),
+        },
     }
 
 
@@ -120,13 +120,19 @@ def update_school_partial(
 
     if user_role in [UserRole.ADMIN, "SCHOOL_ADMIN"]:
         if target_school.id != user_school_id:
-            raise BusinessException("You are not authorized to update another school's profile", status_code=403)
-        if data.npsn is not None or data.code is not None or data.name is not None or data.is_active is not None:
+            raise BusinessException(
+                "You are not authorized to update another school's profile", status_code=403
+            )
+        if (
+            data.npsn is not None
+            or data.code is not None
+            or data.name is not None
+            or data.is_active is not None
+        ):
             raise BusinessException(
                 "School Admin cannot modify locked fields (NPSN, Code, Name, Active Status). Contact SuperAdmin.",
                 status_code=403,
             )
-
 
     school = SchoolService.update_school(db, public_id, data)
 
@@ -238,5 +244,3 @@ def toggle_school_subscription(
     )
 
     return school
-
-

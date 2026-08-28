@@ -667,7 +667,7 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
       setDetail(updated);
       showToast({ type: "success", title: "Soal baru berhasil dibuat dan dimasukkan ke paket." });
       setIsCreateModalOpen(false);
-      
+
       // Reset form
       setNewContent("");
       setNewAnswerKey("");
@@ -816,7 +816,7 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
 
     try {
       const sheetsData = await readMultiSheetXlsxFile(file);
-      
+
       const skipped: { row: number; sheet: string; identifier: string; reason: string }[] = [];
       const failed: { row: number; sheet: string; identifier: string; reason: string }[] = [];
       let successCount = 0;
@@ -826,7 +826,7 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
 
       // 2. Gather import jobs
       const jobs: { type: QuestionType; row: Record<string, string>; rowIndex: number; sheet: string }[] = [];
-      
+
       if (sheetsData["Pilihan Ganda"]) {
         sheetsData["Pilihan Ganda"].forEach((r, idx) => {
           jobs.push({ type: "PG", row: r, rowIndex: idx + 2, sheet: "Pilihan Ganda" });
@@ -1033,7 +1033,7 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
     const matchesClassLevel = bankFilterClassLevel
       ? (q.class_level === bankFilterClassLevel || (!q.class_level && detail?.class_level === bankFilterClassLevel))
       : true;
-    
+
     // Do not show questions already in package
     const alreadyInPackage = detail ? detail.questions.some((pq) => pq.id === q.id) : false;
 
@@ -2079,7 +2079,7 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
           {importReport && (
             <div className="space-y-3.5 bg-slate-950/40 p-4 rounded-xl border border-slate-900 text-xs">
               <h4 className="font-bold text-slate-300 border-b border-slate-800 pb-1.5">Laporan Impor Paket</h4>
-              
+
               <div className="flex gap-4 font-semibold text-slate-400">
                 <span>Sukses Ditambahkan: <strong className="text-emerald-400">{importReport.success} Soal</strong></span>
                 <span>Dilewati (Sudah ada di Paket): <strong className="text-indigo-400">{importReport.skipped.length} Soal</strong></span>

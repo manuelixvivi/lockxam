@@ -303,6 +303,7 @@ class ExamScheduleService:
             return False
 
         from app.utils.timezone import ensure_wib
+
         latest_end_time = max(ensure_wib(s.end_time) for s in schedules)
         now = datetime.now(timezone.utc)
 
@@ -341,14 +342,16 @@ class ExamScheduleService:
         if not schedule or schedule.school_id != school_id:
             raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
 
-        from app.repositories.exam.exam_session_repository import exam_session_repository
+        from app.repositories.academic.exam_snapshot_repository import exam_snapshot_repository
         from app.repositories.exam.attempt_repository import attempt_repository
         from app.repositories.exam.checkin_repository import checkin_repository
-        from app.repositories.academic.exam_snapshot_repository import exam_snapshot_repository
+        from app.repositories.exam.exam_session_repository import exam_session_repository
 
         sessions = exam_session_repository.list_by_schedule_id(db, schedule.id)
         session_ids = [s.id for s in sessions]
-        has_attempts = attempt_repository.get_by_session_id(db, session_ids[0]) if session_ids else []
+        has_attempts = (
+            attempt_repository.get_by_session_id(db, session_ids[0]) if session_ids else []
+        )
         has_checkins = checkin_repository.get_by_schedule(db, schedule.id)
 
         # Academic Trace Integrity: If sessions, attempts, or check-ins exist, NEVER hard delete! Soft cancel to preserve student history!
@@ -373,9 +376,9 @@ class ExamScheduleService:
         if not package or package.school_id != school_id:
             raise BusinessException("Paket jadwal ujian tidak ditemukan.", status_code=404)
 
+        from app.repositories.academic.exam_snapshot_repository import exam_snapshot_repository
         from app.repositories.exam.exam_session_repository import exam_session_repository
         from app.repositories.exam.snapshot_repository import snapshot_repository
-        from app.repositories.academic.exam_snapshot_repository import exam_snapshot_repository
 
         # 1. Unlink or delete child schedules
         schedules = exam_schedule_repository.list_by_package(db, package.id)
@@ -530,7 +533,9 @@ class ExamScheduleService:
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
 
             # Validate overlapping schedules for the same class in DB via repository
-            overlap = exam_schedule_repository.find_class_schedule_overlap(db, school_id, cls.id, start_time, end_time)
+            overlap = exam_schedule_repository.find_class_schedule_overlap(
+                db, school_id, cls.id, start_time, end_time
+            )
             if overlap:
                 raise BusinessException(
                     f"Baris #{row_num}: Kelas '{cls.name}' sudah memiliki jadwal ujian lain pada waktu tersebut di database: '{overlap.title}' ({overlap.start_time.strftime('%Y-%m-%d %H:%M')} - {overlap.end_time.strftime('%Y-%m-%d %H:%M')}).",

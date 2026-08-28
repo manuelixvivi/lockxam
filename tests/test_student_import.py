@@ -1,11 +1,11 @@
-import pytest
 from datetime import datetime
+
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
+
+from app.models.academic.academic_year import AcademicYear
 from app.models.academic.class_entity import ClassEntity
 from app.models.security.auth_account import AuthAccount
-from app.models.academic.academic_year import AcademicYear
-from tests.test_academic_administration_api import api_test_data
 
 
 def test_import_students_success(client: TestClient, api_test_data, db: Session):
@@ -15,7 +15,9 @@ def test_import_students_success(client: TestClient, api_test_data, db: Session)
     school_a = api_test_data["school_a"]
 
     # Create class
-    cls = ClassEntity(school_id=school_a.id, academic_year_id=year_2025.id, name="X-MIPA-1", grade_level="10")
+    cls = ClassEntity(
+        school_id=school_a.id, academic_year_id=year_2025.id, name="X-MIPA-1", grade_level="10"
+    )
     db.add(cls)
     db.commit()
 
@@ -28,7 +30,7 @@ def test_import_students_success(client: TestClient, api_test_data, db: Session)
                 "nis": "99911",
                 "gender": "L",
                 "class_name": "X-MIPA-1",
-                "registered_year": 2026
+                "registered_year": 2026,
             },
             {
                 "name": "Siswa Cemerlang Dua",
@@ -36,9 +38,9 @@ def test_import_students_success(client: TestClient, api_test_data, db: Session)
                 "nis": "99922",
                 "gender": "P",
                 "class_name": "X-MIPA-1",
-                "registered_year": 2026
-            }
-        ]
+                "registered_year": 2026,
+            },
+        ],
     }
 
     res = client.post("/api/v1/admin/students/import", json=payload, headers=headers_a)
@@ -49,7 +51,9 @@ def test_import_students_success(client: TestClient, api_test_data, db: Session)
     assert len(data["data"]) == 2
 
     # Verify in database
-    students = db.query(AuthAccount).filter(AuthAccount.nisn.in_(["8888777711", "8888777722"])).all()
+    students = (
+        db.query(AuthAccount).filter(AuthAccount.nisn.in_(["8888777711", "8888777722"])).all()
+    )
     assert len(students) == 2
     for student in students:
         assert student.school_id == school_a.id
@@ -63,7 +67,9 @@ def test_import_students_missing_class(client: TestClient, api_test_data, db: Se
     school_a = api_test_data["school_a"]
 
     # Create class
-    cls = ClassEntity(school_id=school_a.id, academic_year_id=year_2025.id, name="X-MIPA-1", grade_level="10")
+    cls = ClassEntity(
+        school_id=school_a.id, academic_year_id=year_2025.id, name="X-MIPA-1", grade_level="10"
+    )
     db.add(cls)
     db.commit()
 
@@ -76,7 +82,7 @@ def test_import_students_missing_class(client: TestClient, api_test_data, db: Se
                 "nis": "22201",
                 "gender": "L",
                 "class_name": "X-MIPA-1",
-                "registered_year": 2026
+                "registered_year": 2026,
             },
             {
                 "name": "Budi Invalid Class",
@@ -84,9 +90,9 @@ def test_import_students_missing_class(client: TestClient, api_test_data, db: Se
                 "nis": "22202",
                 "gender": "L",
                 "class_name": "X-MIPA-9",  # Does not exist
-                "registered_year": 2026
-            }
-        ]
+                "registered_year": 2026,
+            },
+        ],
     }
 
     res = client.post("/api/v1/admin/students/import", json=payload, headers=headers_a)
@@ -115,16 +121,16 @@ def test_import_students_duplicate_in_file(client: TestClient, api_test_data, db
                 "nisn": "7777777777",
                 "nis": "12121",
                 "gender": "L",
-                "registered_year": 2026
+                "registered_year": 2026,
             },
             {
                 "name": "Siswa B Duplicate NISN",
                 "nisn": "7777777777",  # Duplicate NISN
                 "nis": "12122",
                 "gender": "P",
-                "registered_year": 2026
-            }
-        ]
+                "registered_year": 2026,
+            },
+        ],
     }
 
     res = client.post("/api/v1/admin/students/import", json=payload, headers=headers_a)
@@ -144,7 +150,7 @@ def test_import_students_duplicate_in_db(client: TestClient, api_test_data, db: 
     """TEST 4: NISN already exists in database -> HTTP 422 -> zero inserted."""
     headers_a = api_test_data["headers_admin_a"]
     year_2025 = api_test_data["year_2025"]
-    student_1 = api_test_data["student_1"] # Existing student with NISN "0011223344"
+    student_1 = api_test_data["student_1"]  # Existing student with NISN "0011223344"
 
     payload = {
         "academic_year_id": year_2025.id,
@@ -154,9 +160,9 @@ def test_import_students_duplicate_in_db(client: TestClient, api_test_data, db: 
                 "nisn": "0011223344",  # Already exists in DB
                 "nis": "88771",
                 "gender": "L",
-                "registered_year": 2026
+                "registered_year": 2026,
             }
-        ]
+        ],
     }
 
     res = client.post("/api/v1/admin/students/import", json=payload, headers=headers_a)
@@ -174,7 +180,12 @@ def test_import_students_cross_tenant(client: TestClient, api_test_data, db: Ses
     school_b = api_test_data["school_b"]
 
     # Create class belonging to School B
-    cls_b = ClassEntity(school_id=school_b.id, academic_year_id=year_2025.id, name="Class-School-B", grade_level="10")
+    cls_b = ClassEntity(
+        school_id=school_b.id,
+        academic_year_id=year_2025.id,
+        name="Class-School-B",
+        grade_level="10",
+    )
     db.add(cls_b)
     db.commit()
 
@@ -185,10 +196,10 @@ def test_import_students_cross_tenant(client: TestClient, api_test_data, db: Ses
                 "name": "Siswa School A",
                 "nisn": "9999000011",
                 "gender": "L",
-                "class_name": "Class-School-B", # Belongs to School B!
-                "registered_year": 2026
+                "class_name": "Class-School-B",  # Belongs to School B!
+                "registered_year": 2026,
             }
-        ]
+        ],
     }
 
     res = client.post("/api/v1/admin/students/import", json=payload, headers=headers_a)
@@ -202,7 +213,9 @@ def test_import_students_cross_tenant(client: TestClient, api_test_data, db: Ses
     assert student is None
 
 
-def test_import_students_db_failure_rollback(client: TestClient, api_test_data, db: Session, monkeypatch):
+def test_import_students_db_failure_rollback(
+    client: TestClient, api_test_data, db: Session, monkeypatch
+):
     """TEST 6: Database persistence failure -> rollback -> zero inserted."""
     headers_a = api_test_data["headers_admin_a"]
     year_2025 = api_test_data["year_2025"]
@@ -210,24 +223,22 @@ def test_import_students_db_failure_rollback(client: TestClient, api_test_data, 
     payload = {
         "academic_year_id": year_2025.id,
         "rows": [
-            {
-                "name": "Andi Rollback",
-                "nisn": "5555444411",
-                "gender": "L",
-                "registered_year": 2026
-            }
-        ]
+            {"name": "Andi Rollback", "nisn": "5555444411", "gender": "L", "registered_year": 2026}
+        ],
     }
 
     # Monkeypatch ClassStructureService.enroll_student_to_class or DB add to raise an exception
     # to simulate a database persistence failure
     from app.services.academic.class_structure_service import ClassStructureService
+
     def mock_enroll(*args, **kwargs):
         raise Exception("Simulated DB connection write failure")
-    
+
     # We force the call to fail by making class_name valid, but mocking enroll to fail
     school_a = api_test_data["school_a"]
-    cls = ClassEntity(school_id=school_a.id, academic_year_id=year_2025.id, name="X-MIPA-1", grade_level="10")
+    cls = ClassEntity(
+        school_id=school_a.id, academic_year_id=year_2025.id, name="X-MIPA-1", grade_level="10"
+    )
     db.add(cls)
     db.commit()
 
@@ -255,21 +266,14 @@ def test_import_students_wrong_academic_year_school(client: TestClient, api_test
         name="2027/2028",
         start_date=datetime.now(),
         end_date=datetime.now(),
-        status="ACTIVE"
+        status="ACTIVE",
     )
     db.add(year_b)
     db.commit()
 
     payload = {
-        "academic_year_id": year_b.id, # Belongs to School B!
-        "rows": [
-            {
-                "name": "Siswa A",
-                "nisn": "4444555511",
-                "gender": "L",
-                "registered_year": 2026
-            }
-        ]
+        "academic_year_id": year_b.id,  # Belongs to School B!
+        "rows": [{"name": "Siswa A", "nisn": "4444555511", "gender": "L", "registered_year": 2026}],
     }
 
     res = client.post("/api/v1/admin/students/import", json=payload, headers=headers_a)
@@ -289,13 +293,15 @@ def test_import_students_class_wrong_academic_year(client: TestClient, api_test_
         name="2026/2027",
         start_date=datetime.now(),
         end_date=datetime.now(),
-        status="PLANNED"
+        status="PLANNED",
     )
     db.add(year_2026)
     db.commit()
 
     # Class exists in 2026/2027
-    cls_2026 = ClassEntity(school_id=school_a.id, academic_year_id=year_2026.id, name="X-MIPA-1", grade_level="10")
+    cls_2026 = ClassEntity(
+        school_id=school_a.id, academic_year_id=year_2026.id, name="X-MIPA-1", grade_level="10"
+    )
     db.add(cls_2026)
     db.commit()
 
@@ -307,10 +313,10 @@ def test_import_students_class_wrong_academic_year(client: TestClient, api_test_
                 "name": "Siswa A",
                 "nisn": "3333222211",
                 "gender": "L",
-                "class_name": "X-MIPA-1", # Exists only in year_2026, not year_2025!
-                "registered_year": 2026
+                "class_name": "X-MIPA-1",  # Exists only in year_2026, not year_2025!
+                "registered_year": 2026,
             }
-        ]
+        ],
     }
 
     res = client.post("/api/v1/admin/students/import", json=payload, headers=headers_a)

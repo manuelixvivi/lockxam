@@ -67,9 +67,7 @@ class ExamSnapshotService:
             )
 
         if not pkg.items or len(pkg.items) == 0:
-            raise BusinessException(
-                "Paket soal tidak memiliki butir soal.", status_code=400
-            )
+            raise BusinessException("Paket soal tidak memiliki butir soal.", status_code=400)
 
         # Deep-copy all questions, options, answer keys, rubrics, and scores into frozen JSON
         frozen_questions = []
@@ -137,7 +135,5 @@ class ExamSnapshotService:
         return created_snapshot
 
     @staticmethod
-    def get_snapshot_by_schedule(
-        db: Session, schedule_id: int
-    ) -> ExamSnapshot | None:
+    def get_snapshot_by_schedule(db: Session, schedule_id: int) -> ExamSnapshot | None:
         return exam_snapshot_repository.get_by_schedule_id(db, schedule_id)

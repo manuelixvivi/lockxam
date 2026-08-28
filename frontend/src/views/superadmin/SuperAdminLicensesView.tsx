@@ -42,7 +42,7 @@ export const SuperAdminLicensesView: React.FC<{ onNavigate?: (href: string) => v
   onNavigate,
 }) => {
   const toast = useToast();
-  
+
   const isKeyExpiredForCancel = (createdAt: string) => {
     const createdTime = new Date(createdAt).getTime();
     const nowTime = new Date().getTime();
@@ -113,7 +113,7 @@ export const SuperAdminLicensesView: React.FC<{ onNavigate?: (href: string) => v
       setActivationKeys(keysData);
 
       if (schoolsData.length > 0) setTargetSchoolId(schoolsData[0].id.toString());
-      
+
       // Default initial plan to ONE_MONTH (30 days)
       const defaultPlan = plansData.find((p) => p.code === "ONE_MONTH");
       if (defaultPlan) {
@@ -357,7 +357,7 @@ export const SuperAdminLicensesView: React.FC<{ onNavigate?: (href: string) => v
                   Refresh
                 </Button>
               </div>
-              
+
               <div className="max-h-[350px] overflow-y-auto space-y-4 pr-1">
                 {/* Desktop Table (Visible on medium screens and up) */}
                 <div className="hidden md:block">
@@ -866,9 +866,9 @@ export const SuperAdminLicensesView: React.FC<{ onNavigate?: (href: string) => v
                 >
                   {isCopied ? "Berhasil Disalin!" : "Salin Kode Key"}
                 </Button>
-                <Button 
-                  variant="outline" 
-                  size="md" 
+                <Button
+                  variant="outline"
+                  size="md"
                   onClick={() => setGeneratedKey(null)}
                   className="w-full sm:w-auto justify-center"
                 >

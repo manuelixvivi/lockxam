@@ -1,9 +1,9 @@
 # Global Import Validation Matrix
 
-**System**: EquiGrade x Lockxam v3.0  
-**Audit Date**: 2026-08-28  
-**QA Auditor**: Antigravity QA Auditor  
-**Document Version**: 1.0 (Audit Phase)  
+**System**: EquiGrade x Lockxam v3.0
+**Audit Date**: 2026-08-28
+**QA Auditor**: Antigravity QA Auditor
+**Document Version**: 1.0 (Audit Phase)
 **Status**: 🔴 AUDITED — MATRIX COMPLETE
 
 ---

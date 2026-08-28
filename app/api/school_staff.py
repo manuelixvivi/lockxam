@@ -10,8 +10,8 @@ from app.schemas.school.staff import (
     StaffAccountResponse,
     TeacherCreateRequest,
     TeacherCreateResponse,
-    TeacherUpdateRequest,
     TeacherImportRequest,
+    TeacherUpdateRequest,
 )
 from app.services.school.staff_service import SchoolStaffService
 from app.services.security.activity_service import ActivityService
@@ -22,9 +22,7 @@ router = APIRouter(prefix="/api/v1/admin/teachers", tags=["School Admin — Teac
 def _get_school_id(current_user: dict) -> int:
     school_id = current_user.get("school_id")
     if not school_id:
-        raise BusinessException(
-            "Admin account is not associated with any school.", status_code=400
-        )
+        raise BusinessException("Admin account is not associated with any school.", status_code=400)
     return school_id
 
 
@@ -143,9 +141,7 @@ def reset_teacher_password(
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
-    teacher, new_password = SchoolStaffService.reset_teacher_password(
-        db, school_id, public_id
-    )
+    teacher, new_password = SchoolStaffService.reset_teacher_password(db, school_id, public_id)
     ActivityService.log_activity(
         db=db,
         auth_account_id=int(current_user["sub"]),
@@ -198,6 +194,7 @@ def import_teachers(
     db: Session = Depends(get_db),
 ):
     from fastapi.responses import JSONResponse
+
     from app.schemas.common.import_validation import ImportResponse, ImportRowError
 
     school_id = _get_school_id(current_user)
@@ -219,7 +216,7 @@ def import_teachers(
                 message="Impor guru gagal karena terdapat kesalahan validasi.",
                 imported_count=0,
                 errors=row_errors,
-            ).model_dump()
+            ).model_dump(),
         )
 
     # Logging activity
@@ -234,9 +231,7 @@ def import_teachers(
         method=request.method,
         ip_address=request.client.host if request.client else None,
         user_agent=request.headers.get("user-agent"),
-        metadata={
-            "teachers_count": len(created_teachers)
-        },
+        metadata={"teachers_count": len(created_teachers)},
     )
 
     db.commit()
@@ -247,4 +242,3 @@ def import_teachers(
         imported_count=len(created_teachers),
         data=created_teachers,
     )
-

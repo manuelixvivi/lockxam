@@ -262,7 +262,7 @@ export function TeachersView({ onNavigate }: TeachersViewProps) {
         default_password: res.default_password,
       });
       showToast({ type: "success", title: `Akun guru berhasil dibuat.` });
-      
+
       // Reset state fields
       setNewName("");
       setNewNip("");

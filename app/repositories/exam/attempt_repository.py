@@ -1,8 +1,8 @@
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
-from app.models.exam.exam_attempt import ExamAttempt
 from app.models.exam.enums import ExamAttemptStatus
+from app.models.exam.exam_attempt import ExamAttempt
 from app.repositories.base_repository import BaseRepository
 
 
@@ -38,11 +38,11 @@ class AttemptRepository(BaseRepository[ExamAttempt]):
         )
         return db.scalar(stmt)
 
-    def get_active_or_paused(
-        self, db: Session, student_id: int | None = None
-    ) -> list[ExamAttempt]:
+    def get_active_or_paused(self, db: Session, student_id: int | None = None) -> list[ExamAttempt]:
         stmt = select(ExamAttempt).where(
-            ExamAttempt.status.in_([ExamAttemptStatus.IN_PROGRESS, ExamAttemptStatus.PAUSED, "IN_PROGRESS", "PAUSED"])
+            ExamAttempt.status.in_(
+                [ExamAttemptStatus.IN_PROGRESS, ExamAttemptStatus.PAUSED, "IN_PROGRESS", "PAUSED"]
+            )
         )
         if student_id:
             stmt = stmt.where(ExamAttempt.student_id == student_id)

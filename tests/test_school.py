@@ -92,7 +92,12 @@ def test_school_api_rbac(client, test_superadmin, test_teacher, db: Session):
     # 1. Try to create as guest -> 401
     res = client.post(
         "/api/v1/schools",
-        json={"npsn": "11112222", "name": "API School", "domain": "api-school.sch.id", "school_level_id": lvl.id},
+        json={
+            "npsn": "11112222",
+            "name": "API School",
+            "domain": "api-school.sch.id",
+            "school_level_id": lvl.id,
+        },
     )
     assert res.status_code == 401
 
@@ -109,7 +114,12 @@ def test_school_api_rbac(client, test_superadmin, test_teacher, db: Session):
     # Try to create as Teacher -> 403 Forbidden
     res = client.post(
         "/api/v1/schools",
-        json={"npsn": "11112222", "name": "API School", "domain": "api-school.sch.id", "school_level_id": lvl.id},
+        json={
+            "npsn": "11112222",
+            "name": "API School",
+            "domain": "api-school.sch.id",
+            "school_level_id": lvl.id,
+        },
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
     assert res.status_code == 403
@@ -127,7 +137,12 @@ def test_school_api_rbac(client, test_superadmin, test_teacher, db: Session):
     # Create as Superadmin -> 201 Created
     res = client.post(
         "/api/v1/schools",
-        json={"npsn": "11112222", "name": "API School", "domain": "api-school.sch.id", "school_level_id": lvl.id},
+        json={
+            "npsn": "11112222",
+            "name": "API School",
+            "domain": "api-school.sch.id",
+            "school_level_id": lvl.id,
+        },
         headers={"Authorization": f"Bearer {super_token}"},
     )
     assert res.status_code == 201

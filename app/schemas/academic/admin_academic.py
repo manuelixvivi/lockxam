@@ -1,9 +1,10 @@
 from datetime import datetime
 from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
-
 # ── 1. Subject Schemas ──
+
 
 class SubjectCreateRequest(BaseModel):
     code: str = Field(..., min_length=1, max_length=50, examples=["MAT-10"])
@@ -33,6 +34,7 @@ class SubjectResponse(BaseModel):
 
 
 # ── 2. Teacher Competency & Candidate Schemas ──
+
 
 class TeacherCandidateResponse(BaseModel):
     teacher_id: int
@@ -67,6 +69,7 @@ class TeacherSubjectResponse(BaseModel):
 
 # ── 3. Class Schemas ──
 
+
 class ClassCreateRequest(BaseModel):
     academic_year_id: int
     name: str = Field(..., min_length=1, max_length=100, examples=["X MIPA 1"])
@@ -97,6 +100,7 @@ class ClassResponse(BaseModel):
 
 # ── 4. Student Enrollment Schemas ──
 
+
 class StudentEnrollmentRequest(BaseModel):
     student_id: int
 
@@ -122,6 +126,7 @@ class StudentEnrollmentResponse(BaseModel):
 
 # ── 5. Class ↔ Subject & Teacher Assignment Schemas ──
 
+
 class ClassSubjectAssignRequest(BaseModel):
     subject_id: int
 
@@ -141,6 +146,7 @@ class ClassSubjectResponse(BaseModel):
 
 
 # ── 6. Bulk & Import Schemas ──
+
 
 class StudentBulkEnrollRequest(BaseModel):
     student_ids: list[int]
@@ -199,6 +205,7 @@ class ClassSubjectTeacherResponse(BaseModel):
 
 
 # ── 6. Exam Schedule Schemas ──
+
 
 class ExamSchedulePackageCreateRequest(BaseModel):
     title: str = Field(..., min_length=1, max_length=255)
@@ -305,4 +312,3 @@ class SubjectImportItem(BaseModel):
 
 class SubjectImportRequest(BaseModel):
     subjects: list[SubjectImportItem]
-

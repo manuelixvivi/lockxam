@@ -38,13 +38,10 @@ class ExamScheduleRepository(BaseRepository[ExamSchedule]):
     ) -> list[ExamSchedule]:
         if not class_ids:
             return []
-        stmt = (
-            select(ExamSchedule)
-            .where(
-                ExamSchedule.school_id == school_id,
-                ExamSchedule.class_id.in_(class_ids),
-                ExamSchedule.status.in_(["READY", "ACTIVE"]),
-            )
+        stmt = select(ExamSchedule).where(
+            ExamSchedule.school_id == school_id,
+            ExamSchedule.class_id.in_(class_ids),
+            ExamSchedule.status.in_(["READY", "ACTIVE"]),
         )
         return list(db.scalars(stmt).all())
 
@@ -63,15 +60,12 @@ class ExamScheduleRepository(BaseRepository[ExamSchedule]):
         end_time: datetime,
         exclude_id: int | None = None,
     ) -> ExamSchedule | None:
-        stmt = (
-            select(ExamSchedule)
-            .where(
-                ExamSchedule.school_id == school_id,
-                ExamSchedule.class_id == class_id,
-                ExamSchedule.status.notin_(["CANCELLED"]),
-                ExamSchedule.start_time < end_time,
-                ExamSchedule.end_time > start_time,
-            )
+        stmt = select(ExamSchedule).where(
+            ExamSchedule.school_id == school_id,
+            ExamSchedule.class_id == class_id,
+            ExamSchedule.status.notin_(["CANCELLED"]),
+            ExamSchedule.start_time < end_time,
+            ExamSchedule.end_time > start_time,
         )
         if exclude_id is not None:
             stmt = stmt.where(ExamSchedule.id != exclude_id)

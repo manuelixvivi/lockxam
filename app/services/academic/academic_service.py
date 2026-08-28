@@ -1,7 +1,6 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import inspect, text
 from sqlalchemy.orm import Session
 
 from app.exceptions.base import AcademicValidationException, BusinessException

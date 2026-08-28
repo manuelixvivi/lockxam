@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.rbac import require_role
+from app.core.security import COOKIE_SECURE
 from app.exceptions import AuthenticationException
 from app.models.security.enums import UserRole
 from app.repositories.security.auth_repository import auth_repository
@@ -16,7 +17,6 @@ from app.schemas.security.auth import (
     SessionResponse,
     TokenResponse,
 )
-from app.core.security import COOKIE_SECURE
 from app.services.security.auth_service import AuthService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
@@ -40,7 +40,12 @@ def login(data: LoginRequest, request: Request, response: Response, db: Session 
 
 
 @router.post("/logout", status_code=204)
-def logout(request: Request, response: Response, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def logout(
+    request: Request,
+    response: Response,
+    current_user=Depends(get_current_user),
+    db: Session = Depends(get_db),
+):
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     AuthService.logout(
@@ -106,12 +111,16 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if account and account.school_id:
         if account.role in [UserRole.TEACHER, "TEACHER"]:
             from app.services.school.staff_service import SchoolStaffService
+
             SchoolStaffService.list_teachers(db, account.school_id)
             db.refresh(account)
 
         if account.role in [UserRole.STUDENT, "STUDENT"] and not resolved_class_name:
-            from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
             from app.repositories.academic.class_repository import class_repository
+            from app.repositories.academic.student_enrollment_repository import (
+                student_enrollment_repository,
+            )
+
             enrollment = student_enrollment_repository.get_active_by_student(db, account.id)
             if enrollment:
                 cls = class_repository.get_by_id(db, enrollment.class_id)
@@ -120,8 +129,8 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
                     account.class_name = cls.name
                     db.commit()
 
-        from app.repositories.school.school_repository import school_repository
         from app.repositories.master.school_level_repository import school_level_repository
+        from app.repositories.school.school_repository import school_repository
 
         school = school_repository.get_by_id(db, account.school_id)
         if school:
@@ -171,4 +180,3 @@ def change_password(
 @router.get("/superadmin-only")
 def superadmin_only(current_user=Depends(require_role(UserRole.SUPERADMIN))):  # CF-3: Use Enum
     return {"message": "Welcome Superadmin", "current_user": current_user}
-

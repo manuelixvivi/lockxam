@@ -1,8 +1,8 @@
 # Class Structure Bulk Import Remediation Report
 
-**Batch**: Batch 2 — Class Structure Bulk Import Remediation  
-**Status**: 🟢 CONFORMANT  
-**Date**: 2026-08-28  
+**Batch**: Batch 2 — Class Structure Bulk Import Remediation
+**Status**: 🟢 CONFORMANT
+**Date**: 2026-08-28
 
 ---
 

@@ -1,6 +1,7 @@
 from datetime import date, datetime
 from typing import Any
 from uuid import UUID
+
 from pydantic import BaseModel, ConfigDict, Field
 
 
@@ -70,4 +71,3 @@ class StudentImportRow(BaseModel):
 class StudentBulkImportRequest(BaseModel):
     academic_year_id: int
     rows: list[StudentImportRow]
-

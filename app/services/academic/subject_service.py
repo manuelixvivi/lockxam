@@ -91,9 +91,7 @@ class SubjectService:
             db.flush()
 
     @staticmethod
-    def list_subjects(
-        db: Session, school_id: int, is_active: bool | None = None
-    ) -> list[Subject]:
+    def list_subjects(db: Session, school_id: int, is_active: bool | None = None) -> list[Subject]:
         return subject_repository.list_by_school(db, school_id, is_active=is_active)
 
     @staticmethod
@@ -114,9 +112,7 @@ class SubjectService:
         return teacher_subject_repository.assign(db, school_id, teacher_id, subject_id)
 
     @staticmethod
-    def unassign_teacher_competency(
-        db: Session, teacher_id: int, subject_id: int
-    ) -> bool:
+    def unassign_teacher_competency(db: Session, teacher_id: int, subject_id: int) -> bool:
         # TeacherSubject DELETE is the ONLY authority for removing competency.
         # Do NOT write teacher.subjects_taught here.
         # The derived projection is computed at read-time in SchoolStaffService.list_teachers().
@@ -157,54 +153,64 @@ class SubjectService:
             description = item.get("description")
 
             if not code:
-                errors.append({
-                    "row": row_num,
-                    "field": "code",
-                    "value": "",
-                    "code": "SUBJECT_CODE_REQUIRED",
-                    "message": "Kode Mata Pelajaran wajib diisi."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "code",
+                        "value": "",
+                        "code": "SUBJECT_CODE_REQUIRED",
+                        "message": "Kode Mata Pelajaran wajib diisi.",
+                    }
+                )
                 continue
 
             code_clean = code.upper()
 
             if code_clean in seen_codes:
-                errors.append({
-                    "row": row_num,
-                    "field": "code",
-                    "value": code,
-                    "code": "DUPLICATE_SUBJECT_CODE_IN_FILE",
-                    "message": f"Kode mata pelajaran '{code_clean}' ganda di dalam file Excel."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "code",
+                        "value": code,
+                        "code": "DUPLICATE_SUBJECT_CODE_IN_FILE",
+                        "message": f"Kode mata pelajaran '{code_clean}' ganda di dalam file Excel.",
+                    }
+                )
                 continue
             seen_codes.add(code_clean)
 
             existing = subject_repository.get_by_code(db, school_id, code_clean)
             if existing:
-                errors.append({
-                    "row": row_num,
-                    "field": "code",
-                    "value": code,
-                    "code": "DUPLICATE_SUBJECT_CODE_IN_DB",
-                    "message": f"Mata pelajaran dengan kode '{code_clean}' sudah terdaftar di sekolah ini."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "code",
+                        "value": code,
+                        "code": "DUPLICATE_SUBJECT_CODE_IN_DB",
+                        "message": f"Mata pelajaran dengan kode '{code_clean}' sudah terdaftar di sekolah ini.",
+                    }
+                )
                 continue
 
             if not name:
-                errors.append({
-                    "row": row_num,
-                    "field": "name",
-                    "value": "",
-                    "code": "SUBJECT_NAME_REQUIRED",
-                    "message": "Nama Mata Pelajaran wajib diisi."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "name",
+                        "value": "",
+                        "code": "SUBJECT_NAME_REQUIRED",
+                        "message": "Nama Mata Pelajaran wajib diisi.",
+                    }
+                )
                 continue
 
-            validated_batch_data.append({
-                "code": code_clean,
-                "name": name,
-                "description": description.strip() if description else None,
-            })
+            validated_batch_data.append(
+                {
+                    "code": code_clean,
+                    "name": name,
+                    "description": description.strip() if description else None,
+                }
+            )
 
         if errors:
             return False, [], errors
@@ -232,9 +238,9 @@ class SubjectService:
             savepoint.rollback()
             db.rollback()
             from app.logging.logger import logger
+
             logger.error(f"Subject bulk import persistence failure: {str(e)}", exc_info=True)
             raise BusinessException(
                 "Gagal melakukan penyimpanan data ke database. Terjadi kesalahan internal pada server.",
                 status_code=500,
             )
-

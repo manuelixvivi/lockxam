@@ -19,9 +19,7 @@ class ActivationKeyRepository(BaseRepository[ActivationKey]):
 
     def get_all_ordered_by_created_at_desc(self, db: Session) -> list[ActivationKey]:
         return list(
-            db.scalars(
-                select(ActivationKey).order_by(ActivationKey.created_at.desc())
-            ).all()
+            db.scalars(select(ActivationKey).order_by(ActivationKey.created_at.desc())).all()
         )
 
 

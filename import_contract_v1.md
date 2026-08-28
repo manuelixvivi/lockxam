@@ -102,7 +102,7 @@ To prevent broken relational trees or orphaned records, reference lookups must b
   - `auth_accounts(school_id, nisn)`
   - `classes(school_id, academic_year_id, name)`
   - `schools(npsn)`
-  
+
   Any SQLAlchemy insertion must catch `IntegrityError`, perform a transaction rollback, and map the conflict back to a structured validation error response.
 
 ---

@@ -1,4 +1,4 @@
-from sqlalchemy import select, func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.models.security.auth_account import AuthAccount
@@ -23,12 +23,14 @@ class AuthRepository(BaseRepository[AuthAccount]):
 
     def get_superadmin(self, db: Session) -> AuthAccount | None:
         from app.models.security.enums import UserRole
+
         return db.scalar(
             select(AuthAccount).where(AuthAccount.role.in_([UserRole.SUPERADMIN, "SUPERADMIN"]))
         )
 
     def get_school_admin(self, db: Session, school_id: int) -> AuthAccount | None:
         from app.models.security.enums import UserRole
+
         return db.scalar(
             select(AuthAccount).where(
                 AuthAccount.school_id == school_id,
@@ -38,6 +40,7 @@ class AuthRepository(BaseRepository[AuthAccount]):
 
     def list_teachers_by_school(self, db: Session, school_id: int) -> list[AuthAccount]:
         from app.models.security.enums import UserRole
+
         return list(
             db.scalars(
                 select(AuthAccount).where(
@@ -49,6 +52,7 @@ class AuthRepository(BaseRepository[AuthAccount]):
 
     def list_students_by_school(self, db: Session, school_id: int) -> list[AuthAccount]:
         from app.models.security.enums import UserRole
+
         return list(
             db.scalars(
                 select(AuthAccount).where(
@@ -60,22 +64,31 @@ class AuthRepository(BaseRepository[AuthAccount]):
 
     def count_students_by_school(self, db: Session, school_id: int) -> int:
         from app.models.security.enums import UserRole
+
         stmt = select(func.count(AuthAccount.id)).where(
             AuthAccount.school_id == school_id,
             AuthAccount.role.in_([UserRole.STUDENT, "STUDENT"]),
         )
         return db.scalar(stmt) or 0
 
-    def get_by_public_id_and_school(self, db: Session, school_id: int, public_id: any, role: str | None = None) -> AuthAccount | None:
+    def get_by_public_id_and_school(
+        self, db: Session, school_id: int, public_id: any, role: str | None = None
+    ) -> AuthAccount | None:
         from uuid import UUID
+
         pid = UUID(str(public_id)) if isinstance(public_id, str) else public_id
-        stmt = select(AuthAccount).where(AuthAccount.school_id == school_id, AuthAccount.public_id == pid)
+        stmt = select(AuthAccount).where(
+            AuthAccount.school_id == school_id, AuthAccount.public_id == pid
+        )
         if role:
             stmt = stmt.where(AuthAccount.role.in_([role, role.upper()]))
         return db.scalar(stmt)
 
-    def get_teacher_by_code(self, db: Session, school_id: int, teacher_code: str) -> AuthAccount | None:
+    def get_teacher_by_code(
+        self, db: Session, school_id: int, teacher_code: str
+    ) -> AuthAccount | None:
         from app.models.security.enums import UserRole
+
         return db.scalar(
             select(AuthAccount).where(
                 AuthAccount.school_id == school_id,
@@ -107,7 +120,6 @@ class AuthRepository(BaseRepository[AuthAccount]):
                 AuthAccount.nis == nis.strip(),
             )
         )
-
 
 
 auth_repository = AuthRepository()

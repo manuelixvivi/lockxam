@@ -1,4 +1,5 @@
 from datetime import datetime, timezone
+
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
@@ -35,6 +36,7 @@ class DeviceSessionRepository(BaseRepository[DeviceSession]):
         self, db: Session, student_id: int, reason: str = "REBIND_PROCTOR_RESET"
     ) -> None:
         from app.models.security.user_session import UserSession
+
         stmt = select(UserSession).where(
             UserSession.auth_account_id == student_id,
             UserSession.revoked == False,

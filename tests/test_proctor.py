@@ -219,11 +219,11 @@ def test_proctor_command_endpoints(client, test_teacher, db, test_school, monkey
     )
     teacher_token = teacher_login.json()["access_token"]
 
-    from app.models.security.auth_account import AuthAccount
     from app.models.academic.exam_schedule import ExamSchedule
-    from app.models.exam.exam_session import ExamSession, ExamSessionStatus
-    from app.models.exam.exam_attempt import ExamAttempt
     from app.models.exam.enums import ExamAttemptStatus
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.exam_session import ExamSession, ExamSessionStatus
+    from app.models.security.auth_account import AuthAccount
 
     std = AuthAccount(
         id=123,
@@ -237,16 +237,24 @@ def test_proctor_command_endpoints(client, test_teacher, db, test_school, monkey
     db.add(std)
     db.flush()
 
-    from app.models.academic.academic_year import AcademicYear
     from app.models.academic.academic_semester import AcademicSemester
+    from app.models.academic.academic_year import AcademicYear
     from app.models.academic.class_entity import ClassEntity as Class
     from app.models.academic.subject import Subject
 
-    ay = AcademicYear(school_id=test_school.id, name="2026/2027", start_date=datetime.now(timezone.utc), end_date=datetime.now(timezone.utc)+timedelta(days=365), status="ACTIVE")
+    ay = AcademicYear(
+        school_id=test_school.id,
+        name="2026/2027",
+        start_date=datetime.now(timezone.utc),
+        end_date=datetime.now(timezone.utc) + timedelta(days=365),
+        status="ACTIVE",
+    )
     db.add(ay)
     db.flush()
 
-    sem = AcademicSemester(academic_year_id=ay.id, code="GANJIL", display_name="Ganjil", status="ACTIVE")
+    sem = AcademicSemester(
+        academic_year_id=ay.id, code="GANJIL", display_name="Ganjil", status="ACTIVE"
+    )
     db.add(sem)
     db.flush()
 

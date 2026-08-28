@@ -1,28 +1,29 @@
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.rbac import require_admin
 from app.exceptions.base import BusinessException
-from app.schemas.common.import_validation import ImportResponse
 from app.schemas.academic.admin_academic import (
     ClassCreateRequest,
+    ClassFullImportRequest,
     ClassResponse,
     ClassSubjectAssignRequest,
+    ClassSubjectBulkAssignRequest,
+    ClassSubjectBulkRemoveRequest,
     ClassSubjectResponse,
     ClassSubjectTeacherAssignRequest,
     ClassSubjectTeacherResponse,
     ClassUpdateRequest,
+    StudentBulkEnrollRequest,
+    StudentBulkRemoveRequest,
     StudentEnrollmentRequest,
     StudentEnrollmentResponse,
     TeacherCandidateResponse,
-    StudentBulkEnrollRequest,
-    StudentBulkRemoveRequest,
-    ClassSubjectBulkAssignRequest,
-    ClassSubjectBulkRemoveRequest,
-    ClassFullImportRequest,
 )
+from app.schemas.common.import_validation import ImportResponse
 from app.services.academic.class_service import ClassService
 from app.services.academic.class_structure_service import ClassStructureService
 from app.services.academic.subject_service import SubjectService
@@ -34,13 +35,12 @@ router = APIRouter(prefix="/api/v1/admin/classes", tags=["School Admin — Class
 def _get_school_id(current_user: dict) -> int:
     school_id = current_user.get("school_id")
     if not school_id:
-        raise BusinessException(
-            "Akun admin tidak terikat dengan sekolah manapun.", status_code=400
-        )
+        raise BusinessException("Akun admin tidak terikat dengan sekolah manapun.", status_code=400)
     return school_id
 
 
 # ── 1. Class Master Endpoints ──
+
 
 @router.post("", response_model=ClassResponse, status_code=status.HTTP_201_CREATED)
 def create_class(
@@ -97,10 +97,12 @@ def list_classes(
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
-    from app.repositories.academic.class_repository import class_repository
-    from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
-    from app.repositories.academic.class_subject_repository import class_subject_repository
     from app.repositories.academic.academic_year_repository import academic_year_repository
+    from app.repositories.academic.class_repository import class_repository
+    from app.repositories.academic.class_subject_repository import class_subject_repository
+    from app.repositories.academic.student_enrollment_repository import (
+        student_enrollment_repository,
+    )
 
     if academic_year_id is None:
         active_year = academic_year_repository.get_active_year(db, school_id)
@@ -118,7 +120,9 @@ def list_classes(
 
     res = []
     for c in classes:
-        students = student_enrollment_repository.list_by_class(db, c.id, status=["ACTIVE", "COMPLETED", "TRANSFERRED"])
+        students = student_enrollment_repository.list_by_class(
+            db, c.id, status=["ACTIVE", "COMPLETED", "TRANSFERRED"]
+        )
         subjects = class_subject_repository.list_by_class(db, c.id)
         res.append(
             ClassResponse(
@@ -146,14 +150,18 @@ def get_class(
 ):
     school_id = _get_school_id(current_user)
     from app.repositories.academic.class_repository import class_repository
-    from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
     from app.repositories.academic.class_subject_repository import class_subject_repository
+    from app.repositories.academic.student_enrollment_repository import (
+        student_enrollment_repository,
+    )
 
     cls = class_repository.get_by_public_id(db, public_id)
     if not cls or cls.school_id != school_id:
         raise BusinessException("Kelas tidak ditemukan.", status_code=404)
 
-    students = student_enrollment_repository.list_by_class(db, cls.id, status=["ACTIVE", "COMPLETED", "TRANSFERRED"])
+    students = student_enrollment_repository.list_by_class(
+        db, cls.id, status=["ACTIVE", "COMPLETED", "TRANSFERRED"]
+    )
     subjects = class_subject_repository.list_by_class(db, cls.id)
 
     return ClassResponse(
@@ -191,8 +199,11 @@ def update_class(
         is_active=data.is_active,
     )
 
-    from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
     from app.repositories.academic.class_subject_repository import class_subject_repository
+    from app.repositories.academic.student_enrollment_repository import (
+        student_enrollment_repository,
+    )
+
     students = student_enrollment_repository.list_by_class(db, cls.id, status="ACTIVE")
     subjects = class_subject_repository.list_by_class(db, cls.id)
 
@@ -254,7 +265,12 @@ def delete_class(
 
 # ── 2. Student Enrollment & Mutation Endpoints ──
 
-@router.post("/{class_id}/students", response_model=StudentEnrollmentResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/{class_id}/students",
+    response_model=StudentEnrollmentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
 def enroll_student(
     class_id: int,
     data: StudentEnrollmentRequest,
@@ -269,8 +285,9 @@ def enroll_student(
         db=db, school_id=school_id, student_id=data.student_id, class_id=class_id
     )
 
-    from app.repositories.security.auth_repository import auth_repository
     from app.repositories.academic.class_repository import class_repository
+    from app.repositories.security.auth_repository import auth_repository
+
     student = auth_repository.get_by_id(db, data.student_id)
     cls = class_repository.get_by_id(db, class_id)
 
@@ -377,7 +394,10 @@ def remove_student_from_class(
 
 # ── 3. Class ↔ Subject & Teacher Assignments ──
 
-@router.post("/{class_id}/subjects", response_model=ClassSubjectResponse, status_code=status.HTTP_201_CREATED)
+
+@router.post(
+    "/{class_id}/subjects", response_model=ClassSubjectResponse, status_code=status.HTTP_201_CREATED
+)
 def assign_subject_to_class(
     class_id: int,
     data: ClassSubjectAssignRequest,
@@ -393,6 +413,7 @@ def assign_subject_to_class(
     )
 
     from app.repositories.academic.subject_repository import subject_repository
+
     subj = subject_repository.get_by_id(db, data.subject_id)
 
     ActivityService.log_activity(
@@ -429,7 +450,9 @@ def list_class_subjects(
     school_id = _get_school_id(current_user)
     from app.repositories.academic.class_repository import class_repository
     from app.repositories.academic.class_subject_repository import class_subject_repository
-    from app.repositories.academic.class_subject_teacher_repository import class_subject_teacher_repository
+    from app.repositories.academic.class_subject_teacher_repository import (
+        class_subject_teacher_repository,
+    )
     from app.repositories.academic.subject_repository import subject_repository
     from app.repositories.security.auth_repository import auth_repository
 
@@ -460,7 +483,9 @@ def list_class_subjects(
     return res
 
 
-@router.post("/{class_id}/subjects/{subject_id}/teachers", response_model=ClassSubjectTeacherResponse)
+@router.post(
+    "/{class_id}/subjects/{subject_id}/teachers", response_model=ClassSubjectTeacherResponse
+)
 def assign_teacher_to_class_subject(
     class_id: int,
     subject_id: int,
@@ -480,9 +505,9 @@ def assign_teacher_to_class_subject(
         teacher_id=data.teacher_id,
     )
 
-    from app.repositories.security.auth_repository import auth_repository
-    from app.repositories.academic.subject_repository import subject_repository
     from app.repositories.academic.class_repository import class_repository
+    from app.repositories.academic.subject_repository import subject_repository
+    from app.repositories.security.auth_repository import auth_repository
 
     teacher = auth_repository.get_by_id(db, data.teacher_id)
     subj = subject_repository.get_by_id(db, subject_id)
@@ -519,7 +544,11 @@ def assign_teacher_to_class_subject(
 
 # ── 4. Candidate Teacher Endpoint (Core UX Requirement) ──
 
-@router.get("/{class_id}/subjects/{subject_id}/teacher-candidates", response_model=list[TeacherCandidateResponse])
+
+@router.get(
+    "/{class_id}/subjects/{subject_id}/teacher-candidates",
+    response_model=list[TeacherCandidateResponse],
+)
 def get_teacher_candidates(
     class_id: int,
     subject_id: int,
@@ -535,6 +564,7 @@ def get_teacher_candidates(
     """
     school_id = _get_school_id(current_user)
     from app.repositories.academic.class_repository import class_repository
+
     cls = class_repository.get_by_id(db, class_id)
     if not cls or cls.school_id != school_id:
         raise BusinessException("Kelas tidak ditemukan.", status_code=404)
@@ -558,6 +588,7 @@ def get_teacher_candidates(
 
 
 # ── 5. Bulk Student & Subject Mutations + Full Class XLSX Import ──
+
 
 @router.post("/{class_id}/students/bulk-enroll", status_code=status.HTTP_200_OK)
 def bulk_enroll_students(
@@ -631,6 +662,7 @@ def import_full_classes_xlsx(
     db: Session = Depends(get_db),
 ):
     from fastapi.responses import JSONResponse
+
     from app.schemas.common.import_validation import ImportResponse, ImportRowError
 
     school_id = _get_school_id(current_user)
@@ -655,7 +687,7 @@ def import_full_classes_xlsx(
                 message="Impor struktur kelas gagal karena terdapat kesalahan validasi.",
                 imported_count=0,
                 errors=row_errors,
-            ).model_dump()
+            ).model_dump(),
         )
 
     # Logging activity
@@ -673,16 +705,16 @@ def import_full_classes_xlsx(
         metadata={
             "academic_year_id": data.academic_year_id,
             "classes_count": len(data.classes),
-            "assigned_teachers_count": len(created_relations)
+            "assigned_teachers_count": len(created_relations),
         },
     )
 
     db.commit()
 
     # Resolve details for response
-    from app.repositories.security.auth_repository import auth_repository
-    from app.repositories.academic.subject_repository import subject_repository
     from app.repositories.academic.class_repository import class_repository
+    from app.repositories.academic.subject_repository import subject_repository
+    from app.repositories.security.auth_repository import auth_repository
 
     response_data = []
     for cst in created_relations:
@@ -711,4 +743,3 @@ def import_full_classes_xlsx(
         imported_count=len(created_relations),
         data=response_data,
     )
-

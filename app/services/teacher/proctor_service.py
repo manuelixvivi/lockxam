@@ -76,10 +76,7 @@ class ProctorService:
     def get_or_create_bau(db: Session, proctor_assignment_id: int) -> BAUDocument:
         try:
             from datetime import timedelta
-            from app.models.academic.exam_schedule import ExamSchedule
-            from app.models.exam.exam_session import ExamSession
-            from app.models.exam.exam_attempt import ExamAttempt
-            from app.models.academic.student_class_enrollment import StudentClassEnrollment
+
             from app.utils.timezone import ensure_wib
 
             doc = bau_repository.get_by_assignment(db, proctor_assignment_id)
@@ -92,10 +89,12 @@ class ProctorService:
                 db.flush()
 
             from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
-            from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
-            from app.repositories.exam.exam_session_repository import exam_session_repository
+            from app.repositories.academic.student_enrollment_repository import (
+                student_enrollment_repository,
+            )
             from app.repositories.exam.attempt_repository import attempt_repository
             from app.repositories.exam.checkin_repository import checkin_repository
+            from app.repositories.exam.exam_session_repository import exam_session_repository
 
             schedule = exam_schedule_repository.get_by_id(db, proctor_assignment_id)
 
@@ -121,21 +120,30 @@ class ProctorService:
                 checkin_student_ids = {c.student_id for c in checkins}
                 present_student_ids = attempt_student_ids | checkin_student_ids
 
-                enrollments = student_enrollment_repository.list_by_class(db, schedule.class_id, status="ACTIVE")
+                enrollments = student_enrollment_repository.list_by_class(
+                    db, schedule.class_id, status="ACTIVE"
+                )
 
                 existing_atts = {att.student_id: att for att in doc.attendances}
                 for en in enrollments:
                     sid = en.student_id
                     if sid not in existing_atts:
                         # Default is ALPA unless student started attempt or scanned QR check-in
-                        st = AttendanceStatus.HADIR if sid in present_student_ids else AttendanceStatus.ALPA
+                        st = (
+                            AttendanceStatus.HADIR
+                            if sid in present_student_ids
+                            else AttendanceStatus.ALPA
+                        )
                         new_att = BAUAttendance(
                             bau_document_id=doc.id,
                             student_id=sid,
                             attendance_status=st,
                         )
                         db.add(new_att)
-                    elif sid in present_student_ids and existing_atts[sid].attendance_status == AttendanceStatus.ALPA:
+                    elif (
+                        sid in present_student_ids
+                        and existing_atts[sid].attendance_status == AttendanceStatus.ALPA
+                    ):
                         existing_atts[sid].attendance_status = AttendanceStatus.HADIR
 
             db.commit()
@@ -205,7 +213,9 @@ class ProctorService:
             if doc.status == BAUStatus.SUBMITTED:
                 submitted_time = doc.submitted_at or doc.updated_at or doc.created_at
                 if (now_utc - submitted_time).total_seconds() > 24 * 3600:
-                    raise BusinessException("Berita Acara telah dikunci secara permanen.", status_code=400)
+                    raise BusinessException(
+                        "Berita Acara telah dikunci secara permanen.", status_code=400
+                    )
 
             doc.status = BAUStatus.SUBMITTED
             doc.proctor_notes = proctor_notes
@@ -302,11 +312,15 @@ class ProctorService:
         if endpoint in ["lock-student", "lock"]:
             ExamService.proctor_lock_attempt(db=db, payload=cmd_payload)
         elif endpoint in ["unlock-student", "unlock"]:
-            ExamService.proctor_unlock_attempt(db=db, attempt_id=attempt_id, exam_session_id=exam_session_id)
+            ExamService.proctor_unlock_attempt(
+                db=db, attempt_id=attempt_id, exam_session_id=exam_session_id
+            )
         elif endpoint == "device-reset":
             ExamService.proctor_reset_device(db=db, payload=cmd_payload)
         else:
-            raise BusinessException(f"Perintah pengawas '{endpoint}' tidak dikenal.", status_code=400)
+            raise BusinessException(
+                f"Perintah pengawas '{endpoint}' tidak dikenal.", status_code=400
+            )
 
         return {
             "status": "SUCCESS",

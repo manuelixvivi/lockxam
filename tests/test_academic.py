@@ -175,7 +175,14 @@ def test_rollover_academic_year_success_and_infractions(db, test_superadmin):
     db.add(subj1)
     db.flush()
 
-    tcher = AuthAccount(school_id=school.id, public_id=uuid4(), username=f"teacher_{uuid4().hex[:6]}", password_hash="hash", role="TEACHER", is_active=True)
+    tcher = AuthAccount(
+        school_id=school.id,
+        public_id=uuid4(),
+        username=f"teacher_{uuid4().hex[:6]}",
+        password_hash="hash",
+        role="TEACHER",
+        is_active=True,
+    )
     db.add(tcher)
     db.flush()
 
@@ -272,7 +279,7 @@ def test_api_academic_endpoints(client, test_superadmin, db):
     # Update school status to ACTIVE so mutating operations are permitted
     db_school = db.query(School).filter(School.npsn == npsn).first()
     db_school.status = "ACTIVE"
-    
+
     # Reset admin credentials to legacy test expectations
     admin_acc = db.query(AuthAccount).filter(AuthAccount.school_id == db_school.id).first()
     admin_acc.username = f"admin_{npsn}"

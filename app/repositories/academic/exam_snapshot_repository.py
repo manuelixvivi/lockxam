@@ -12,19 +12,12 @@ class ExamSnapshotRepository(BaseRepository[ExamSnapshot]):
         super().__init__(ExamSnapshot)
 
     def get_by_public_id(self, db: Session, public_id: UUID) -> ExamSnapshot | None:
-        return db.scalar(
-            select(ExamSnapshot).where(ExamSnapshot.public_id == public_id)
-        )
+        return db.scalar(select(ExamSnapshot).where(ExamSnapshot.public_id == public_id))
 
-    def get_by_schedule_id(
-        self, db: Session, exam_schedule_id: int
-    ) -> ExamSnapshot | None:
+    def get_by_schedule_id(self, db: Session, exam_schedule_id: int) -> ExamSnapshot | None:
         return db.scalar(
-            select(ExamSnapshot).where(
-                ExamSnapshot.exam_schedule_id == exam_schedule_id
-            )
+            select(ExamSnapshot).where(ExamSnapshot.exam_schedule_id == exam_schedule_id)
         )
-
 
     def delete_by_schedule(self, db: Session, exam_schedule_id: int) -> None:
         snap = self.get_by_schedule_id(db, exam_schedule_id)

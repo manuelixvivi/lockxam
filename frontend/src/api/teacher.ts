@@ -8,7 +8,7 @@ export interface TeacherAccount {
   is_active: boolean;
   last_login: string | null;
   created_at: string;
-  
+
   // Profile fields
   name: string | null;
   nip: string | null;

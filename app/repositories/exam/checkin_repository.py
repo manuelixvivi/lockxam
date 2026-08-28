@@ -1,5 +1,6 @@
-from sqlalchemy import select, or_
+from sqlalchemy import select
 from sqlalchemy.orm import Session
+
 from app.models.exam.exam_checkin import ExamCheckin
 from app.repositories.base_repository import BaseRepository
 
@@ -12,8 +13,7 @@ class CheckinRepository(BaseRepository[ExamCheckin]):
         self, db: Session, student_id: int, schedule_id: int, session_id: int | None = None
     ) -> ExamCheckin | None:
         stmt = select(ExamCheckin).where(
-            ExamCheckin.student_id == student_id,
-            ExamCheckin.schedule_id == schedule_id
+            ExamCheckin.student_id == student_id, ExamCheckin.schedule_id == schedule_id
         )
         return db.scalar(stmt)
 
@@ -29,8 +29,7 @@ class CheckinRepository(BaseRepository[ExamCheckin]):
         self, db: Session, schedule_id: int, student_id: int
     ) -> ExamCheckin | None:
         stmt = select(ExamCheckin).where(
-            ExamCheckin.schedule_id == schedule_id,
-            ExamCheckin.student_id == student_id
+            ExamCheckin.schedule_id == schedule_id, ExamCheckin.student_id == student_id
         )
         return db.scalar(stmt)
 

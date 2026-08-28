@@ -138,7 +138,9 @@ def test_must_change_password_exposed_via_me(client, db, test_superadmin, test_t
     from app.models.security.auth_account import AuthAccount
 
     # 1. Check SuperAdmin with must_change_password=True
-    sa_acc = db.query(AuthAccount).filter(AuthAccount.username == test_superadmin["username"]).first()
+    sa_acc = (
+        db.query(AuthAccount).filter(AuthAccount.username == test_superadmin["username"]).first()
+    )
     sa_acc.must_change_password = True
     db.commit()
 
@@ -152,7 +154,9 @@ def test_must_change_password_exposed_via_me(client, db, test_superadmin, test_t
     assert sa_me.json()["must_change_password"] is True
 
     # 2. Check Teacher with must_change_password=False
-    teacher_acc = db.query(AuthAccount).filter(AuthAccount.username == test_teacher["username"]).first()
+    teacher_acc = (
+        db.query(AuthAccount).filter(AuthAccount.username == test_teacher["username"]).first()
+    )
     teacher_acc.must_change_password = False
     db.commit()
 

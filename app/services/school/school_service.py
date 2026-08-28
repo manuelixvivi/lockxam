@@ -30,7 +30,9 @@ class SchoolService:
         # Validate domain uniqueness
         existing_domain = school_repository.get_by_domain(db, data.domain)
         if existing_domain:
-            raise BusinessException(f"Domain '{data.domain}' sudah digunakan sekolah lain.", status_code=409)
+            raise BusinessException(
+                f"Domain '{data.domain}' sudah digunakan sekolah lain.", status_code=409
+            )
 
         # BR-SCH-005: Validate school level exists
         level = school_level_repository.get_by_id(db, data.school_level_id)
@@ -87,7 +89,10 @@ class SchoolService:
 
         lic_type = license_type_repository.get_by_code(db, data.initial_subscription_preset)
         if not lic_type:
-            raise BusinessException(f"Preset subscription '{data.initial_subscription_preset}' tidak valid.", status_code=400)
+            raise BusinessException(
+                f"Preset subscription '{data.initial_subscription_preset}' tidak valid.",
+                status_code=400,
+            )
 
         # Get superadmin to be the key generator
         superadmin = auth_repository.get_superadmin(db)
@@ -190,6 +195,7 @@ class SchoolService:
             new_password = f"eQu!6r4de@{school.code}"
 
         from app.core.security.password import validate_password_strength
+
         validate_password_strength(new_password)
         admin_acc.password_hash = hash_password(new_password)
         admin_acc.must_change_password = True
@@ -204,13 +210,17 @@ class SchoolService:
         if data.npsn is not None and data.npsn.strip() != school.npsn:
             existing = school_repository.get_by_npsn(db, data.npsn.strip())
             if existing and existing.id != school.id:
-                raise BusinessException(f"School with NPSN {data.npsn} already exists", status_code=400)
+                raise BusinessException(
+                    f"School with NPSN {data.npsn} already exists", status_code=400
+                )
             school.npsn = data.npsn.strip()
 
         if data.code is not None and data.code.strip() != school.code:
             existing = school_repository.get_by_code(db, data.code.strip())
             if existing and existing.id != school.id:
-                raise BusinessException(f"School with code '{data.code}' already exists", status_code=400)
+                raise BusinessException(
+                    f"School with code '{data.code}' already exists", status_code=400
+                )
             school.code = data.code.strip()
 
         if data.school_level_id is not None:
@@ -225,7 +235,9 @@ class SchoolService:
         if data.domain is not None and data.domain.strip() != (school.domain or ""):
             existing = school_repository.get_by_domain(db, data.domain.strip())
             if existing and existing.id != school.id:
-                raise BusinessException(f"Domain '{data.domain}' sudah digunakan sekolah lain.", status_code=409)
+                raise BusinessException(
+                    f"Domain '{data.domain}' sudah digunakan sekolah lain.", status_code=409
+                )
             school.domain = data.domain.strip()
 
         if data.name is not None:

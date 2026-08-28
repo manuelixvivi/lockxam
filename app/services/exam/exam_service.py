@@ -188,7 +188,11 @@ class ExamService:
                 if start_at and start_at.tzinfo is None:
                     start_at = start_at.replace(tzinfo=timezone.utc)
 
-                if not start_at or now_utc >= start_at or str(session.status).upper() in ["PLANNED", "DRAFT", "READY", "SCHEDULED"]:
+                if (
+                    not start_at
+                    or now_utc >= start_at
+                    or str(session.status).upper() in ["PLANNED", "DRAFT", "READY", "SCHEDULED"]
+                ):
                     session.status = ExamSessionStatus.ACTIVE
                     db.flush()
                 else:
@@ -260,7 +264,11 @@ class ExamService:
             )
 
             now = datetime.now(timezone.utc)
-            dur_mins = session.duration_minutes if session.duration_minutes and session.duration_minutes > 0 else 30
+            dur_mins = (
+                session.duration_minutes
+                if session.duration_minutes and session.duration_minutes > 0
+                else 30
+            )
             target_deadline = now + timedelta(minutes=dur_mins)
             if session.scheduled_end_at:
                 sched_end = session.scheduled_end_at
@@ -465,8 +473,7 @@ class ExamService:
         3. linked schedule.end_time <= now_wib
         Ensures disconnected students have their last autosaved answers automatically submitted when exam time finishes.
         """
-        from app.models.exam.exam_session import ExamSession, ExamSessionStatus
-        from app.models.exam.exam_attempt import ExamAttempt, ExamAttemptStatus
+        from app.models.exam.exam_session import ExamSessionStatus
 
         now_utc = datetime.now(timezone.utc)
         submitted_count = 0
@@ -479,7 +486,11 @@ class ExamService:
                     if end_dt.tzinfo is None:
                         end_dt = end_dt.replace(tzinfo=timezone.utc)
                     if now_utc >= end_dt:
-                        if sess.status not in [ExamSessionStatus.COMPLETED, "COMPLETED", "FINISHED"]:
+                        if sess.status not in [
+                            ExamSessionStatus.COMPLETED,
+                            "COMPLETED",
+                            "FINISHED",
+                        ]:
                             sess.status = ExamSessionStatus.COMPLETED
             db.commit()
         except Exception:
@@ -695,20 +706,26 @@ class ExamService:
             attempt_for_auth = attempt_repository.get_with_lock(db, evaluation.exam_attempt_id)
             if not attempt_for_auth:
                 raise BusinessException("Attempt tidak ditemukan.", status_code=404)
-            
+
             snapshot = snapshot_repository.get_by_session(db, attempt_for_auth.exam_session_id)
-            
-            is_owner = (snapshot and snapshot.owner_teacher_account_id == teacher_account_id)
+
+            is_owner = snapshot and snapshot.owner_teacher_account_id == teacher_account_id
             if not is_owner:
                 sess = exam_session_repository.get_by_id(db, attempt_for_auth.exam_session_id)
-                if not sess or (snapshot and snapshot.owner_teacher_account_id != teacher_account_id):
+                if not sess or (
+                    snapshot and snapshot.owner_teacher_account_id != teacher_account_id
+                ):
                     raise BusinessException(
                         "Akses ditolak: Hanya guru pengampu mata pelajaran pada jadwal ujian ini yang berhak melakukan pengoreksian nilai.",
                         status_code=403,
                     )
 
             # Validate max score limits using evaluation.max_score directly
-            max_allowed = float(evaluation.max_score) if (evaluation and evaluation.max_score is not None) else 100.0
+            max_allowed = (
+                float(evaluation.max_score)
+                if (evaluation and evaluation.max_score is not None)
+                else 100.0
+            )
 
             if score > max_allowed or score < 0:
                 raise BusinessException(
@@ -821,11 +838,15 @@ class ExamService:
             if payload.attempt_id:
                 attempt = attempt_repository.get_with_lock(db, payload.attempt_id)
             if not attempt and payload.student_id:
-                attempt = attempt_repository.get_by_session_and_student(db, payload.exam_session_id, payload.student_id)
+                attempt = attempt_repository.get_by_session_and_student(
+                    db, payload.exam_session_id, payload.student_id
+                )
 
             now = datetime.now(timezone.utc)
             if payload.student_id:
-                device_session_repository.revoke_user_sessions_for_student(db, payload.student_id, reason="REBIND_PROCTOR_RESET")
+                device_session_repository.revoke_user_sessions_for_student(
+                    db, payload.student_id, reason="REBIND_PROCTOR_RESET"
+                )
 
             if not attempt:
                 # If attempt doesn't exist yet, device reset successfully cleared student login locks
@@ -850,7 +871,9 @@ class ExamService:
 
             # 1b. Revoke active UserSessions so student can immediately log in from replacement HP
             if attempt.student_id:
-                device_session_repository.revoke_user_sessions_for_student(db, attempt.student_id, reason="REBIND_PROCTOR_RESET")
+                device_session_repository.revoke_user_sessions_for_student(
+                    db, attempt.student_id, reason="REBIND_PROCTOR_RESET"
+                )
             if (
                 attempt.status == ExamAttemptStatus.IN_PROGRESS
                 and attempt.deadline_at

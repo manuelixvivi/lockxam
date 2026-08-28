@@ -1,27 +1,27 @@
-import pytest
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
+
+import pytest
 from sqlalchemy import select
 
 from app.core.database import SessionLocal
 from app.exceptions.base import BusinessException
-from app.models.academic.enums import AcademicStatus, EnrollmentStatus, ExamScheduleStatus
-from app.models.academic.academic_year import AcademicYear
 from app.models.academic.academic_semester import AcademicSemester
+from app.models.academic.academic_year import AcademicYear
+from app.models.academic.enums import AcademicStatus, EnrollmentStatus, ExamScheduleStatus
 from app.models.master.school_level import SchoolLevel
 from app.models.school.school import School
 from app.models.security.auth_account import AuthAccount
 from app.models.security.enums import UserRole
-from app.models.teacher.enums import QuestionType, PackageStatus
+from app.models.teacher.enums import PackageStatus, QuestionType
+from app.models.teacher.package_item import QuestionPackageItem
 from app.models.teacher.question import Question
 from app.models.teacher.question_package import QuestionPackage
-from app.models.teacher.package_item import QuestionPackageItem
-
-from app.services.academic.subject_service import SubjectService
 from app.services.academic.class_service import ClassService
 from app.services.academic.class_structure_service import ClassStructureService
 from app.services.academic.exam_schedule_service import ExamScheduleService
 from app.services.academic.exam_snapshot_service import ExamSnapshotService
+from app.services.academic.subject_service import SubjectService
 
 
 @pytest.fixture
@@ -169,7 +169,11 @@ def test_teacher_assignment_eligibility(db):
     # 2. Try to assign Bu Sari to teach Fisika in X IPA 1 -> MUST FAIL (Not qualified)
     with pytest.raises(BusinessException) as exc_info:
         ClassStructureService.assign_teacher_to_class_subject(
-            db, school_id=school.id, class_id=cls.id, subject_id=subj_fisika.id, teacher_id=bu_sari.id
+            db,
+            school_id=school.id,
+            class_id=cls.id,
+            subject_id=subj_fisika.id,
+            teacher_id=bu_sari.id,
         )
     assert "belum memiliki kompetensi" in str(exc_info.value)
 
@@ -338,8 +342,9 @@ def test_immutable_exam_snapshot(db):
     assert "telah dikunci (IMMUTABLE)" in str(exc_info.value)
 
     # 8. Once active exam session exists, re-assignment must be REJECTED
-    from app.models.exam.exam_session import ExamSession
     from app.models.exam.enums import ExamSessionStatus
+    from app.models.exam.exam_session import ExamSession
+
     active_session = ExamSession(
         schedule_id=schedule.id,
         package_id=pkg.id,
@@ -364,10 +369,9 @@ def test_immutable_exam_snapshot(db):
 
 # ── TEST 5: Student & Teacher Historical Data Preservation Invariant ──
 def test_historical_preservation_on_student_and_teacher_deactivation(db):
-    from app.services.school.student_service import SchoolStudentService
-    from app.services.school.staff_service import SchoolStaffService
     from app.models.exam.exam_attempt import ExamAttempt
     from app.models.exam.exam_session import ExamSession
+    from app.services.school.student_service import SchoolStudentService
 
     school = create_test_school(db)
     year = create_test_academic_year(db, school.id, name="2026/2027")
@@ -407,7 +411,7 @@ def test_historical_preservation_on_student_and_teacher_deactivation(db):
         duration_minutes=90,
     )
 
-    from app.models.exam.enums import ExamSessionStatus, ExamAttemptStatus
+    from app.models.exam.enums import ExamAttemptStatus, ExamSessionStatus
 
     session = ExamSession(
         schedule_id=schedule.id,
@@ -447,6 +451,7 @@ def test_historical_preservation_on_student_and_teacher_deactivation(db):
 # TeacherSubject Single Source-of-Truth Regression Tests (P1-02)
 # =============================================================================
 
+
 def test_teacher_competency_via_teacher_subject_only(db):
     """
     A. Admin cannot create teacher competency through subjects_taught.
@@ -457,9 +462,9 @@ def test_teacher_competency_via_teacher_subject_only(db):
     F. Modifying legacy subjects_taught cannot grant competency.
     G. Modifying TeacherSubject changes competency correctly.
     """
-    from app.services.school.staff_service import SchoolStaffService
-    from app.services.academic.subject_service import SubjectService
     from app.repositories.academic.teacher_subject_repository import teacher_subject_repository
+    from app.services.academic.subject_service import SubjectService
+    from app.services.school.staff_service import SchoolStaffService
 
     school = create_test_school(db)
 
@@ -492,7 +497,9 @@ def test_teacher_competency_via_teacher_subject_only(db):
 
     # TeacherSubject still has zero records — subjects_taught write is NOT competency
     ts_records = teacher_subject_repository.list_by_teacher(db, teacher.id)
-    assert len(ts_records) == 0, "B: Writing subjects_taught directly must NOT create TeacherSubject records"
+    assert (
+        len(ts_records) == 0
+    ), "B: Writing subjects_taught directly must NOT create TeacherSubject records"
 
     # ── C. Assigning via SubjectService creates TeacherSubject ──────────────────
     ts = SubjectService.assign_teacher_competency(db, school.id, teacher.id, subj.id)
@@ -512,22 +519,25 @@ def test_teacher_competency_via_teacher_subject_only(db):
     # teacher.subjects_taught still has ["Matematika"] from step B
     # but TeacherSubject has zero records — candidate list must be empty
     candidates = SubjectService.list_qualified_teachers_for_subject(db, school.id, subj.id)
-    assert teacher.id not in [c.id for c in candidates], \
-        "E: Candidate lookup must use TeacherSubject only, NOT subjects_taught field"
+    assert teacher.id not in [
+        c.id for c in candidates
+    ], "E: Candidate lookup must use TeacherSubject only, NOT subjects_taught field"
 
     # ── F. Legacy subjects_taught cannot grant access via candidate lookup ────────
     teacher.subjects_taught = ["Matematika"]
     db.flush()
     candidates = SubjectService.list_qualified_teachers_for_subject(db, school.id, subj.id)
-    assert teacher.id not in [c.id for c in candidates], \
-        "F: Modifying subjects_taught directly must NOT appear in candidate lookup"
+    assert teacher.id not in [
+        c.id for c in candidates
+    ], "F: Modifying subjects_taught directly must NOT appear in candidate lookup"
 
     # ── G. Re-assign via TeacherSubject restores candidacy ──────────────────────
     SubjectService.assign_teacher_competency(db, school.id, teacher.id, subj.id)
     db.flush()
     candidates = SubjectService.list_qualified_teachers_for_subject(db, school.id, subj.id)
-    assert teacher.id in [c.id for c in candidates], \
-        "G: After TeacherSubject assignment, teacher must appear in candidate lookup"
+    assert teacher.id in [
+        c.id for c in candidates
+    ], "G: After TeacherSubject assignment, teacher must appear in candidate lookup"
 
 
 def test_legacy_subjects_taught_cannot_pollute_projection(db):
@@ -544,9 +554,9 @@ def test_legacy_subjects_taught_cannot_pollute_projection(db):
     10. Call list_teachers().
     11. Assert projection is empty.
     """
-    from app.services.school.staff_service import SchoolStaffService
-    from app.services.academic.subject_service import SubjectService
     from app.repositories.academic.teacher_subject_repository import teacher_subject_repository
+    from app.services.academic.subject_service import SubjectService
+    from app.services.school.staff_service import SchoolStaffService
 
     school = create_test_school(db)
 
@@ -604,4 +614,3 @@ def test_legacy_subjects_taught_cannot_pollute_projection(db):
 
     # 11. Assert projection is empty
     assert len(t_opt.subjects_taught or []) == 0
-

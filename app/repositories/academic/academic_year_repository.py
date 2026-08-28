@@ -63,6 +63,7 @@ class AcademicYearRepository(BaseRepository[AcademicYear]):
 
     def verify_archive_checklist(self, db: Session, academic_year_id: int) -> list[str]:
         from sqlalchemy import inspect, text
+
         errors = []
         inspector = inspect(db.connection())
 
@@ -77,7 +78,9 @@ class AcademicYearRepository(BaseRepository[AcademicYear]):
                 {"year_id": academic_year_id},
             ).scalar()
             if active_exams and active_exams > 0:
-                errors.append("Masih ada sesi ujian yang sedang aktif / berlangsung di tahun ajaran ini.")
+                errors.append(
+                    "Masih ada sesi ujian yang sedang aktif / berlangsung di tahun ajaran ini."
+                )
 
         if inspector.has_table("grades"):
             draft_grades = db.execute(
@@ -101,7 +104,9 @@ class AcademicYearRepository(BaseRepository[AcademicYear]):
                 {"year_id": academic_year_id},
             ).scalar()
             if active_ai and active_ai > 0:
-                errors.append("Active AI evaluation pipelines are running for this academic period.")
+                errors.append(
+                    "Active AI evaluation pipelines are running for this academic period."
+                )
 
         return errors
 

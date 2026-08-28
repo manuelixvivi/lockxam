@@ -12,7 +12,7 @@ export const LoginView: React.FC<{ onLoginSuccess?: (role: UserRole) => void }> 
 }) => {
   const { login } = useAuth();
   const { theme, toggleTheme, setTheme } = useTheme();
-  
+
   const [username, setUsername] = useState("admin_school");
   const [password, setPassword] = useState("Password123!");
   const [showPassword, setShowPassword] = useState(false);

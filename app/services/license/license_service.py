@@ -11,10 +11,7 @@ from app.exceptions.base import BusinessException
 from app.models.license.activation_key import ActivationKey
 from app.models.license.renewal_request import RenewalRequest
 from app.models.license.school_license import SchoolLicense
-from app.models.security.auth_account import AuthAccount
-from app.models.security.enums import UserRole
 from app.repositories.license.activation_key_repository import activation_key_repository
-
 from app.repositories.license.renewal_request_repository import renewal_request_repository
 from app.repositories.license.school_license_repository import school_license_repository
 from app.repositories.master.license_type_repository import license_type_repository
@@ -82,7 +79,7 @@ class LicenseService:
         created_at = key_record.created_at
         if created_at.tzinfo is None:
             created_at = created_at.replace(tzinfo=timezone.utc)
-            
+
         if (now - created_at).total_seconds() > 3 * 24 * 3600:
             raise BusinessException(
                 "Activation Key tidak dapat dibatalkan setelah 3 hari diinput/dibuat.",
@@ -154,7 +151,9 @@ class LicenseService:
                 school_license_repository.update(db, active_lic)
         elif active_lic:
             # If current active is already PERMANENT, don't downgrade
-            if active_lic.license_type_id == 7 or (active_lic.end_date and active_lic.end_date.year > 2070):
+            if active_lic.license_type_id == 7 or (
+                active_lic.end_date and active_lic.end_date.year > 2070
+            ):
                 start_date = active_lic.end_date
                 status = "SUPERSEDED"
             else:
@@ -273,6 +272,5 @@ class LicenseService:
             lic = school_license_repository.get_latest_license(db, school_id)
         if lic:
             total_students = auth_repository.count_students_by_school(db, school_id)
-            setattr(lic, "registered_students_count", total_students)
+            lic.registered_students_count = total_students
         return lic
-

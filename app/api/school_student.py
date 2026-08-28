@@ -7,11 +7,11 @@ from app.exceptions.base import BusinessException
 from app.schemas.common.import_validation import ImportResponse
 from app.schemas.school.student import (
     StudentAccountResponse,
+    StudentBulkImportRequest,
     StudentCreateRequest,
     StudentCreateResponse,
     StudentResetPasswordResponse,
     StudentUpdateRequest,
-    StudentBulkImportRequest,
 )
 from app.services.school.student_service import SchoolStudentService
 from app.services.security.activity_service import ActivityService
@@ -22,9 +22,7 @@ router = APIRouter(prefix="/api/v1/admin/students", tags=["School Admin — Stud
 def _get_school_id(current_user: dict) -> int:
     school_id = current_user.get("school_id")
     if not school_id:
-        raise BusinessException(
-            "Admin account is not associated with any school.", status_code=400
-        )
+        raise BusinessException("Admin account is not associated with any school.", status_code=400)
     return school_id
 
 
@@ -169,9 +167,7 @@ def reset_student_password(
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
-    student, new_password = SchoolStudentService.reset_student_password(
-        db, school_id, public_id
-    )
+    student, new_password = SchoolStudentService.reset_student_password(db, school_id, public_id)
     ActivityService.log_activity(
         db=db,
         auth_account_id=int(current_user["sub"]),
@@ -202,12 +198,13 @@ def clear_student_sessions(
     school_id = _get_school_id(current_user)
     from datetime import datetime, timezone
     from uuid import UUID
-    from app.models.security.auth_account import AuthAccount
-    from app.models.security.enums import UserRole
-    from app.models.security.user_session import UserSession
+
     from app.models.exam.device_session import DeviceSession
     from app.models.exam.enums import DeviceSessionStatus
     from app.models.exam.exam_checkin import ExamCheckin
+    from app.models.security.auth_account import AuthAccount
+    from app.models.security.enums import UserRole
+    from app.models.security.user_session import UserSession
 
     try:
         student_uuid = UUID(public_id)
@@ -244,7 +241,11 @@ def clear_student_sessions(
 
     # 2. Invalidate Device Sessions (Exam)
     from app.models.exam.exam_attempt import ExamAttempt
-    attempt_ids = [a.id for a in db.query(ExamAttempt.id).filter(ExamAttempt.student_id == student_acc.id).all()]
+
+    attempt_ids = [
+        a.id
+        for a in db.query(ExamAttempt.id).filter(ExamAttempt.student_id == student_acc.id).all()
+    ]
     if attempt_ids:
         devices = (
             db.query(DeviceSession)
@@ -276,8 +277,8 @@ def import_students(
     db: Session = Depends(get_db),
 ):
     from fastapi.responses import JSONResponse
+
     from app.schemas.common.import_validation import ImportResponse, ImportRowError
-    from app.schemas.school.student import StudentBulkImportRequest
 
     school_id = _get_school_id(current_user)
 
@@ -297,7 +298,7 @@ def import_students(
                 message="Impor data siswa gagal karena terdapat kesalahan validasi.",
                 imported_count=0,
                 errors=row_errors,
-            ).model_dump()
+            ).model_dump(),
         )
 
     # Successful import: log activity for each student
@@ -322,4 +323,3 @@ def import_students(
         imported_count=len(students),
         data=[StudentAccountResponse.model_validate(s) for s in students],
     )
-

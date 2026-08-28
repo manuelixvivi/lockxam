@@ -1,16 +1,16 @@
 # Global Import Validation Audit Report
 
-**System**: EquiGrade x Lockxam v3.0  
-**Audit Date**: 2026-08-28  
-**QA Auditor**: Antigravity QA Auditor  
-**Document Version**: 1.0 (Audit Phase)  
+**System**: EquiGrade x Lockxam v3.0
+**Audit Date**: 2026-08-28
+**QA Auditor**: Antigravity QA Auditor
+**Document Version**: 1.0 (Audit Phase)
 **Status**: 🔴 AUDITED — REMEDIATION REQUIRED
 
 ---
 
 ## 1. Executive Summary
 
-We have performed a system-wide audit of all import and bulk-data mechanisms across SuperAdmin, School Admin, and Teacher portals. 
+We have performed a system-wide audit of all import and bulk-data mechanisms across SuperAdmin, School Admin, and Teacher portals.
 
 The audit reveals a fundamental architectural issue: **7 out of 8 import mechanisms violate atomicity (possessing `🔴 ATOMICITY VIOLATION` or `🔴 REFERENCE VALIDATION GAP`)**. Most importers run sequential, individual API requests inside frontend loops, meaning database mutations occur per-row. This leads to **partial persistence** (e.g., 99 rows succeed, 1 fails, leaving 99 rows persisted in a dirty state), lack of proper database transaction boundaries, poor performance, and academic integrity risks.
 

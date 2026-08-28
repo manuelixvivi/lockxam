@@ -1,15 +1,15 @@
 from datetime import date
-from uuid import UUID
+
 from sqlalchemy.orm import Session
 
 from app.core.security import hash_password
 from app.exceptions.base import BusinessException
 from app.models.security.auth_account import AuthAccount
 from app.models.security.enums import UserRole
-from app.repositories.security.auth_repository import auth_repository
-from app.repositories.school.school_repository import school_repository
 from app.repositories.exam.attempt_repository import attempt_repository
 from app.repositories.exam.checkin_repository import checkin_repository
+from app.repositories.school.school_repository import school_repository
+from app.repositories.security.auth_repository import auth_repository
 
 
 class SchoolStudentService:
@@ -92,7 +92,9 @@ class SchoolStudentService:
         is_active: bool | None = None,
         update_fields: set[str] | None = None,
     ) -> AuthAccount:
-        student = auth_repository.get_by_public_id_and_school(db, school_id, student_public_id, role="STUDENT")
+        student = auth_repository.get_by_public_id_and_school(
+            db, school_id, student_public_id, role="STUDENT"
+        )
         if not student:
             raise BusinessException("Akun siswa tidak ditemukan.", status_code=404)
 
@@ -128,7 +130,9 @@ class SchoolStudentService:
         Students with historical exam attempts or check-ins MUST NEVER BE DELETED.
         They must be deactivated instead to preserve historical exam records.
         """
-        student = auth_repository.get_by_public_id_and_school(db, school_id, student_public_id, role="STUDENT")
+        student = auth_repository.get_by_public_id_and_school(
+            db, school_id, student_public_id, role="STUDENT"
+        )
         if not student:
             raise BusinessException("Akun siswa tidak ditemukan.", status_code=404)
 
@@ -145,13 +149,13 @@ class SchoolStudentService:
         db.flush()
 
     @staticmethod
-    def toggle_student_active(
-        db: Session, school_id: int, student_public_id: str
-    ) -> AuthAccount:
+    def toggle_student_active(db: Session, school_id: int, student_public_id: str) -> AuthAccount:
         """
         Deactivate or activate student account while preserving historical exam records intact.
         """
-        student = auth_repository.get_by_public_id_and_school(db, school_id, student_public_id, role="STUDENT")
+        student = auth_repository.get_by_public_id_and_school(
+            db, school_id, student_public_id, role="STUDENT"
+        )
         if not student:
             raise BusinessException("Akun siswa tidak ditemukan.", status_code=404)
 
@@ -167,7 +171,9 @@ class SchoolStudentService:
         """
         Reset password siswa ke password default berdasarkan NIS/NISN.
         """
-        student = auth_repository.get_by_public_id_and_school(db, school_id, student_public_id, role="STUDENT")
+        student = auth_repository.get_by_public_id_and_school(
+            db, school_id, student_public_id, role="STUDENT"
+        )
         if not student:
             raise BusinessException("Akun siswa tidak ditemukan.", status_code=404)
 
@@ -188,25 +194,24 @@ class SchoolStudentService:
         rows: list[dict],
     ) -> tuple[bool, list[AuthAccount], list[dict]]:
         # 1. Verify academic_year_id exists and belongs to this school
+        from datetime import date, datetime
+
         from app.repositories.academic.academic_year_repository import academic_year_repository
         from app.repositories.academic.class_repository import class_repository
         from app.services.academic.class_structure_service import ClassStructureService
-        from app.models.academic.class_entity import ClassEntity
-        from datetime import datetime, date
 
         academic_year = academic_year_repository.get_by_id(db, academic_year_id)
         if not academic_year or academic_year.school_id != school_id:
             raise BusinessException(
-                "Tahun ajaran tidak ditemukan atau bukan milik sekolah Anda.",
-                status_code=400
+                "Tahun ajaran tidak ditemukan atau bukan milik sekolah Anda.", status_code=400
             )
 
         errors = []
-        
+
         # Maps to check duplicates inside the XLSX
-        seen_nisn = {} # nisn -> row index (2-indexed)
-        seen_nis = {} # nis -> row index (2-indexed)
-        seen_username = {} # username -> row index (2-indexed)
+        seen_nisn = {}  # nisn -> row index (2-indexed)
+        seen_nis = {}  # nis -> row index (2-indexed)
+        seen_username = {}  # username -> row index (2-indexed)
 
         domain = SchoolStudentService._get_school_domain(db, school_id)
 
@@ -215,7 +220,7 @@ class SchoolStudentService:
 
         for index, row in enumerate(rows):
             row_num = index + 2  # Excel rows usually start at index 2 (1 is header)
-            
+
             name = str(row.get("name") or "").strip()
             nisn = str(row.get("nisn") or "").strip()
             nis = str(row.get("nis") or "").strip() or None
@@ -226,87 +231,104 @@ class SchoolStudentService:
 
             # 1. Structural checks
             if not name:
-                errors.append({
-                    "row": row_num,
-                    "field": "name",
-                    "value": "",
-                    "code": "NAME_REQUIRED",
-                    "message": "Nama lengkap wajib diisi."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "name",
+                        "value": "",
+                        "code": "NAME_REQUIRED",
+                        "message": "Nama lengkap wajib diisi.",
+                    }
+                )
 
             import re
+
             # 2. NISN Validation
             if not nisn:
-                errors.append({
-                    "row": row_num,
-                    "field": "nisn",
-                    "value": "",
-                    "code": "NISN_REQUIRED",
-                    "message": "NISN wajib diisi."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "nisn",
+                        "value": "",
+                        "code": "NISN_REQUIRED",
+                        "message": "NISN wajib diisi.",
+                    }
+                )
             elif not re.match(r"^[0-9]{4,20}$", nisn):
-                errors.append({
-                    "row": row_num,
-                    "field": "nisn",
-                    "value": nisn,
-                    "code": "INVALID_NISN",
-                    "message": f"NISN '{nisn}' harus berupa angka sepanjang 4 sampai 20 karakter."
-                })
-            else:
-                # Deduplication check inside the Excel file
-                if nisn in seen_nisn:
-                    errors.append({
+                errors.append(
+                    {
                         "row": row_num,
                         "field": "nisn",
                         "value": nisn,
-                        "code": "DUPLICATE_NISN_IN_FILE",
-                        "message": f"NISN '{nisn}' ganda di dalam file Excel (bentrok dengan baris {seen_nisn[nisn]})."
-                    })
+                        "code": "INVALID_NISN",
+                        "message": f"NISN '{nisn}' harus berupa angka sepanjang 4 sampai 20 karakter.",
+                    }
+                )
+            else:
+                # Deduplication check inside the Excel file
+                if nisn in seen_nisn:
+                    errors.append(
+                        {
+                            "row": row_num,
+                            "field": "nisn",
+                            "value": nisn,
+                            "code": "DUPLICATE_NISN_IN_FILE",
+                            "message": f"NISN '{nisn}' ganda di dalam file Excel (bentrok dengan baris {seen_nisn[nisn]}).",
+                        }
+                    )
                 else:
                     seen_nisn[nisn] = row_num
 
                     # Check uniqueness against DB
                     existing_by_nisn = auth_repository.get_by_nisn(db, school_id, nisn)
                     if existing_by_nisn:
-                        errors.append({
-                            "row": row_num,
-                            "field": "nisn",
-                            "value": nisn,
-                            "code": "DUPLICATE_NISN",
-                            "message": f"NISN '{nisn}' sudah terdaftar pada siswa lain di database."
-                        })
+                        errors.append(
+                            {
+                                "row": row_num,
+                                "field": "nisn",
+                                "value": nisn,
+                                "code": "DUPLICATE_NISN",
+                                "message": f"NISN '{nisn}' sudah terdaftar pada siswa lain di database.",
+                            }
+                        )
 
             # 3. NIS Validation (Optional but must be numeric if present)
             if nis:
                 if not re.match(r"^[0-9]{4,20}$", nis):
-                    errors.append({
-                        "row": row_num,
-                        "field": "nis",
-                        "value": nis,
-                        "code": "INVALID_NIS",
-                        "message": f"NIS '{nis}' harus berupa angka sepanjang 4 sampai 20 karakter jika diisi."
-                    })
-                else:
-                    if nis in seen_nis:
-                        errors.append({
+                    errors.append(
+                        {
                             "row": row_num,
                             "field": "nis",
                             "value": nis,
-                            "code": "DUPLICATE_NIS_IN_FILE",
-                            "message": f"NIS '{nis}' ganda di dalam file Excel (bentrok dengan baris {seen_nis[nis]})."
-                        })
+                            "code": "INVALID_NIS",
+                            "message": f"NIS '{nis}' harus berupa angka sepanjang 4 sampai 20 karakter jika diisi.",
+                        }
+                    )
+                else:
+                    if nis in seen_nis:
+                        errors.append(
+                            {
+                                "row": row_num,
+                                "field": "nis",
+                                "value": nis,
+                                "code": "DUPLICATE_NIS_IN_FILE",
+                                "message": f"NIS '{nis}' ganda di dalam file Excel (bentrok dengan baris {seen_nis[nis]}).",
+                            }
+                        )
                     else:
                         seen_nis[nis] = row_num
 
                         existing_by_nis = auth_repository.get_by_nis(db, school_id, nis)
                         if existing_by_nis:
-                            errors.append({
-                                "row": row_num,
-                                "field": "nis",
-                                "value": nis,
-                                "code": "DUPLICATE_NIS",
-                                "message": f"NIS '{nis}' sudah terdaftar pada siswa lain di database."
-                            })
+                            errors.append(
+                                {
+                                    "row": row_num,
+                                    "field": "nis",
+                                    "value": nis,
+                                    "code": "DUPLICATE_NIS",
+                                    "message": f"NIS '{nis}' sudah terdaftar pada siswa lain di database.",
+                                }
+                            )
 
             # 4. Username/Identifier deduplication
             if name and (nisn or nis):
@@ -314,59 +336,73 @@ class SchoolStudentService:
                 if identifier:
                     username = f"{identifier}@siswa.{domain}"
                     if username in seen_username:
-                        errors.append({
-                            "row": row_num,
-                            "field": "username",
-                            "value": username,
-                            "code": "DUPLICATE_USERNAME_IN_FILE",
-                            "message": f"Username/Identitas '{username}' ganda di dalam file Excel."
-                        })
+                        errors.append(
+                            {
+                                "row": row_num,
+                                "field": "username",
+                                "value": username,
+                                "code": "DUPLICATE_USERNAME_IN_FILE",
+                                "message": f"Username/Identitas '{username}' ganda di dalam file Excel.",
+                            }
+                        )
                     else:
                         seen_username[username] = row_num
 
                         existing_by_username = auth_repository.get_by_username(db, username)
                         if existing_by_username:
-                            errors.append({
-                                "row": row_num,
-                                "field": "nisn" if not nis else "nis",
-                                "value": identifier,
-                                "code": "DUPLICATE_USERNAME",
-                                "message": f"Identitas '{identifier}' sudah terdaftar di sekolah ini."
-                            })
+                            errors.append(
+                                {
+                                    "row": row_num,
+                                    "field": "nisn" if not nis else "nis",
+                                    "value": identifier,
+                                    "code": "DUPLICATE_USERNAME",
+                                    "message": f"Identitas '{identifier}' sudah terdaftar di sekolah ini.",
+                                }
+                            )
 
             # 5. Gender Validation
             gender_norm = None
             if not gender:
-                errors.append({
-                    "row": row_num,
-                    "field": "gender",
-                    "value": "",
-                    "code": "GENDER_REQUIRED",
-                    "message": "Jenis Kelamin wajib diisi (L/P)."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "gender",
+                        "value": "",
+                        "code": "GENDER_REQUIRED",
+                        "message": "Jenis Kelamin wajib diisi (L/P).",
+                    }
+                )
             elif gender in ["L", "LAKI-LAKI", "LAKI", "MALE", "M"]:
                 gender_norm = "L"
             elif gender in ["P", "PEREMPUAN", "FEMALE", "F"]:
                 gender_norm = "P"
             else:
-                errors.append({
-                    "row": row_num,
-                    "field": "gender",
-                    "value": gender,
-                    "code": "INVALID_GENDER",
-                    "message": f"Jenis Kelamin '{gender}' tidak valid. Harus 'L' (Laki-laki) atau 'P' (Perempuan)."
-                })
+                errors.append(
+                    {
+                        "row": row_num,
+                        "field": "gender",
+                        "value": gender,
+                        "code": "INVALID_GENDER",
+                        "message": f"Jenis Kelamin '{gender}' tidak valid. Harus 'L' (Laki-laki) atau 'P' (Perempuan).",
+                    }
+                )
 
             # 6. Birth Date Parsing
             birth_date_parsed = None
             if birth_date_raw:
                 if isinstance(birth_date_raw, (date, datetime)):
-                    birth_date_parsed = birth_date_raw if isinstance(birth_date_raw, date) else birth_date_raw.date()
+                    birth_date_parsed = (
+                        birth_date_raw
+                        if isinstance(birth_date_raw, date)
+                        else birth_date_raw.date()
+                    )
                 else:
                     # Try to parse string
                     try:
                         # try ISO format first YYYY-MM-DD
-                        birth_date_parsed = date.fromisoformat(str(birth_date_raw).split("T")[0].strip())
+                        birth_date_parsed = date.fromisoformat(
+                            str(birth_date_raw).split("T")[0].strip()
+                        )
                     except ValueError:
                         try:
                             # try DD-MM-YYYY or DD/MM/YYYY
@@ -380,13 +416,15 @@ class SchoolStudentService:
                         except ValueError:
                             pass
                     if not birth_date_parsed:
-                        errors.append({
-                            "row": row_num,
-                            "field": "birth_date",
-                            "value": str(birth_date_raw),
-                            "code": "INVALID_BIRTH_DATE",
-                            "message": f"Format Tanggal Lahir '{birth_date_raw}' tidak valid. Gunakan format YYYY-MM-DD."
-                        })
+                        errors.append(
+                            {
+                                "row": row_num,
+                                "field": "birth_date",
+                                "value": str(birth_date_raw),
+                                "code": "INVALID_BIRTH_DATE",
+                                "message": f"Format Tanggal Lahir '{birth_date_raw}' tidak valid. Gunakan format YYYY-MM-DD.",
+                            }
+                        )
 
             # 7. Registered Year Parsing
             registered_year_parsed = None
@@ -394,44 +432,56 @@ class SchoolStudentService:
                 try:
                     registered_year_parsed = int(float(registered_year_raw))
                 except (ValueError, TypeError):
-                    errors.append({
-                        "row": row_num,
-                        "field": "registered_year",
-                        "value": str(registered_year_raw),
-                        "code": "INVALID_REGISTERED_YEAR",
-                        "message": f"Tahun Terdaftar '{registered_year_raw}' harus berupa angka tahun (contoh: 2026)."
-                    })
+                    errors.append(
+                        {
+                            "row": row_num,
+                            "field": "registered_year",
+                            "value": str(registered_year_raw),
+                            "code": "INVALID_REGISTERED_YEAR",
+                            "message": f"Tahun Terdaftar '{registered_year_raw}' harus berupa angka tahun (contoh: 2026).",
+                        }
+                    )
 
             # 8. Class Reference Validation
             class_entity = None
             if class_name:
-                class_entity = class_repository.get_by_name(db, school_id, academic_year_id, class_name)
+                class_entity = class_repository.get_by_name(
+                    db, school_id, academic_year_id, class_name
+                )
                 if not class_entity:
                     # Check if it exists in another academic year just to be specific in error message (Required by Test 8!)
-                    exists_elsewhere = class_repository.get_any_by_name_in_school(db, school_id, class_name)
+                    exists_elsewhere = class_repository.get_any_by_name_in_school(
+                        db, school_id, class_name
+                    )
                     if exists_elsewhere:
                         message = f"Kelas '{class_name}' ditemukan di tahun ajaran lain, tetapi belum terdaftar pada Tahun Ajaran yang dipilih."
                     else:
-                        message = f"Kelas '{class_name}' tidak ditemukan pada Tahun Ajaran yang dipilih."
+                        message = (
+                            f"Kelas '{class_name}' tidak ditemukan pada Tahun Ajaran yang dipilih."
+                        )
 
-                    errors.append({
-                        "row": row_num,
-                        "field": "class_name",
-                        "value": class_name,
-                        "code": "CLASS_NOT_FOUND",
-                        "message": message
-                    })
+                    errors.append(
+                        {
+                            "row": row_num,
+                            "field": "class_name",
+                            "value": class_name,
+                            "code": "CLASS_NOT_FOUND",
+                            "message": message,
+                        }
+                    )
 
-            validated_rows_data.append({
-                "name": name,
-                "nisn": nisn,
-                "nis": nis,
-                "gender": gender_norm,
-                "birth_date": birth_date_parsed,
-                "class_name": class_name,
-                "registered_year": registered_year_parsed,
-                "class_entity": class_entity
-            })
+            validated_rows_data.append(
+                {
+                    "name": name,
+                    "nisn": nisn,
+                    "nis": nis,
+                    "gender": gender_norm,
+                    "birth_date": birth_date_parsed,
+                    "class_name": class_name,
+                    "registered_year": registered_year_parsed,
+                    "class_entity": class_entity,
+                }
+            )
 
         if errors:
             return False, [], errors
@@ -472,7 +522,7 @@ class SchoolStudentService:
                         db=db,
                         school_id=school_id,
                         student_id=account.id,
-                        class_id=data["class_entity"].id
+                        class_id=data["class_entity"].id,
                     )
 
                 created_students.append(account)
@@ -484,9 +534,9 @@ class SchoolStudentService:
             savepoint.rollback()
             db.rollback()
             from app.logging.logger import logger
+
             logger.error(f"Student bulk import persistence failure: {str(e)}", exc_info=True)
             raise BusinessException(
                 "Gagal melakukan penyimpanan data ke database. Terjadi kesalahan internal pada server.",
                 status_code=500,
             )
-

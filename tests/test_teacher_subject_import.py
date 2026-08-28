@@ -1,17 +1,15 @@
-import pytest
-from datetime import datetime
 from fastapi.testclient import TestClient
 from sqlalchemy.orm import Session
-from app.models.academic.subject import Subject
-from app.models.security.auth_account import AuthAccount
-from app.models.academic.teacher_subject import TeacherSubject
-from app.models.academic.class_subject import ClassSubject
-from tests.test_academic_administration_api import api_test_data
 
+from app.models.academic.class_subject import ClassSubject
+from app.models.academic.subject import Subject
+from app.models.academic.teacher_subject import TeacherSubject
+from app.models.security.auth_account import AuthAccount
 
 # ============================================================
 # SUBJECT IMPORT TESTS
 # ============================================================
+
 
 def test_import_subjects_valid_batch(client: TestClient, api_test_data, db: Session):
     """TEST 1: Valid batch of subjects -> imported successfully."""
@@ -20,8 +18,13 @@ def test_import_subjects_valid_batch(client: TestClient, api_test_data, db: Sess
 
     payload = {
         "subjects": [
-            {"code": "IND-10", "name": "Bahasa Indonesia Kelas 10", "description": "Deskripsi Indo", "row_num": 2},
-            {"code": "ING-10", "name": "Bahasa Inggris Kelas 10", "row_num": 3}
+            {
+                "code": "IND-10",
+                "name": "Bahasa Indonesia Kelas 10",
+                "description": "Deskripsi Indo",
+                "row_num": 2,
+            },
+            {"code": "ING-10", "name": "Bahasa Inggris Kelas 10", "row_num": 3},
         ]
     }
 
@@ -50,11 +53,7 @@ def test_import_subjects_missing_code(client: TestClient, api_test_data, db: Ses
     """TEST 2: Subject code missing -> REJECT."""
     headers = api_test_data["headers_admin_a"]
 
-    payload = {
-        "subjects": [
-            {"code": "", "name": "Mata Pelajaran Tanpa Kode", "row_num": 2}
-        ]
-    }
+    payload = {"subjects": [{"code": "", "name": "Mata Pelajaran Tanpa Kode", "row_num": 2}]}
 
     res = client.post("/api/v1/admin/subjects/import", json=payload, headers=headers)
     assert res.status_code == 422
@@ -67,11 +66,7 @@ def test_import_subjects_missing_name(client: TestClient, api_test_data, db: Ses
     """TEST 3: Subject name missing -> REJECT."""
     headers = api_test_data["headers_admin_a"]
 
-    payload = {
-        "subjects": [
-            {"code": "MAT-12", "name": "", "row_num": 2}
-        ]
-    }
+    payload = {"subjects": [{"code": "MAT-12", "name": "", "row_num": 2}]}
 
     res = client.post("/api/v1/admin/subjects/import", json=payload, headers=headers)
     assert res.status_code == 422
@@ -87,7 +82,7 @@ def test_import_subjects_duplicate_code_in_file(client: TestClient, api_test_dat
     payload = {
         "subjects": [
             {"code": "MAT-10", "name": "Matematika 1", "row_num": 2},
-            {"code": "MAT-10", "name": "Matematika 2", "row_num": 3}
+            {"code": "MAT-10", "name": "Matematika 2", "row_num": 3},
         ]
     }
 
@@ -108,11 +103,7 @@ def test_import_subjects_duplicate_database(client: TestClient, api_test_data, d
     db.add(subj)
     db.commit()
 
-    payload = {
-        "subjects": [
-            {"code": "MAT-EXISTS", "name": "Matematika Baru", "row_num": 2}
-        ]
-    }
+    payload = {"subjects": [{"code": "MAT-EXISTS", "name": "Matematika Baru", "row_num": 2}]}
 
     res = client.post("/api/v1/admin/subjects/import", json=payload, headers=headers)
     assert res.status_code == 422
@@ -128,15 +119,13 @@ def test_import_subjects_cross_tenant_protection(client: TestClient, api_test_da
     school_b = api_test_data["school_b"]
 
     # Subject exists in School B
-    subj_b = Subject(school_id=school_b.id, code="UNIQ-CODE", name="Subject School B", is_active=True)
+    subj_b = Subject(
+        school_id=school_b.id, code="UNIQ-CODE", name="Subject School B", is_active=True
+    )
     db.add(subj_b)
     db.commit()
 
-    payload = {
-        "subjects": [
-            {"code": "UNIQ-CODE", "name": "Subject School A", "row_num": 2}
-        ]
-    }
+    payload = {"subjects": [{"code": "UNIQ-CODE", "name": "Subject School A", "row_num": 2}]}
 
     res = client.post("/api/v1/admin/subjects/import", json=payload, headers=headers_a)
     assert res.status_code == 200
@@ -152,7 +141,7 @@ def test_import_subjects_mixed_valid_invalid(client: TestClient, api_test_data, 
     payload = {
         "subjects": [
             {"code": "VALID-SUBJ", "name": "Valid Subject", "row_num": 2},
-            {"code": "", "name": "Invalid Subject", "row_num": 3}
+            {"code": "", "name": "Invalid Subject", "row_num": 3},
         ]
     }
 
@@ -163,21 +152,21 @@ def test_import_subjects_mixed_valid_invalid(client: TestClient, api_test_data, 
     assert db.query(Subject).filter_by(school_id=school.id, code="VALID-SUBJ").first() is None
 
 
-def test_import_subjects_db_failure_rollback(client: TestClient, api_test_data, db: Session, monkeypatch):
+def test_import_subjects_db_failure_rollback(
+    client: TestClient, api_test_data, db: Session, monkeypatch
+):
     """TEST 8: Database failure during subject persistence -> rollback -> zero created."""
     headers = api_test_data["headers_admin_a"]
     school = api_test_data["school_a"]
 
     from app.repositories.academic.subject_repository import SubjectRepository
+
     def mock_create(*args, **kwargs):
         raise Exception("Database failure")
+
     monkeypatch.setattr(SubjectRepository, "create", mock_create)
 
-    payload = {
-        "subjects": [
-            {"code": "FAIL-SUBJ", "name": "Failure Subject", "row_num": 2}
-        ]
-    }
+    payload = {"subjects": [{"code": "FAIL-SUBJ", "name": "Failure Subject", "row_num": 2}]}
 
     res = client.post("/api/v1/admin/subjects/import", json=payload, headers=headers)
     assert res.status_code == 500
@@ -187,6 +176,7 @@ def test_import_subjects_db_failure_rollback(client: TestClient, api_test_data, 
 # ============================================================
 # TEACHER IMPORT TESTS
 # ============================================================
+
 
 def test_import_teachers_valid_batch(client: TestClient, api_test_data, db: Session):
     """TEST 1: Valid batch of teachers -> imported successfully."""
@@ -201,7 +191,7 @@ def test_import_teachers_valid_batch(client: TestClient, api_test_data, db: Sess
                 "teacher_code": "JOHNDOE",
                 "gender": "L",
                 "registered_year": 2024,
-                "row_num": 2
+                "row_num": 2,
             }
         ]
     }
@@ -224,46 +214,19 @@ def test_import_teachers_missing_required_identity(client: TestClient, api_test_
     headers = api_test_data["headers_admin_a"]
 
     # Missing Name
-    payload = {
-        "teachers": [
-            {
-                "name": "",
-                "nip": "123456",
-                "gender": "L",
-                "row_num": 2
-            }
-        ]
-    }
+    payload = {"teachers": [{"name": "", "nip": "123456", "gender": "L", "row_num": 2}]}
     res = client.post("/api/v1/admin/teachers/import", json=payload, headers=headers)
     assert res.status_code == 422
     assert res.json()["errors"][0]["code"] == "TEACHER_NAME_REQUIRED"
 
     # Missing NIP
-    payload = {
-        "teachers": [
-            {
-                "name": "John Doe",
-                "nip": "",
-                "gender": "L",
-                "row_num": 2
-            }
-        ]
-    }
+    payload = {"teachers": [{"name": "John Doe", "nip": "", "gender": "L", "row_num": 2}]}
     res = client.post("/api/v1/admin/teachers/import", json=payload, headers=headers)
     assert res.status_code == 422
     assert res.json()["errors"][0]["code"] == "TEACHER_NIP_REQUIRED"
 
     # Missing Gender
-    payload = {
-        "teachers": [
-            {
-                "name": "John Doe",
-                "nip": "123456",
-                "gender": "",
-                "row_num": 2
-            }
-        ]
-    }
+    payload = {"teachers": [{"name": "John Doe", "nip": "123456", "gender": "", "row_num": 2}]}
     res = client.post("/api/v1/admin/teachers/import", json=payload, headers=headers)
     assert res.status_code == 422
     assert res.json()["errors"][0]["code"] == "TEACHER_GENDER_REQUIRED"
@@ -276,7 +239,7 @@ def test_import_teachers_duplicate_username_in_file(client: TestClient, api_test
     payload = {
         "teachers": [
             {"name": "Guru A", "nip": "111222333", "gender": "L", "row_num": 2},
-            {"name": "Guru B", "nip": "111222333", "gender": "P", "row_num": 3}
+            {"name": "Guru B", "nip": "111222333", "gender": "P", "row_num": 3},
         ]
     }
 
@@ -285,14 +248,28 @@ def test_import_teachers_duplicate_username_in_file(client: TestClient, api_test
     assert res.json()["errors"][0]["code"] == "DUPLICATE_NIP_IN_FILE"
 
 
-def test_import_teachers_duplicate_teacher_code_in_file(client: TestClient, api_test_data, db: Session):
+def test_import_teachers_duplicate_teacher_code_in_file(
+    client: TestClient, api_test_data, db: Session
+):
     """TEST 3.5: Duplicate teacher code inside XLSX -> REJECT."""
     headers = api_test_data["headers_admin_a"]
 
     payload = {
         "teachers": [
-            {"name": "Guru A", "nip": "111222333", "teacher_code": "DUPCODE", "gender": "L", "row_num": 2},
-            {"name": "Guru B", "nip": "444555666", "teacher_code": "DUPCODE", "gender": "P", "row_num": 3}
+            {
+                "name": "Guru A",
+                "nip": "111222333",
+                "teacher_code": "DUPCODE",
+                "gender": "L",
+                "row_num": 2,
+            },
+            {
+                "name": "Guru B",
+                "nip": "444555666",
+                "teacher_code": "DUPCODE",
+                "gender": "P",
+                "row_num": 3,
+            },
         ]
     }
 
@@ -301,7 +278,9 @@ def test_import_teachers_duplicate_teacher_code_in_file(client: TestClient, api_
     assert res.json()["errors"][0]["code"] == "DUPLICATE_TEACHER_CODE_IN_FILE"
 
 
-def test_import_teachers_duplicate_database_username(client: TestClient, api_test_data, db: Session):
+def test_import_teachers_duplicate_database_username(
+    client: TestClient, api_test_data, db: Session
+):
     """TEST 4: Duplicate NIP/username against database -> REJECT."""
     headers = api_test_data["headers_admin_a"]
     school = api_test_data["school_a"]
@@ -317,15 +296,13 @@ def test_import_teachers_duplicate_database_username(client: TestClient, api_tes
         nip="987654321",
         teacher_code="T-987654321",
         gender="L",
-        registered_year=2024
+        registered_year=2024,
     )
     db.add(existing_teacher)
     db.commit()
 
     payload = {
-        "teachers": [
-            {"name": "New Teacher", "nip": "987654321", "gender": "L", "row_num": 2}
-        ]
+        "teachers": [{"name": "New Teacher", "nip": "987654321", "gender": "L", "row_num": 2}]
     }
 
     res = client.post("/api/v1/admin/teachers/import", json=payload, headers=headers)
@@ -348,14 +325,20 @@ def test_import_teachers_duplicate_nip_or_code(client: TestClient, api_test_data
         nip="11223344",
         teacher_code="DUPCODE",
         gender="L",
-        registered_year=2024
+        registered_year=2024,
     )
     db.add(existing_teacher)
     db.commit()
 
     payload = {
         "teachers": [
-            {"name": "New Teacher", "nip": "55667788", "teacher_code": "DUPCODE", "gender": "L", "row_num": 2}
+            {
+                "name": "New Teacher",
+                "nip": "55667788",
+                "teacher_code": "DUPCODE",
+                "gender": "L",
+                "row_num": 2,
+            }
         ]
     }
 
@@ -380,15 +363,13 @@ def test_import_teachers_cross_tenant_protection(client: TestClient, api_test_da
         nip="555555",
         teacher_code="T-555555-B",
         gender="L",
-        registered_year=2024
+        registered_year=2024,
     )
     db.add(existing_b)
     db.commit()
 
     payload = {
-        "teachers": [
-            {"name": "John School A", "nip": "555555", "gender": "L", "row_num": 2}
-        ]
+        "teachers": [{"name": "John School A", "nip": "555555", "gender": "L", "row_num": 2}]
     }
 
     res = client.post("/api/v1/admin/teachers/import", json=payload, headers=headers_a)
@@ -404,7 +385,7 @@ def test_import_teachers_mixed_valid_invalid(client: TestClient, api_test_data, 
     payload = {
         "teachers": [
             {"name": "Valid Teacher", "nip": "99988822", "gender": "L", "row_num": 2},
-            {"name": "", "nip": "99988833", "gender": "P", "row_num": 3}  # Name missing
+            {"name": "", "nip": "99988833", "gender": "P", "row_num": 3},  # Name missing
         ]
     }
 
@@ -415,20 +396,22 @@ def test_import_teachers_mixed_valid_invalid(client: TestClient, api_test_data, 
     assert db.query(AuthAccount).filter_by(school_id=school.id, nip="99988822").first() is None
 
 
-def test_import_teachers_db_failure_rollback(client: TestClient, api_test_data, db: Session, monkeypatch):
+def test_import_teachers_db_failure_rollback(
+    client: TestClient, api_test_data, db: Session, monkeypatch
+):
     """TEST 8: Database failure during teacher persistence -> rollback -> zero created."""
     headers = api_test_data["headers_admin_a"]
     school = api_test_data["school_a"]
 
     from app.repositories.security.auth_repository import AuthRepository
+
     def mock_create(*args, **kwargs):
         raise Exception("Database failure")
+
     monkeypatch.setattr(AuthRepository, "create", mock_create)
 
     payload = {
-        "teachers": [
-            {"name": "Fail Teacher", "nip": "12121212", "gender": "L", "row_num": 2}
-        ]
+        "teachers": [{"name": "Fail Teacher", "nip": "12121212", "gender": "L", "row_num": 2}]
     }
 
     res = client.post("/api/v1/admin/teachers/import", json=payload, headers=headers)
@@ -449,7 +432,7 @@ def test_import_teachers_no_teacher_subject_created(client: TestClient, api_test
                 "teacher_code": "JOHNDOE",
                 "gender": "L",
                 "registered_year": 2024,
-                "row_num": 2
+                "row_num": 2,
             }
         ]
     }
@@ -474,17 +457,11 @@ def test_import_subjects_atomic_100_rows(client: TestClient, api_test_data, db: 
     subjects_list = []
     # 99 valid rows
     for i in range(99):
-        subjects_list.append({
-            "code": f"SUBJ-ATOMIC-{i}",
-            "name": f"Subject Atomic Name {i}",
-            "row_num": i + 2
-        })
+        subjects_list.append(
+            {"code": f"SUBJ-ATOMIC-{i}", "name": f"Subject Atomic Name {i}", "row_num": i + 2}
+        )
     # 1 invalid row (missing name)
-    subjects_list.append({
-        "code": "SUBJ-INVALID-100",
-        "name": "",
-        "row_num": 101
-    })
+    subjects_list.append({"code": "SUBJ-INVALID-100", "name": "", "row_num": 101})
 
     payload = {"subjects": subjects_list}
 
@@ -492,10 +469,11 @@ def test_import_subjects_atomic_100_rows(client: TestClient, api_test_data, db: 
     assert res.status_code == 422
 
     # Verify that absolutely none of the 99 valid subjects were created in DB
-    existing_count = db.query(Subject).filter(
-        Subject.school_id == school.id,
-        Subject.code.like("SUBJ-ATOMIC-%")
-    ).count()
+    existing_count = (
+        db.query(Subject)
+        .filter(Subject.school_id == school.id, Subject.code.like("SUBJ-ATOMIC-%"))
+        .count()
+    )
     assert existing_count == 0
 
 
@@ -507,19 +485,18 @@ def test_import_teachers_atomic_100_rows(client: TestClient, api_test_data, db: 
     teachers_list = []
     # 99 valid rows
     for i in range(99):
-        teachers_list.append({
-            "name": f"Teacher Atomic {i}",
-            "nip": f"888877{i:03d}",
-            "gender": "L",
-            "row_num": i + 2
-        })
+        teachers_list.append(
+            {
+                "name": f"Teacher Atomic {i}",
+                "nip": f"888877{i:03d}",
+                "gender": "L",
+                "row_num": i + 2,
+            }
+        )
     # 1 invalid row (invalid NIP)
-    teachers_list.append({
-        "name": "Teacher Invalid",
-        "nip": "not-a-number",
-        "gender": "P",
-        "row_num": 101
-    })
+    teachers_list.append(
+        {"name": "Teacher Invalid", "nip": "not-a-number", "gender": "P", "row_num": 101}
+    )
 
     payload = {"teachers": teachers_list}
 
@@ -527,9 +504,9 @@ def test_import_teachers_atomic_100_rows(client: TestClient, api_test_data, db: 
     assert res.status_code == 422
 
     # Verify that absolutely none of the 99 valid teachers were created in DB
-    existing_count = db.query(AuthAccount).filter(
-        AuthAccount.school_id == school.id,
-        AuthAccount.nip.like("888877%")
-    ).count()
+    existing_count = (
+        db.query(AuthAccount)
+        .filter(AuthAccount.school_id == school.id, AuthAccount.nip.like("888877%"))
+        .count()
+    )
     assert existing_count == 0
-

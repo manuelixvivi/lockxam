@@ -1,8 +1,8 @@
 # Student Import Architecture Review
 
-**Batch**: Batch 1 — Student Bulk Import Remediation  
-**Scope**: Surgical Architecture & Security Review  
-**Status**: 🟢 STUDENT IMPORT FROZEN  
+**Batch**: Batch 1 — Student Bulk Import Remediation
+**Scope**: Surgical Architecture & Security Review
+**Status**: 🟢 STUDENT IMPORT FROZEN
 
 ---
 

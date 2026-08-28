@@ -498,14 +498,14 @@ export function QuestionBankView({}: QuestionBankViewProps) {
           console.warn("Failed pre-uploading cell image:", err);
         }
       }
-      
+
       const skipped: { row: number; sheet: string; identifier: string; reason: string }[] = [];
       const failed: { row: number; sheet: string; identifier: string; reason: string }[] = [];
       let successCount = 0;
 
       // 1. Gather all rows from PG, IS, Essay sheets
       const jobs: { type: QuestionType; row: Record<string, string>; rowIndex: number; sheet: string }[] = [];
-      
+
       if (sheetsData["Pilihan Ganda"]) {
         sheetsData["Pilihan Ganda"].forEach((r, idx) => {
           jobs.push({ type: "PG", row: r, rowIndex: idx + 2, sheet: "Pilihan Ganda" });
@@ -1343,7 +1343,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
           {importReport && (
             <div className="space-y-3.5 bg-slate-950/40 p-4 rounded-xl border border-slate-900 text-xs">
               <h4 className="font-bold text-slate-300 border-b border-slate-800 pb-1.5">Laporan Impor</h4>
-              
+
               <div className="flex gap-4 font-semibold text-slate-400">
                 <span>Sukses: <strong className="text-emerald-400">{importReport.success} Soal</strong></span>
                 <span>Dilewati (Sudah Ada): <strong className="text-indigo-400">{importReport.skipped.length} Soal</strong></span>

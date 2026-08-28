@@ -1,15 +1,9 @@
-import os
 import json
-import urllib.request
-import urllib.error
 import logging
-from typing import Dict, Any, List, Optional
-from sqlalchemy.orm import Session
-
-from app.models.exam.answer_evaluation import ExamAnswerEvaluation
-from app.models.exam.enums import GradingStatus, GradingSource
-from app.models.exam.student_answer import StudentAnswer
-from app.models.teacher.question import Question
+import os
+import urllib.error
+import urllib.request
+from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -32,7 +26,11 @@ class AiGradingService:
         except Exception as e:
             logger.warning(f"equigradeAI service check failed: {e}")
 
-        return {"status": "offline", "service": "equigradeAI", "message": "Service offline or unreachable"}
+        return {
+            "status": "offline",
+            "service": "equigradeAI",
+            "message": "Service offline or unreachable",
+        }
 
     @staticmethod
     def generate_rubric(
@@ -40,19 +38,16 @@ class AiGradingService:
         answer_key: str,
         education_level: str = "SMA",
         education_class: str = "Kelas 11",
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Call equigradeAI to generate essay rubrics & key concepts."""
         url = f"{EQUIGRADE_AI_URL.rstrip('/')}/api/v1/ai/rubric/generate"
-        headers = {
-            "Content-Type": "application/json",
-            "X-API-Key": api_key or GROQ_API_KEY
-        }
+        headers = {"Content-Type": "application/json", "X-API-Key": api_key or GROQ_API_KEY}
         payload = {
             "question_text": question_text,
             "answer_key": answer_key,
             "education_level": education_level,
-            "education_class": education_class
+            "education_class": education_class,
         }
         data_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
@@ -77,14 +72,11 @@ class AiGradingService:
         concepts: Optional[List[str]] = None,
         education_level: str = "SMA",
         education_class: str = "Kelas 11",
-        api_key: Optional[str] = None
+        api_key: Optional[str] = None,
     ) -> Dict[str, Any]:
         """Call equigradeAI to grade a student's essay answer."""
         url = f"{EQUIGRADE_AI_URL.rstrip('/')}/api/v1/ai/essay/grade"
-        headers = {
-            "Content-Type": "application/json",
-            "X-API-Key": api_key or GROQ_API_KEY
-        }
+        headers = {"Content-Type": "application/json", "X-API-Key": api_key or GROQ_API_KEY}
         payload = {
             "question_text": question_text,
             "answer_key": answer_key,
@@ -92,7 +84,7 @@ class AiGradingService:
             "rubrics": rubrics or [],
             "concepts": concepts or [],
             "education_level": education_level,
-            "education_class": education_class
+            "education_class": education_class,
         }
         data_bytes = json.dumps(payload).encode("utf-8")
         req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")

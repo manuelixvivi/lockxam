@@ -54,19 +54,22 @@ class ClassRepository(BaseRepository[ClassEntity]):
         self, db: Session, school_id: int, name: str
     ) -> ClassEntity | None:
         return db.scalar(
-            select(ClassEntity).where(
+            select(ClassEntity)
+            .where(
                 ClassEntity.school_id == school_id,
                 ClassEntity.name == name.strip(),
-            ).limit(1)
+            )
+            .limit(1)
         )
 
-
     def has_historical_records(self, db: Session, class_id: int) -> bool:
+        from app.models.academic.class_subject import ClassSubject
         from app.models.academic.exam_schedule import ExamSchedule
         from app.models.academic.student_class_enrollment import StudentClassEnrollment
-        from app.models.academic.class_subject import ClassSubject
 
-        has_enrollment = db.scalar(select(StudentClassEnrollment).where(StudentClassEnrollment.class_id == class_id))
+        has_enrollment = db.scalar(
+            select(StudentClassEnrollment).where(StudentClassEnrollment.class_id == class_id)
+        )
         has_schedule = db.scalar(select(ExamSchedule).where(ExamSchedule.class_id == class_id))
         has_subject = db.scalar(select(ClassSubject).where(ClassSubject.class_id == class_id))
         return bool(has_enrollment or has_schedule or has_subject)

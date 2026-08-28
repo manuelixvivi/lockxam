@@ -1,5 +1,4 @@
 from datetime import datetime
-from uuid import UUID
 
 from sqlalchemy.orm import Session
 
@@ -8,7 +7,6 @@ from app.models.academic.class_subject import ClassSubject
 from app.models.academic.class_subject_teacher import ClassSubjectTeacher
 from app.models.academic.enums import EnrollmentStatus
 from app.models.academic.student_class_enrollment import StudentClassEnrollment
-from app.models.security.auth_account import AuthAccount
 from app.repositories.academic.class_repository import class_repository
 from app.repositories.academic.class_subject_repository import (
     class_subject_repository,
@@ -96,21 +94,19 @@ class ClassStructureService:
                 db.flush()
 
     @staticmethod
-    def list_students_in_class(
-        db: Session, class_id: int
-    ) -> list[StudentClassEnrollment]:
+    def list_students_in_class(db: Session, class_id: int) -> list[StudentClassEnrollment]:
         return student_enrollment_repository.list_by_class(
-            db, class_id, status=[
+            db,
+            class_id,
+            status=[
                 EnrollmentStatus.ACTIVE.value,
                 EnrollmentStatus.COMPLETED.value,
                 EnrollmentStatus.TRANSFERRED.value,
-            ]
+            ],
         )
 
     @staticmethod
-    def get_student_history(
-        db: Session, student_id: int
-    ) -> list[StudentClassEnrollment]:
+    def get_student_history(db: Session, student_id: int) -> list[StudentClassEnrollment]:
         return student_enrollment_repository.list_history_by_student(db, student_id)
 
     # ── 2. Class Subject & Teacher Assignment ──
@@ -189,9 +185,7 @@ class ClassStructureService:
         return result
 
     @staticmethod
-    def list_class_subject_teachers(
-        db: Session, class_id: int
-    ) -> list[ClassSubjectTeacher]:
+    def list_class_subject_teachers(db: Session, class_id: int) -> list[ClassSubjectTeacher]:
         return class_subject_teacher_repository.list_by_class(db, class_id)
 
     @staticmethod
@@ -201,15 +195,14 @@ class ClassStructureService:
         academic_year_id: int,
         classes_data: list[dict],
     ) -> tuple[bool, list[ClassSubjectTeacher], list[dict]]:
-        from app.repositories.academic.academic_year_repository import academic_year_repository
         from app.models.security.enums import UserRole
+        from app.repositories.academic.academic_year_repository import academic_year_repository
 
         # 1. Verify academic_year_id exists and belongs to school
         academic_year = academic_year_repository.get_by_id(db, academic_year_id)
         if not academic_year or academic_year.school_id != school_id:
             raise BusinessException(
-                "Tahun ajaran tidak ditemukan atau bukan milik sekolah Anda.",
-                status_code=400
+                "Tahun ajaran tidak ditemukan atau bukan milik sekolah Anda.", status_code=400
             )
 
         errors = []
@@ -226,32 +219,40 @@ class ClassStructureService:
             grade_level = cls_item.get("grade_level")
 
             if not class_name:
-                errors.append({
-                    "row": class_row_fallback,
-                    "field": "name",
-                    "value": "",
-                    "code": "CLASS_NAME_REQUIRED",
-                    "message": "Nama Kelas/Rombel wajib diisi."
-                })
+                errors.append(
+                    {
+                        "row": class_row_fallback,
+                        "field": "name",
+                        "value": "",
+                        "code": "CLASS_NAME_REQUIRED",
+                        "message": "Nama Kelas/Rombel wajib diisi.",
+                    }
+                )
                 continue
 
             # Resolve class using school_id + academic_year_id + class_name
             class_entity = class_repository.get_by_name(db, school_id, academic_year_id, class_name)
             if not class_entity:
                 # Check if it exists in another academic year just to be specific in error message
-                exists_elsewhere = class_repository.get_any_by_name_in_school(db, school_id, class_name)
+                exists_elsewhere = class_repository.get_any_by_name_in_school(
+                    db, school_id, class_name
+                )
                 if exists_elsewhere:
                     message = f"Kelas '{class_name}' ditemukan di tahun ajaran lain, tetapi belum terdaftar pada Tahun Ajaran yang dipilih."
                 else:
-                    message = f"Kelas '{class_name}' tidak ditemukan pada Tahun Ajaran yang dipilih."
-                
-                errors.append({
-                    "row": class_row_fallback,
-                    "field": "name",
-                    "value": class_name,
-                    "code": "CLASS_NOT_FOUND",
-                    "message": message
-                })
+                    message = (
+                        f"Kelas '{class_name}' tidak ditemukan pada Tahun Ajaran yang dipilih."
+                    )
+
+                errors.append(
+                    {
+                        "row": class_row_fallback,
+                        "field": "name",
+                        "value": class_name,
+                        "code": "CLASS_NOT_FOUND",
+                        "message": message,
+                    }
+                )
                 # We continue parsing subjects and students of this class to gather more potential errors
 
             class_id_for_key = class_entity.id if class_entity else class_name
@@ -266,13 +267,15 @@ class ClassStructureService:
                 username = str(st.get("username") or "").strip()
 
                 if not nisn and not nis and not username:
-                    errors.append({
-                        "row": st_row,
-                        "field": "student",
-                        "value": "",
-                        "code": "STUDENT_IDENTIFIER_REQUIRED",
-                        "message": "Salah satu dari NISN, NIS, atau Username wajib diisi untuk mendeteksi identitas siswa."
-                    })
+                    errors.append(
+                        {
+                            "row": st_row,
+                            "field": "student",
+                            "value": "",
+                            "code": "STUDENT_IDENTIFIER_REQUIRED",
+                            "message": "Salah satu dari NISN, NIS, atau Username wajib diisi untuk mendeteksi identitas siswa.",
+                        }
+                    )
                     continue
 
                 student = None
@@ -282,18 +285,27 @@ class ClassStructureService:
                     student = auth_repository.get_by_nis(db, school_id, nis)
                 if not student and username:
                     student = auth_repository.get_by_username(db, username)
-                    if student and (student.school_id != school_id or student.role not in [UserRole.STUDENT, "STUDENT"]):
+                    if student and (
+                        student.school_id != school_id
+                        or student.role not in [UserRole.STUDENT, "STUDENT"]
+                    ):
                         student = None
 
                 if not student:
-                    val_str = f"NISN: {nisn}" if nisn else (f"NIS: {nis}" if nis else f"Username: {username}")
-                    errors.append({
-                        "row": st_row,
-                        "field": "student",
-                        "value": val_str,
-                        "code": "STUDENT_NOT_FOUND",
-                        "message": f"Siswa dengan {val_str} tidak ditemukan atau bukan milik sekolah Anda."
-                    })
+                    val_str = (
+                        f"NISN: {nisn}"
+                        if nisn
+                        else (f"NIS: {nis}" if nis else f"Username: {username}")
+                    )
+                    errors.append(
+                        {
+                            "row": st_row,
+                            "field": "student",
+                            "value": val_str,
+                            "code": "STUDENT_NOT_FOUND",
+                            "message": f"Siswa dengan {val_str} tidak ditemukan atau bukan milik sekolah Anda.",
+                        }
+                    )
                 else:
                     validated_students.append(student)
 
@@ -306,35 +318,41 @@ class ClassStructureService:
                 t_code = str(sb.get("teacher_code") or "").strip()
 
                 if not s_code:
-                    errors.append({
-                        "row": sb_row,
-                        "field": "subject_code",
-                        "value": "",
-                        "code": "SUBJECT_CODE_REQUIRED",
-                        "message": "Kode Mata Pelajaran wajib diisi."
-                    })
+                    errors.append(
+                        {
+                            "row": sb_row,
+                            "field": "subject_code",
+                            "value": "",
+                            "code": "SUBJECT_CODE_REQUIRED",
+                            "message": "Kode Mata Pelajaran wajib diisi.",
+                        }
+                    )
                     continue
 
                 # Resolve Subject (must belong to school)
                 subject = subject_repository.get_by_code_or_name(db, school_id, s_code)
                 if not subject:
-                    errors.append({
-                        "row": sb_row,
-                        "field": "subject_code",
-                        "value": s_code,
-                        "code": "SUBJECT_NOT_FOUND",
-                        "message": f"Mata pelajaran '{s_code}' tidak ditemukan atau bukan milik sekolah Anda."
-                    })
+                    errors.append(
+                        {
+                            "row": sb_row,
+                            "field": "subject_code",
+                            "value": s_code,
+                            "code": "SUBJECT_NOT_FOUND",
+                            "message": f"Mata pelajaran '{s_code}' tidak ditemukan atau bukan milik sekolah Anda.",
+                        }
+                    )
                     continue
 
                 if not t_code:
-                    errors.append({
-                        "row": sb_row,
-                        "field": "teacher_code",
-                        "value": "",
-                        "code": "TEACHER_CODE_REQUIRED",
-                        "message": "Identitas/Kode Guru pengampu wajib diisi."
-                    })
+                    errors.append(
+                        {
+                            "row": sb_row,
+                            "field": "teacher_code",
+                            "value": "",
+                            "code": "TEACHER_CODE_REQUIRED",
+                            "message": "Identitas/Kode Guru pengampu wajib diisi.",
+                        }
+                    )
                     continue
 
                 # Resolve Teacher (must belong to school)
@@ -343,67 +361,79 @@ class ClassStructureService:
                     teacher = auth_repository.get_by_nip(db, school_id, t_code)
                 if not teacher:
                     teacher = auth_repository.get_by_username(db, t_code)
-                    if teacher and (teacher.school_id != school_id or teacher.role not in [UserRole.TEACHER, "TEACHER"]):
+                    if teacher and (
+                        teacher.school_id != school_id
+                        or teacher.role not in [UserRole.TEACHER, "TEACHER"]
+                    ):
                         teacher = None
 
                 if not teacher:
-                    errors.append({
-                        "row": sb_row,
-                        "field": "teacher_code",
-                        "value": t_code,
-                        "code": "TEACHER_NOT_FOUND",
-                        "message": f"Guru dengan kode/NIP/username '{t_code}' tidak ditemukan atau bukan milik sekolah Anda."
-                    })
+                    errors.append(
+                        {
+                            "row": sb_row,
+                            "field": "teacher_code",
+                            "value": t_code,
+                            "code": "TEACHER_NOT_FOUND",
+                            "message": f"Guru dengan kode/NIP/username '{t_code}' tidak ditemukan atau bukan milik sekolah Anda.",
+                        }
+                    )
                     continue
 
                 # Check TeacherSubject competency (No Auto-Competency Creation)
-                competency = teacher_subject_repository.get_by_teacher_and_subject(db, teacher.id, subject.id)
+                competency = teacher_subject_repository.get_by_teacher_and_subject(
+                    db, teacher.id, subject.id
+                )
                 if not competency:
-                    errors.append({
-                        "row": sb_row,
-                        "field": "teacher_code",
-                        "value": teacher.name or teacher.username,
-                        "code": "TEACHER_NOT_COMPETENT",
-                        "message": f"Guru '{teacher.name or teacher.username}' belum memiliki kompetensi untuk mengampu mata pelajaran '{subject.name}'."
-                    })
+                    errors.append(
+                        {
+                            "row": sb_row,
+                            "field": "teacher_code",
+                            "value": teacher.name or teacher.username,
+                            "code": "TEACHER_NOT_COMPETENT",
+                            "message": f"Guru '{teacher.name or teacher.username}' belum memiliki kompetensi untuk mengampu mata pelajaran '{subject.name}'.",
+                        }
+                    )
                     continue
 
                 # Duplicate check: Class + Subject in the Excel file
                 cs_key = (class_id_for_key, subject.id)
                 if cs_key in seen_class_subjects:
-                    errors.append({
-                        "row": sb_row,
-                        "field": "subject_code",
-                        "value": s_code,
-                        "code": "DUPLICATE_CLASS_SUBJECT_IN_FILE",
-                        "message": f"Mata pelajaran '{subject.name}' ganda untuk kelas '{class_name}' di dalam file Excel."
-                    })
+                    errors.append(
+                        {
+                            "row": sb_row,
+                            "field": "subject_code",
+                            "value": s_code,
+                            "code": "DUPLICATE_CLASS_SUBJECT_IN_FILE",
+                            "message": f"Mata pelajaran '{subject.name}' ganda untuk kelas '{class_name}' di dalam file Excel.",
+                        }
+                    )
                 else:
                     seen_class_subjects.add(cs_key)
 
                 # Duplicate check: Class + Subject + Teacher in the Excel file
                 cst_key = (class_id_for_key, subject.id, teacher.id)
                 if cst_key in seen_class_subject_teachers:
-                    errors.append({
-                        "row": sb_row,
-                        "field": "teacher_code",
-                        "value": t_code,
-                        "code": "DUPLICATE_CLASS_SUBJECT_TEACHER_IN_FILE",
-                        "message": f"Guru '{teacher.name or teacher.username}' ditugaskan ganda untuk mata pelajaran '{subject.name}' di kelas '{class_name}' di dalam file Excel."
-                    })
+                    errors.append(
+                        {
+                            "row": sb_row,
+                            "field": "teacher_code",
+                            "value": t_code,
+                            "code": "DUPLICATE_CLASS_SUBJECT_TEACHER_IN_FILE",
+                            "message": f"Guru '{teacher.name or teacher.username}' ditugaskan ganda untuk mata pelajaran '{subject.name}' di kelas '{class_name}' di dalam file Excel.",
+                        }
+                    )
                 else:
                     seen_class_subject_teachers.add(cst_key)
 
-                validated_subjects_teachers.append({
-                    "subject": subject,
-                    "teacher": teacher
-                })
+                validated_subjects_teachers.append({"subject": subject, "teacher": teacher})
 
-            validated_batch_data.append({
-                "class_entity": class_entity,
-                "students": validated_students,
-                "subjects_teachers": validated_subjects_teachers
-            })
+            validated_batch_data.append(
+                {
+                    "class_entity": class_entity,
+                    "students": validated_students,
+                    "subjects_teachers": validated_subjects_teachers,
+                }
+            )
 
         if errors:
             return False, [], errors
@@ -419,10 +449,7 @@ class ClassStructureService:
                 # Enroll students
                 for student in batch["students"]:
                     ClassStructureService.enroll_student_to_class(
-                        db=db,
-                        school_id=school_id,
-                        student_id=student.id,
-                        class_id=cls_entity.id
+                        db=db, school_id=school_id, student_id=student.id, class_id=cls_entity.id
                     )
 
                 # Assign subjects and teachers
@@ -446,9 +473,11 @@ class ClassStructureService:
             savepoint.rollback()
             db.rollback()
             from app.logging.logger import logger
-            logger.error(f"Class structure bulk import persistence failure: {str(e)}", exc_info=True)
+
+            logger.error(
+                f"Class structure bulk import persistence failure: {str(e)}", exc_info=True
+            )
             raise BusinessException(
                 "Gagal melakukan penyimpanan data ke database. Terjadi kesalahan internal pada server.",
                 status_code=500,
             )
-

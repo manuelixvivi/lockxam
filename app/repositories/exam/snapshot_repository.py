@@ -10,11 +10,8 @@ class SnapshotRepository(BaseRepository[ExamPackageSnapshot]):
         super().__init__(ExamPackageSnapshot)
 
     def get_by_session(self, db: Session, session_id: int) -> ExamPackageSnapshot | None:
-        stmt = select(ExamPackageSnapshot).where(
-            ExamPackageSnapshot.exam_session_id == session_id
-        )
+        stmt = select(ExamPackageSnapshot).where(ExamPackageSnapshot.exam_session_id == session_id)
         return db.scalar(stmt)
-
 
     def delete_by_session(self, db: Session, session_id: int) -> None:
         snap = self.get_by_session(db, session_id)

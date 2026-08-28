@@ -1,4 +1,5 @@
 from uuid import UUID
+
 from fastapi import APIRouter, Depends, Request, status
 from sqlalchemy.orm import Session
 
@@ -7,11 +8,11 @@ from app.core.rbac import require_admin
 from app.exceptions.base import BusinessException
 from app.schemas.academic.admin_academic import (
     ExamScheduleCreateRequest,
-    ExamScheduleUpdateRequest,
-    ExamScheduleProctorAssignRequest,
-    ExamScheduleResponse,
     ExamSchedulePackageCreateRequest,
     ExamSchedulePackageResponse,
+    ExamScheduleProctorAssignRequest,
+    ExamScheduleResponse,
+    ExamScheduleUpdateRequest,
 )
 from app.services.academic.exam_schedule_service import ExamScheduleService
 from app.services.security.activity_service import ActivityService
@@ -22,9 +23,7 @@ router = APIRouter(prefix="/api/v1/admin/exam-schedules", tags=["School Admin â€
 def _get_school_id(current_user: dict) -> int:
     school_id = current_user.get("school_id")
     if not school_id:
-        raise BusinessException(
-            "Akun admin tidak terikat dengan sekolah manapun.", status_code=400
-        )
+        raise BusinessException("Akun admin tidak terikat dengan sekolah manapun.", status_code=400)
     return school_id
 
 
@@ -132,6 +131,7 @@ def list_exam_schedules(
     school_id = _get_school_id(current_user)
     if academic_year_id is None:
         from app.repositories.academic.academic_year_repository import academic_year_repository
+
         active_year = academic_year_repository.get_active_year(db, school_id)
         if active_year:
             academic_year_id = active_year.id
@@ -148,15 +148,20 @@ def list_exam_schedules(
 
 def _enrich_package_response(db: Session, p) -> ExamSchedulePackageResponse:
     from app.repositories.academic.academic_year_repository import academic_year_repository
+
     year = academic_year_repository.get_by_id(db, p.academic_year_id)
-    
+
     from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+
     schedules = exam_schedule_repository.list_by_package(db, p.id)
     enriched_schedules = [_enrich_schedule_response(db, s) for s in schedules]
-    
+
     is_closed_val = bool(getattr(p, "is_closed", False))
     if not is_closed_val and schedules:
-        is_closed_val = all(s.status in ["COMPLETED", "CLOSED", "ARCHIVED", "CANCELLED", "FINISHED"] for s in schedules)
+        is_closed_val = all(
+            s.status in ["COMPLETED", "CLOSED", "ARCHIVED", "CANCELLED", "FINISHED"]
+            for s in schedules
+        )
 
     return ExamSchedulePackageResponse(
         id=p.id,
@@ -172,7 +177,9 @@ def _enrich_package_response(db: Session, p) -> ExamSchedulePackageResponse:
     )
 
 
-@router.post("/packages", response_model=ExamSchedulePackageResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/packages", response_model=ExamSchedulePackageResponse, status_code=status.HTTP_201_CREATED
+)
 def create_exam_schedule_package(
     data: ExamSchedulePackageCreateRequest,
     request: Request,
@@ -196,6 +203,7 @@ def list_exam_schedule_packages(
     school_id = _get_school_id(current_user)
     if academic_year_id is None:
         from app.repositories.academic.academic_year_repository import academic_year_repository
+
         active_year = academic_year_repository.get_active_year(db, school_id)
         if active_year:
             academic_year_id = active_year.id
@@ -223,7 +231,7 @@ def delete_exam_schedule_package(
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
-    
+
     ExamScheduleService.delete_schedule_package(db, school_id, public_id)
     db.commit()
 
@@ -237,8 +245,9 @@ def close_exam_schedule_package(
     school_id = _get_school_id(current_user)
     package = ExamScheduleService.get_schedule_package(db, school_id, public_id)
     package.is_closed = True
-    
+
     from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+
     schedules = exam_schedule_repository.list_by_package(db, package.id)
     for sch in schedules:
         if sch.status != "CANCELLED":
@@ -269,6 +278,7 @@ def get_exam_schedule(
 ):
     school_id = _get_school_id(current_user)
     from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+
     schedule = exam_schedule_repository.get_by_public_id(db, public_id)
     if not schedule or schedule.school_id != school_id:
         raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)

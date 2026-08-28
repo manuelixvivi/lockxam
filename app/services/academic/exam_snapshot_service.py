@@ -42,18 +42,13 @@ class ExamSnapshotService:
                 status_code=403,
             )
 
-        # Check if snapshot already created
+        # Check if snapshot already created — IMMUTABILITY ENFORCEMENT
         existing_snapshot = exam_snapshot_repository.get_by_schedule_id(db, schedule.id)
         if existing_snapshot:
-            from app.models.exam.exam_session import ExamSession
-            from app.models.exam.enums import ExamSessionStatus
-
-            session = db.query(ExamSession).filter(ExamSession.schedule_id == schedule.id).first()
-            if session and session.status == ExamSessionStatus.ACTIVE:
-                raise BusinessException(
-                    "Ujian sedang/telah berlangsung. Paket soal tidak dapat diubah lagi.",
-                    status_code=400,
-                )
+            raise BusinessException(
+                "Snapshot paket soal untuk jadwal ini telah dikunci (IMMUTABLE) dan tidak dapat diubah atau ditimpa.",
+                status_code=400,
+            )
 
         # Validate Question Package
         pkg = question_package_repository.get_by_public_id(db, package_public_id)
@@ -116,15 +111,6 @@ class ExamSnapshotService:
                 "randomize_per_type": getattr(schedule, "randomize_per_type", True),
             },
         }
-
-        if existing_snapshot:
-            existing_snapshot.question_package_id = pkg.id
-            existing_snapshot.snapshot_data = snapshot_payload
-            existing_snapshot.total_questions = len(frozen_questions)
-            existing_snapshot.total_points = int(total_points) if total_points > 0 else 100
-            schedule.status = ExamScheduleStatus.READY.value
-            db.flush()
-            return existing_snapshot
 
         # Create immutable ExamSnapshot
         snapshot = ExamSnapshot(

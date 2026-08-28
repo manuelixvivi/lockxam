@@ -50,19 +50,19 @@ export const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onNavigate, onChang
       ];
     }
 
-    // Load read status from localStorage
-    const storageKey = `notifications_read_state_${user.email || 'default'}`;
-    const readStateString = localStorage.getItem(storageKey);
-    if (readStateString) {
-      try {
-        const readMap = JSON.parse(readStateString);
+    // Load read status from localStorage with robust user & role key
+    const storageKey = `notifications_read_v3_${user.id || user.email || 'user'}_${role}`;
+    try {
+      const readIdsRaw = localStorage.getItem(storageKey);
+      if (readIdsRaw) {
+        const readIds: string[] = JSON.parse(readIdsRaw);
         list = list.map((item) => ({
           ...item,
-          unread: readMap[item.id] !== undefined ? !readMap[item.id] : item.unread,
+          unread: readIds.includes(item.id) ? false : item.unread,
         }));
-      } catch (e) {
-        console.error("Failed to parse read states", e);
       }
+    } catch (e) {
+      console.error("Failed to parse notification read state", e);
     }
 
     setNotifications(list);
@@ -74,12 +74,9 @@ export const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onNavigate, onChang
     setNotifications((prev) => {
       const updated = prev.map((n) => (n.id === id ? { ...n, unread: false } : n));
       if (user) {
-        const storageKey = `notifications_read_state_${user.email || 'default'}`;
-        const readMap: Record<string, boolean> = {};
-        updated.forEach((n) => {
-          readMap[n.id] = !n.unread;
-        });
-        localStorage.setItem(storageKey, JSON.stringify(readMap));
+        const storageKey = `notifications_read_v3_${user.id || user.email || 'user'}_${role}`;
+        const readIds = updated.filter((n) => !n.unread).map((n) => n.id);
+        localStorage.setItem(storageKey, JSON.stringify(readIds));
       }
       return updated;
     });
@@ -89,12 +86,9 @@ export const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onNavigate, onChang
     setNotifications((prev) => {
       const updated = prev.map((n) => ({ ...n, unread: false }));
       if (user) {
-        const storageKey = `notifications_read_state_${user.email || 'default'}`;
-        const readMap: Record<string, boolean> = {};
-        updated.forEach((n) => {
-          readMap[n.id] = true;
-        });
-        localStorage.setItem(storageKey, JSON.stringify(readMap));
+        const storageKey = `notifications_read_v3_${user.id || user.email || 'user'}_${role}`;
+        const readIds = updated.map((n) => n.id);
+        localStorage.setItem(storageKey, JSON.stringify(readIds));
       }
       return updated;
     });
@@ -115,7 +109,7 @@ export const Topbar: React.FC<TopbarProps> = ({ onMenuClick, onNavigate, onChang
       <div className="flex items-center gap-3">
         <button
           onClick={onMenuClick}
-          className="md:hidden p-2 -ml-1 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-colors"
+          className="p-2 -ml-1 rounded-xl text-slate-400 hover:text-slate-100 hover:bg-slate-800/60 transition-colors"
           title="Buka Menu"
         >
           <Menu className="w-5 h-5" />

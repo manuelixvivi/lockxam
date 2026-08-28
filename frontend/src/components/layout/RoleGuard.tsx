@@ -30,6 +30,9 @@ export const RoleGuard: React.FC<RoleGuardProps> = ({
       if (allowed === UserRole.SUPER_ADMIN) {
         return role === "SUPERADMIN" || role === "SUPER_ADMIN";
       }
+      if (allowed === UserRole.SCHOOL_ADMIN) {
+        return role === "ADMIN" || role === "SCHOOL_ADMIN";
+      }
       return role === allowed;
     });
 

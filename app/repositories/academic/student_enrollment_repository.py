@@ -33,14 +33,37 @@ class StudentEnrollmentRepository(BaseRepository[StudentClassEnrollment]):
             )
         )
 
+    def get_active_by_student(self, db: Session, student_id: int) -> StudentClassEnrollment | None:
+        return db.scalar(
+            select(StudentClassEnrollment).where(
+                StudentClassEnrollment.student_id == student_id,
+                StudentClassEnrollment.status == EnrollmentStatus.ACTIVE.value,
+            )
+        )
+
+    def list_active_by_student(self, db: Session, student_id: int) -> list[StudentClassEnrollment]:
+        return list(
+            db.scalars(
+                select(StudentClassEnrollment).where(
+                    StudentClassEnrollment.student_id == student_id,
+                    StudentClassEnrollment.status == EnrollmentStatus.ACTIVE.value,
+                )
+            ).all()
+        )
+
     def list_by_class(
-        self, db: Session, class_id: int, status: str | None = None
+        self, db: Session, class_id: int, status: str | list[str] | None = None
     ) -> list[StudentClassEnrollment]:
         query = select(StudentClassEnrollment).where(
             StudentClassEnrollment.class_id == class_id
         )
         if status is not None:
-            query = query.where(StudentClassEnrollment.status == status)
+            if isinstance(status, list):
+                query = query.where(StudentClassEnrollment.status.in_(status))
+            else:
+                query = query.where(StudentClassEnrollment.status == status)
+        else:
+            query = query.where(StudentClassEnrollment.status != EnrollmentStatus.DROPPED.value)
         query = query.order_by(StudentClassEnrollment.created_at.asc())
         return list(db.scalars(query).all())
 

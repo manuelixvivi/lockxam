@@ -15,9 +15,15 @@ class SchoolLicenseRepository(BaseRepository[SchoolLicense]):
         return db.scalar(
             select(SchoolLicense)
             .where(SchoolLicense.school_id == school_id, SchoolLicense.status == "ACTIVE")
-            .order_by(SchoolLicense.created_at.desc())
+            .order_by(SchoolLicense.end_date.desc())
         )
 
+    def get_latest_license(self, db: Session, school_id: int) -> SchoolLicense | None:
+        return db.scalar(
+            select(SchoolLicense)
+            .where(SchoolLicense.school_id == school_id)
+            .order_by(SchoolLicense.created_at.desc())
+        )
 
     def get_by_public_id(self, db: Session, public_id: UUID) -> SchoolLicense | None:
         return db.scalar(select(SchoolLicense).where(SchoolLicense.public_id == public_id))

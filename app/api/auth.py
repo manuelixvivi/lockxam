@@ -1,9 +1,10 @@
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Request, Response
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.dependencies import get_current_user
 from app.core.rbac import require_role
+from app.exceptions import AuthenticationException
 from app.models.security.enums import UserRole
 from app.repositories.security.auth_repository import auth_repository
 from app.schemas.security.auth import (
@@ -15,28 +16,64 @@ from app.schemas.security.auth import (
     SessionResponse,
     TokenResponse,
 )
+from app.core.security import COOKIE_SECURE
 from app.services.security.auth_service import AuthService
 
 router = APIRouter(prefix="/api/v1/auth", tags=["Authentication"])
 
 
 @router.post("/login", response_model=LoginResponse)
-def login(data: LoginRequest, request: Request, db: Session = Depends(get_db)):
-    return AuthService.login(db=db, request=request, data=data)
+def login(data: LoginRequest, request: Request, response: Response, db: Session = Depends(get_db)):
+    res = AuthService.login(db=db, request=request, data=data)
+    if res.refresh_token:
+        response.set_cookie(
+            key="refresh_token",
+            value=res.refresh_token,
+            httponly=True,
+            secure=COOKIE_SECURE,
+            samesite="strict",
+            path="/api/v1/auth",
+            max_age=res.session_expires_in,
+        )
+    res.refresh_token = None
+    return res
 
 
 @router.post("/logout", status_code=204)
-def logout(request: Request, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
+def logout(request: Request, response: Response, current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     ip_address = request.client.host if request.client else None
     user_agent = request.headers.get("user-agent")
     AuthService.logout(
         db=db, current_user=current_user, ip_address=ip_address, user_agent=user_agent
     )
+    response.delete_cookie(
+        key="refresh_token",
+        path="/api/v1/auth",
+        secure=COOKIE_SECURE,
+        httponly=True,
+        samesite="strict",
+    )
 
 
 @router.post("/refresh", response_model=TokenResponse)
-def refresh(data: RefreshRequest, db: Session = Depends(get_db)):
-    return AuthService.refresh(db=db, data=data)
+def refresh(request: Request, response: Response, db: Session = Depends(get_db)):
+    refresh_token_str = request.cookies.get("refresh_token")
+    if not refresh_token_str:
+        raise AuthenticationException("Refresh token missing from cookie")
+
+    res = AuthService.refresh(db=db, data=RefreshRequest(refresh_token=refresh_token_str))
+    if res.refresh_token:
+        response.set_cookie(
+            key="refresh_token",
+            value=res.refresh_token,
+            httponly=True,
+            secure=COOKIE_SECURE,
+            samesite="strict",
+            path="/api/v1/auth",
+            max_age=res.session_expires_in,
+        )
+    res.refresh_token = None
+    return res
 
 
 @router.get("/sessions", response_model=list[SessionResponse])
@@ -73,26 +110,24 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
             db.refresh(account)
 
         if account.role in [UserRole.STUDENT, "STUDENT"] and not resolved_class_name:
-            from app.models.academic.student_class_enrollment import StudentClassEnrollment
-            from app.models.academic.class_entity import ClassEntity
-            enrollment = db.query(StudentClassEnrollment).filter(
-                StudentClassEnrollment.student_id == account.id,
-                StudentClassEnrollment.status == "ACTIVE"
-            ).first()
+            from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
+            from app.repositories.academic.class_repository import class_repository
+            enrollment = student_enrollment_repository.get_active_by_student(db, account.id)
             if enrollment:
-                cls = db.query(ClassEntity).filter(ClassEntity.id == enrollment.class_id).first()
+                cls = class_repository.get_by_id(db, enrollment.class_id)
                 if cls:
                     resolved_class_name = cls.name
                     account.class_name = cls.name
                     db.commit()
 
-        from app.models.school.school import School
-        from app.models.master.school_level import SchoolLevel
-        school = db.query(School).filter(School.id == account.school_id).first()
+        from app.repositories.school.school_repository import school_repository
+        from app.repositories.master.school_level_repository import school_level_repository
+
+        school = school_repository.get_by_id(db, account.school_id)
         if school:
             school_name = school.name
             if school.school_level_id:
-                s_lvl = db.query(SchoolLevel).filter(SchoolLevel.id == school.school_level_id).first()
+                s_lvl = school_level_repository.get_by_id(db, school.school_level_id)
                 if s_lvl:
                     school_level_code = s_lvl.code
 

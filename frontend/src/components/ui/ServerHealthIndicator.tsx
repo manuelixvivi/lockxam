@@ -72,7 +72,7 @@ export const ServerHealthIndicator: React.FC = () => {
             )}
           </div>
           <p className="text-[11px] text-slate-400 font-mono truncate max-w-[220px]">
-            {serverUrl || "http://localhost:8000"}
+            {serverUrl || "http://localhost:1409"}
           </p>
         </div>
       </div>

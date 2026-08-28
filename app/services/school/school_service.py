@@ -1,22 +1,19 @@
 import uuid
+from datetime import datetime, timezone
 
 from sqlalchemy.orm import Session
 
 from app.core.security.password import hash_password
 from app.exceptions.base import BusinessException
-from app.models.license.school_license import SchoolLicense
 from app.models.school.school import School
 from app.models.school.school_setting import SchoolSetting
-
 from app.models.security.auth_account import AuthAccount
 from app.models.security.enums import UserRole
-from app.repositories.master.school_level_repository import (
-    school_level_repository,
-)
+from app.repositories.license.school_license_repository import school_license_repository
+from app.repositories.master.license_type_repository import license_type_repository
+from app.repositories.master.school_level_repository import school_level_repository
 from app.repositories.school.school_repository import school_repository
-from app.repositories.school.school_setting_repository import (
-    school_setting_repository,
-)
+from app.repositories.school.school_setting_repository import school_setting_repository
 from app.repositories.security.auth_repository import auth_repository
 from app.schemas.school.school import SchoolCreateRequest, SchoolUpdateRequest
 
@@ -31,7 +28,7 @@ class SchoolService:
             raise BusinessException(f"School with NPSN {data.npsn} already exists", status_code=400)
 
         # Validate domain uniqueness
-        existing_domain = db.query(School).filter(School.domain == data.domain).first()
+        existing_domain = school_repository.get_by_domain(db, data.domain)
         if existing_domain:
             raise BusinessException(f"Domain '{data.domain}' sudah digunakan sekolah lain.", status_code=409)
 
@@ -70,9 +67,7 @@ class SchoolService:
         school_setting_repository.create(db, setting)
 
         # BR-SCH-002: Create Default Admin Account with domain-based username
-        # Format: admin@admin.{domain}
         admin_username = f"admin@admin.{data.domain}"
-        # Default password: eQu!6r4de@{code}
         admin_password = f"eQu!6r4de@{school_code}"
         admin_hashed_pw = hash_password(admin_password)
 
@@ -82,21 +77,20 @@ class SchoolService:
             password_hash=admin_hashed_pw,
             role=UserRole.ADMIN,
             is_active=True,
-            must_change_password=True,  # Force password change on first login
+            must_change_password=True,
         )
         auth_repository.create(db, admin_acc)
         db.flush()
 
         # Auto-apply initial subscription preset
-        from app.models.master.license_type import LicenseType
         from app.services.license.license_service import LicenseService
 
-        lic_type = db.query(LicenseType).filter(LicenseType.code == data.initial_subscription_preset).first()
+        lic_type = license_type_repository.get_by_code(db, data.initial_subscription_preset)
         if not lic_type:
             raise BusinessException(f"Preset subscription '{data.initial_subscription_preset}' tidak valid.", status_code=400)
 
         # Get superadmin to be the key generator
-        superadmin = db.query(AuthAccount).filter(AuthAccount.role == UserRole.SUPERADMIN).first()
+        superadmin = auth_repository.get_superadmin(db)
         superadmin_id = superadmin.id if superadmin else admin_acc.id
 
         # Generate the activation key
@@ -121,61 +115,37 @@ class SchoolService:
 
         db.commit()
         db.refresh(school)
-        return school
+        enriched = SchoolService._enrich_admin_username(db, school)
+        enriched.temporary_password = admin_password  # type: ignore[attr-defined]
+        return enriched
 
     @staticmethod
     def _enrich_admin_username(db: Session, school: School) -> School:
-        admin_acc = (
-            db.query(AuthAccount)
-            .filter(
-                AuthAccount.school_id == school.id,
-                AuthAccount.role.in_([UserRole.ADMIN, "SCHOOL_ADMIN"]),
-            )
-            .first()
-        )
+        admin_acc = auth_repository.get_school_admin(db, school.id)
         if admin_acc:
-            setattr(school, "admin_username", admin_acc.username)
+            school.admin_username = admin_acc.username  # type: ignore[attr-defined]
         else:
-            setattr(school, "admin_username", None)
+            school.admin_username = None  # type: ignore[attr-defined]
 
         # Enrich subscription status & expiration date
-        latest_license = (
-            db.query(SchoolLicense)
-            .filter(SchoolLicense.school_id == school.id)
-            .order_by(SchoolLicense.created_at.desc())
-            .first()
-        )
+        latest_license = school_license_repository.get_latest_license(db, school.id)
         if latest_license:
-            setattr(school, "subscription_status", latest_license.status)
-            setattr(school, "subscription_end_date", latest_license.end_date)
+            school.subscription_status = latest_license.status  # type: ignore[attr-defined]
+            school.subscription_end_date = latest_license.end_date  # type: ignore[attr-defined]
         else:
-            setattr(school, "subscription_status", "NO_LICENSE")
-            setattr(school, "subscription_end_date", None)
+            school.subscription_status = "NO_LICENSE"  # type: ignore[attr-defined]
+            school.subscription_end_date = None  # type: ignore[attr-defined]
 
         # Enrich total registered students count
-
-        total_students = (
-            db.query(AuthAccount)
-            .filter(
-                AuthAccount.school_id == school.id,
-                AuthAccount.role.in_([UserRole.STUDENT, "STUDENT"]),
-            )
-            .count()
-        )
-        setattr(school, "registered_students_count", total_students)
+        total_students = auth_repository.count_students_by_school(db, school.id)
+        school.registered_students_count = total_students  # type: ignore[attr-defined]
 
         return school
-
 
     @staticmethod
     def toggle_school_subscription(db: Session, public_id: uuid.UUID) -> tuple[School, str]:
         school = SchoolService.get_school_by_public_id(db, public_id)
-        latest_license = (
-            db.query(SchoolLicense)
-            .filter(SchoolLicense.school_id == school.id)
-            .order_by(SchoolLicense.created_at.desc())
-            .first()
-        )
+        latest_license = school_license_repository.get_latest_license(db, school.id)
         if not latest_license:
             raise BusinessException(
                 "Sekolah ini belum memiliki lisensi. Terbitkan Activation Key terlebih dahulu.",
@@ -184,10 +154,11 @@ class SchoolService:
 
         new_status = "SUSPENDED" if latest_license.status == "ACTIVE" else "ACTIVE"
         latest_license.status = new_status
+        school.status = new_status
+        school_repository.update(db, school)
         db.commit()
         db.refresh(latest_license)
         return SchoolService._enrich_admin_username(db, school), new_status
-
 
     @staticmethod
     def get_school_by_public_id(db: Session, public_id: uuid.UUID) -> School:
@@ -208,14 +179,7 @@ class SchoolService:
         db: Session, public_id: uuid.UUID, new_password: str | None = None
     ) -> tuple[str, str]:
         school = SchoolService.get_school_by_public_id(db, public_id)
-        admin_acc = (
-            db.query(AuthAccount)
-            .filter(
-                AuthAccount.school_id == school.id,
-                AuthAccount.role.in_([UserRole.ADMIN, "SCHOOL_ADMIN"]),
-            )
-            .first()
-        )
+        admin_acc = auth_repository.get_school_admin(db, school.id)
 
         if not admin_acc:
             raise BusinessException(
@@ -223,13 +187,12 @@ class SchoolService:
             )
 
         if not new_password:
-            # Reset to default: eQu!6r4de@{code}
             new_password = f"eQu!6r4de@{school.code}"
 
         from app.core.security.password import validate_password_strength
         validate_password_strength(new_password)
         admin_acc.password_hash = hash_password(new_password)
-        admin_acc.must_change_password = True  # Force password change after reset
+        admin_acc.must_change_password = True
         db.commit()
 
         return admin_acc.username, new_password
@@ -239,13 +202,15 @@ class SchoolService:
         school = SchoolService.get_school_by_public_id(db, public_id)
 
         if data.npsn is not None and data.npsn.strip() != school.npsn:
-
             existing = school_repository.get_by_npsn(db, data.npsn.strip())
             if existing and existing.id != school.id:
                 raise BusinessException(f"School with NPSN {data.npsn} already exists", status_code=400)
             school.npsn = data.npsn.strip()
 
-        if data.code is not None:
+        if data.code is not None and data.code.strip() != school.code:
+            existing = school_repository.get_by_code(db, data.code.strip())
+            if existing and existing.id != school.id:
+                raise BusinessException(f"School with code '{data.code}' already exists", status_code=400)
             school.code = data.code.strip()
 
         if data.school_level_id is not None:
@@ -258,7 +223,7 @@ class SchoolService:
             school.school_level_id = data.school_level_id
 
         if data.domain is not None and data.domain.strip() != (school.domain or ""):
-            existing = db.query(School).filter(School.domain == data.domain.strip()).first()
+            existing = school_repository.get_by_domain(db, data.domain.strip())
             if existing and existing.id != school.id:
                 raise BusinessException(f"Domain '{data.domain}' sudah digunakan sekolah lain.", status_code=409)
             school.domain = data.domain.strip()
@@ -277,9 +242,6 @@ class SchoolService:
             school.logo_url = data.logo_url
         if data.is_active is not None:
             school.is_active = data.is_active
-        if data.status is not None:
-            school.status = data.status
-
 
         school_repository.update(db, school)
         db.commit()
@@ -288,14 +250,10 @@ class SchoolService:
 
     @staticmethod
     def delete_school(db: Session, public_id: uuid.UUID) -> None:
-        school = SchoolService.get_school_by_public_id(db, public_id)
-        
-        # Free up unique constraints (NPSN and Domain) by appending a suffix
-        suffix = f"_d_{school.id}"
-        school.npsn = f"{school.npsn}{suffix}"
-        if school.domain:
-            school.domain = f"{school.domain}{suffix}"
-            
-        school_repository.soft_delete(db, school)
+        school = school_repository.get_by_public_id(db, public_id)
+        if not school:
+            raise BusinessException("School not found", status_code=404)
+        school.is_active = False
+        school.deleted_at = datetime.now(timezone.utc)
+        school_repository.update(db, school)
         db.commit()
-

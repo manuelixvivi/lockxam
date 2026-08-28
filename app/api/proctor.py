@@ -131,6 +131,7 @@ def proctor_lock_student(
         endpoint="lock-student",
         proctor_id=proctor_id,
         attempt_id=payload.attempt_id,
+        student_id=payload.student_id,
         proctor_assignment_id=payload.proctor_assignment_id,
         exam_session_id=payload.exam_session_id,
         reason=payload.reason or "Locked by proctor",
@@ -149,6 +150,7 @@ def proctor_unlock_student(
         endpoint="unlock-student",
         proctor_id=proctor_id,
         attempt_id=payload.attempt_id,
+        student_id=payload.student_id,
         proctor_assignment_id=payload.proctor_assignment_id,
         exam_session_id=payload.exam_session_id,
         reason="",
@@ -167,6 +169,7 @@ def proctor_device_reset(
         endpoint="device-reset",
         proctor_id=proctor_id,
         attempt_id=payload.attempt_id,
+        student_id=payload.student_id,
         proctor_assignment_id=payload.proctor_assignment_id,
         exam_session_id=payload.exam_session_id,
         reason=payload.reason or "Device reset by proctor",
@@ -185,22 +188,23 @@ def send_proctor_broadcast(
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
-    """Pengawas mengumumkan pengumuman darurat atau menambah waktu ke seluruh siswa."""
+    """Pengawas mengumumkan pengumuman darurat atau menambah waktu ke seluruh siswa (Ter-persitasi di DB)."""
     from datetime import datetime, timedelta, timezone
-
-    from app.api.exam import BROADCAST_STORE
+    from app.models.teacher.proctor_event import ProctorAuditEvent
 
     sess_id = payload.exam_session_id
-    if sess_id not in BROADCAST_STORE:
-        BROADCAST_STORE[sess_id] = []
+    proctor_id = int(current_user["sub"])
 
     if payload.message:
-        entry = {
-            "id": len(BROADCAST_STORE[sess_id]) + 1,
-            "message": payload.message,
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        BROADCAST_STORE[sess_id].append(entry)
+        evt = ProctorAuditEvent(
+            proctor_assignment_id=sess_id,
+            student_id=0,  # 0 indicates broadcast to all students
+            event_type="ANNOUNCEMENT",
+            reason=payload.message,
+            proctor_id=proctor_id,
+            action_taken="BROADCAST",
+        )
+        db.add(evt)
 
     if payload.extra_minutes and payload.extra_minutes > 0:
         from app.models.exam.enums import ExamAttemptStatus
@@ -220,16 +224,19 @@ def send_proctor_broadcast(
                 a.deadline_at = a.deadline_at + timedelta(minutes=payload.extra_minutes)
             if a.remaining_seconds is not None:
                 a.remaining_seconds += payload.extra_minutes * 60
-        db.commit()
 
-        entry = {
-            "id": len(BROADCAST_STORE[sess_id]) + 1,
-            "message": f"⏱️ Pengawas menambahkan waktu ujian sebesar +{payload.extra_minutes} Menit!",
-            "timestamp": datetime.now(timezone.utc).isoformat(),
-        }
-        BROADCAST_STORE[sess_id].append(entry)
+        evt = ProctorAuditEvent(
+            proctor_assignment_id=sess_id,
+            student_id=0,
+            event_type="EXTRA_TIME",
+            reason=f"⏱️ Pengawas menambahkan waktu ujian sebesar +{payload.extra_minutes} Menit!",
+            proctor_id=proctor_id,
+            action_taken="EXTRA_TIME_ADDED",
+        )
+        db.add(evt)
 
+    db.commit()
     return {
         "status": "SUCCESS",
-        "message": "Broadcast pengumuman dan penambahan waktu berhasil dikirim ke seluruh siswa!",
+        "message": "Broadcast pengumuman dan penambahan waktu berhasil dikirim dan tersimpan di database!",
     }

@@ -13,9 +13,8 @@ import { subjectApi } from "../../api/subject";
 import type { Subject, TeacherCandidate } from "../../api/subject";
 import { teacherApi } from "../../api/teacher";
 import type { TeacherAccount } from "../../api/teacher";
-import { ImportExportBar } from "../../components/ui/ImportExportBar";
 import { AddDataChoiceModal } from "../../components/ui/AddDataChoiceModal";
-import { readXlsxFile } from "../../utils/xlsx";
+import { readXlsxFile, exportToXlsx } from "../../utils/xlsx";
 import { downloadSubjectTemplate } from "../../utils/excelTemplates";
 import {
   BookOpen,
@@ -130,6 +129,13 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
     });
   }, [subjects, searchQuery, statusFilter]);
 
+  // Check if all selected items are inactive for smart bulk button toggle
+  const allSelectedAreInactive = useMemo(() => {
+    if (selectedSubjectIds.length === 0) return false;
+    const selectedSubs = subjects.filter((s) => selectedSubjectIds.includes(s.id));
+    return selectedSubs.length > 0 && selectedSubs.every((s) => !s.is_active);
+  }, [selectedSubjectIds, subjects]);
+
   // Handle Open Create
   const handleOpenCreate = () => {
     setEditingSubject(null);
@@ -201,17 +207,24 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
 
   // Handle Toggle Active
   const handleToggleActive = async (subject: Subject) => {
+    const nextActiveState = !subject.is_active;
+
+    // Optimistic UI state update so item stays in table and badge updates instantly
+    setSubjects((prev) =>
+      prev.map((s) => (s.id === subject.id ? { ...s, is_active: nextActiveState } : s))
+    );
+
     try {
       await subjectApi.updateSubject(subject.public_id, {
         code: subject.code,
         name: subject.name,
         description: subject.description,
-        is_active: !subject.is_active,
+        is_active: nextActiveState,
       });
       showToast({
         type: "success",
-        title: subject.is_active ? "Mapel Dinonaktifkan" : "Mapel Diaktifkan",
-        message: `Status ${subject.name} berhasil diubah.`,
+        title: nextActiveState ? "Mapel Diaktifkan" : "Mapel Dinonaktifkan",
+        message: `Status '${subject.name}' diubah menjadi ${nextActiveState ? "Aktif" : "Nonaktif"}.`,
       });
       await loadData();
     } catch (err: any) {
@@ -220,6 +233,7 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
         title: "Gagal Mengubah Status",
         message: err?.message || "Terjadi kesalahan.",
       });
+      await loadData();
     }
   };
 
@@ -502,8 +516,13 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
               size="md"
               leftIcon={<Download className="w-4 h-4 text-emerald-400" />}
               onClick={() => {
-                const exportBar = document.getElementById("export-mapel-btn");
-                if (exportBar) exportBar.click();
+                const rows = filteredSubjects.map((s) => ({
+                  "Kode Mapel": s.code,
+                  "Nama Mata Pelajaran": s.name,
+                  "Deskripsi": s.description || "",
+                  "Status": s.is_active ? "Aktif" : "Nonaktif",
+                }));
+                exportToXlsx(rows, "daftar-mata-pelajaran", "Mata Pelajaran");
               }}
             >
               Ekspor Excel
@@ -589,46 +608,15 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
             <div className="w-40">
               <Select
                 options={[
-                  { value: "", label: "Semua Status" },
-                  { value: "active", label: "Aktif" },
-                  { value: "inactive", label: "Nonaktif" },
+                  { value: "", label: "Semua Status (Default)" },
+                  { value: "active", label: "Aktif Saja" },
+                  { value: "inactive", label: "Nonaktif Saja" },
                 ]}
                 value={statusFilter}
                 onChange={(e) => setStatusFilter(e.target.value)}
               />
             </div>
           </div>
-        </div>
-
-        {/* Hidden ImportExportBar helper for programmatic export & template */}
-        <div className="hidden">
-          <ImportExportBar<Subject>
-            exportData={filteredSubjects}
-            exportColumns={[
-              { label: "Kode Mapel", key: "code" },
-              { label: "Nama Mata Pelajaran", key: "name" },
-              { label: "Deskripsi", key: "description" },
-              { label: "Status", key: "is_active" },
-            ]}
-            exportFilename="daftar-mata-pelajaran"
-            sheetName="Mata Pelajaran"
-            templateHeaders={["Kode Mapel", "Nama Mata Pelajaran", "Deskripsi"]}
-            templateSamples={[
-              {
-                "Kode Mapel": "MTK",
-                "Nama Mata Pelajaran": "Matematika",
-                "Deskripsi": "Mata pelajaran wajib kurikulum nasional",
-              },
-              {
-                "Kode Mapel": "BIG",
-                "Nama Mata Pelajaran": "Bahasa Inggris",
-                "Deskripsi": "Mata pelajaran bahasa asing",
-              },
-            ]}
-            templateFilename="template-import-mapel"
-            onImportRow={async () => null}
-            onImportDone={loadData}
-          />
         </div>
 
         {/* Bulk Action Toolbar */}
@@ -641,23 +629,32 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
               <Button
                 variant="ghost"
                 size="sm"
-                className="text-amber-300 hover:bg-amber-500/20 border border-amber-500/30"
+                className={
+                  allSelectedAreInactive
+                    ? "text-emerald-300 hover:bg-emerald-500/20 border border-emerald-500/30"
+                    : "text-amber-300 hover:bg-amber-500/20 border border-amber-500/30"
+                }
                 isLoading={isBulkDeactivating}
                 onClick={async () => {
                   setIsBulkDeactivating(true);
                   try {
-                    await subjectApi.bulkDeactivateSubjects(selectedSubjectIds);
-                    showToast({ type: "success", title: "Nonaktif Masal Berhasil", message: `${selectedSubjectIds.length} mata pelajaran dinonaktifkan.` });
+                    if (allSelectedAreInactive) {
+                      await subjectApi.bulkActivateSubjects(selectedSubjectIds);
+                      showToast({ type: "success", title: "Aktivasi Masal Berhasil", message: `${selectedSubjectIds.length} mata pelajaran berhasil diaktifkan kembali.` });
+                    } else {
+                      await subjectApi.bulkDeactivateSubjects(selectedSubjectIds);
+                      showToast({ type: "success", title: "Nonaktif Masal Berhasil", message: `${selectedSubjectIds.length} mata pelajaran dinonaktifkan.` });
+                    }
                     setSelectedSubjectIds([]);
                     await loadData();
                   } catch (err: any) {
-                    showToast({ type: "error", title: "Gagal Nonaktifkan", message: err?.message || "Gagal memproses." });
+                    showToast({ type: "error", title: "Gagal Memproses", message: err?.message || "Terjadi kesalahan." });
                   } finally {
                     setIsBulkDeactivating(false);
                   }
                 }}
               >
-                Nonaktifkan Terpilih
+                {allSelectedAreInactive ? "Aktifkan Terpilih" : "Nonaktifkan Terpilih"}
               </Button>
               <Button
                 variant="danger"
@@ -776,35 +773,23 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
               return;
             }
 
-            let success = 0;
-            let failed = 0;
+            const payloadSubjects = rows.map((row, idx) => ({
+              code: String(row["Kode Mapel"] || "").trim(),
+              name: String(row["Nama Mata Pelajaran"] || "").trim(),
+              description: String(row["Deskripsi"] || "").trim() || undefined,
+              row_num: idx + 2
+            })).filter(s => s.code || s.name);
 
-            for (const row of rows) {
-              const code = String(row["Kode Mapel"] || "").trim().toUpperCase();
-              const name = String(row["Nama Mata Pelajaran"] || "").trim();
-              const description = String(row["Deskripsi"] || "").trim() || undefined;
-
-              if (!code || !name) {
-                failed++;
-                continue;
-              }
-
-              try {
-                await subjectApi.createSubject({ code, name, description });
-                success++;
-              } catch {
-                failed++;
-              }
-            }
-
+            const result = await subjectApi.importSubjects({ subjects: payloadSubjects });
             showToast({
-              type: success > 0 ? "success" : "error",
+              type: "success",
               title: "Impor Berhasil",
-              message: `Berhasil mengimpor ${success} mata pelajaran.${failed > 0 ? ` ${failed} baris gagal/diabaikan.` : ""}`,
+              message: `Berhasil mengimpor ${result.imported_count} mata pelajaran.`,
             });
             await loadData();
           } catch (err: any) {
-            showToast({ type: "error", title: "Gagal Membaca File", message: err?.message || "Format file salah." });
+            const errMsg = err?.response?.data?.message || err?.message || "Format file salah.";
+            showToast({ type: "error", title: "Gagal Memproses Impor", message: errMsg });
           } finally {
             setIsImportingXlsx(false);
           }
@@ -826,7 +811,8 @@ export const SubjectsView: React.FC<SubjectsViewProps> = ({ onNavigate }) => {
             value={formCode}
             onChange={(e) => setFormCode(e.target.value.toUpperCase())}
             required
-            helperText="Gunakan kode singkat huruf kapital & angka."
+            disabled={!!editingSubject}
+            helperText={editingSubject ? "Kode mata pelajaran bersifat immutable (tidak dapat diubah)." : "Gunakan kode singkat huruf kapital & angka."}
           />
 
           <Input

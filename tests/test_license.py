@@ -242,7 +242,7 @@ def test_api_license_endpoints(client, test_superadmin, db: Session):
         },
     )
     assert school_res.status_code == 201
-    school_data = school_res.json()
+    school_data = school_res.json()["school"]
     school_id = school_data["id"]
 
     # Reset admin credentials to legacy test expectations

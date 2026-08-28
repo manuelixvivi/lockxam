@@ -26,4 +26,10 @@ class ExamSnapshotRepository(BaseRepository[ExamSnapshot]):
         )
 
 
+    def delete_by_schedule(self, db: Session, exam_schedule_id: int) -> None:
+        snap = self.get_by_schedule_id(db, exam_schedule_id)
+        if snap:
+            db.delete(snap)
+
+
 exam_snapshot_repository = ExamSnapshotRepository()

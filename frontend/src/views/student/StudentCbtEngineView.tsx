@@ -15,11 +15,13 @@ import {
 import { Button } from "../../components/ui/Button";
 import { Badge } from "../../components/ui/Badge";
 import { Modal } from "../../components/ui/Modal";
-import { MathText } from "../../components/ui/MathText";
+import { LaTeXText } from "../../components/ui/LaTeXText";
 import { useToast } from "../../context/ToastContext";
 import { studentExamApi } from "../../api/studentExam";
 import { apiClient } from "../../api/client";
 import type { StudentSchedule, StudentQuestionItem, ExamAttemptData } from "../../api/studentExam";
+
+import { cbtIndexedDB } from "../../utils/cbtIndexedDB";
 
 interface StudentCbtEngineProps {
   schedule: StudentSchedule;
@@ -47,6 +49,7 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
   const [isCompleted, setIsCompleted] = useState(false);
   const [fontSize, setFontSize] = useState<"normal" | "large" | "xlarge">("normal");
   const [isKeyboardVisible, setIsKeyboardVisible] = useState(false);
+  const textareaRef = useRef<HTMLTextAreaElement | null>(null);
 
   // Autosave Status
   const [autosaveStatus, setAutosaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
@@ -77,63 +80,26 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
         return;
       }
 
-      // Populate questions list
+      // Populate questions list — STRICTLY NO MOCK FALLBACK
       if (data.questions && data.questions.length > 0) {
         setQuestions(data.questions);
       } else {
-        // Default questions with LaTeX formatting demonstration
-        const mockQuestions: StudentQuestionItem[] = [
-          {
-            question_id: 101,
-            question_type: "PG",
-            content: "Tentukan hasil dari nilai perpangkatan $2^3 + 3 \\times 4$ dan penyederhanaan bentuk $\\sqrt{16}$!",
-            options: [
-              { key: "A", text: "$18$" },
-              { key: "B", text: "$20$" },
-              { key: "C", text: "$24$" },
-              { key: "D", text: "$32$" },
-            ],
-            score_weight: 5,
-          },
-          {
-            question_id: 102,
-            question_type: "PG",
-            content: "Jika $x^2 - 5x + 6 = 0$, maka himpunan penyelesaian nilai $x$ adalah...",
-            options: [
-              { key: "A", text: "$\\{1, 6\\}$" },
-              { key: "B", text: "$\\{2, 3\\}$" },
-              { key: "C", text: "$\\{-2, -3\\}$" },
-              { key: "D", text: "$\\{0, 6\\}$" },
-            ],
-            score_weight: 5,
-          },
-          {
-            question_id: 103,
-            question_type: "IS",
-            content: "Tuliskan nama senyawa kimia dari rumus molekul $\\text{H}_2\\text{O}$!",
-            score_weight: 10,
-          },
-          {
-            question_id: 104,
-            question_type: "ES",
-            content: "Jelaskan proses fotosintesis pada tumbuhan hijau dengan menuliskan persamaan reaksi kimianya $6\\text{CO}_2 + 6\\text{H}_2\\text{O} \\rightarrow \\text{C}_6\\text{H}_{12}\\text{O}_6 + 6\\text{O}_2$ secara runtut!",
-            score_weight: 20,
-          },
-        ];
-        setQuestions(mockQuestions);
+        setQuestions([]);
       }
 
-      // Populate existing answers & merge with local offline cache
-      let mergedAnswers = data.answers || {};
+      // Restore existing answers from Server & IndexedDB Resilient Store
+      let mergedAnswers: Record<number, any> = data.answers || {};
       try {
-        const cacheKey = `cbt_answers_session_${schedule.session_id}`;
-        const cachedStr = localStorage.getItem(cacheKey);
-        if (cachedStr) {
-          const cachedMap = JSON.parse(cachedStr);
-          mergedAnswers = { ...mergedAnswers, ...cachedMap };
-        }
+        const idbAnswers = await cbtIndexedDB.getAnswersByAttempt(data.id);
+        Object.entries(idbAnswers).forEach(([qId, val]) => {
+          mergedAnswers[Number(qId)] = {
+            selected_option: val.selected_option ?? mergedAnswers[Number(qId)]?.selected_option,
+            text_answer: val.text_answer ?? mergedAnswers[Number(qId)]?.text_answer,
+            is_flagged: val.is_flagged ?? mergedAnswers[Number(qId)]?.is_flagged,
+          };
+        });
       } catch (e) {
-        console.warn("Cache restore error:", e);
+        console.warn("IndexedDB restore warning:", e);
       }
       setAnswers(mergedAnswers);
 
@@ -255,9 +221,12 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
     await executeSubmit();
   };
 
-  // 3. Save Answer Handler
+  const debounceTimersRef = useRef<Record<number, any>>({});
+
+  // 3. Save Answer Handler (With 600ms Debouncing for Text Typing to Prevent DB Deadlocks)
   const saveAnswer = useCallback(
     async (qId: number, selectedOpt?: string, textAns?: string, flagged?: boolean) => {
+      // Immediate UI update in local state & LocalStorage cache
       setAnswers((prev) => {
         const existing = prev[qId] || {};
         return {
@@ -270,32 +239,46 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
         };
       });
 
-      try {
-        const cacheKey = `cbt_answers_session_${schedule.session_id}`;
-        const currentAnsMap = answers;
-        const updatedAnsMap = {
-          ...currentAnsMap,
-          [qId]: {
-            selected_option: selectedOpt !== undefined ? selectedOpt : currentAnsMap[qId]?.selected_option,
-            text_answer: textAns !== undefined ? textAns : currentAnsMap[qId]?.text_answer,
-            is_flagged: flagged !== undefined ? flagged : currentAnsMap[qId]?.is_flagged,
-          },
-        };
-        localStorage.setItem(cacheKey, JSON.stringify(updatedAnsMap));
-      } catch (e) {
-        console.warn("LocalStorage cache error:", e);
+      // Save to IndexedDB Sole Resilient Store
+      if (attempt) {
+        cbtIndexedDB.saveAnswer({
+          attempt_id: attempt.id,
+          question_id: qId,
+          selected_option: selectedOpt !== undefined ? selectedOpt : answers[qId]?.selected_option,
+          text_answer: textAns !== undefined ? textAns : answers[qId]?.text_answer,
+          is_flagged: flagged !== undefined ? flagged : answers[qId]?.is_flagged,
+          updated_at: Date.now(),
+        });
       }
 
       if (!attempt) return;
-      setAutosaveStatus("saving");
 
-      try {
-        await studentExamApi.autosaveAnswer(attempt.id, qId, selectedOpt, textAns);
-        setAutosaveStatus("saved");
-        const nowStr = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
-        setLastSavedTime(nowStr);
-      } catch {
-        setAutosaveStatus("error");
+      const performApiSave = async () => {
+        setAutosaveStatus("saving");
+        try {
+          await studentExamApi.autosaveAnswer(attempt.id, qId, selectedOpt, textAns);
+          setAutosaveStatus("saved");
+          const nowStr = new Date().toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" });
+          setLastSavedTime(nowStr);
+        } catch (err: any) {
+          console.error("Autosave API Exception:", err);
+          setAutosaveStatus("error");
+        }
+      };
+
+      // If it is a text typing event (essay/isian), debounce 600ms to prevent API race conditions
+      if (textAns !== undefined && selectedOpt === undefined) {
+        if (debounceTimersRef.current[qId]) {
+          clearTimeout(debounceTimersRef.current[qId]);
+        }
+        debounceTimersRef.current[qId] = setTimeout(() => {
+          performApiSave();
+        }, 600);
+      } else {
+        if (debounceTimersRef.current[qId]) {
+          clearTimeout(debounceTimersRef.current[qId]);
+        }
+        performApiSave();
       }
     },
     [attempt, answers, schedule.session_id]
@@ -310,6 +293,20 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
     if (!attempt) return;
     setIsSubmitting(true);
     try {
+      // 1. Flush all local answers from IndexedDB & state to server BEFORE submitting
+      let idbCache: any = {};
+      try {
+        idbCache = await cbtIndexedDB.getAnswersByAttempt(attempt.id);
+      } catch (e) {}
+
+      const mergedAnswers = { ...idbCache, ...answers };
+      try {
+        await studentExamApi.flushAnswers(attempt.id, mergedAnswers);
+      } catch (flushErr) {
+        console.warn("Pre-submit answer flush warning:", flushErr);
+      }
+
+      // 2. Finalize Submit
       await studentExamApi.submitAttempt(attempt.id);
       if (typeof window !== "undefined" && (window as any).LockxamBridge?.exitKioskMode) {
         (window as any).LockxamBridge.exitKioskMode();
@@ -400,7 +397,26 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
     );
   }
 
-  if (!currentQuestion) return null;
+  if (!currentQuestion) {
+    return (
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center p-4 text-center">
+        <div className="glass-panel max-w-md w-full p-6 space-y-4 border border-rose-500/30">
+          <AlertTriangle className="w-12 h-12 text-amber-400 mx-auto" />
+          <h3 className="text-base font-bold text-slate-100">Menyiapkan Lembar Soal Ujian</h3>
+          <p className="text-xs text-slate-400">
+            Paket soal untuk jadwal ujian <strong>{schedule.title}</strong> sedang dimuat atau disinkronkan oleh pengawas.
+          </p>
+          <Button variant="primary" onClick={initAttempt} className="w-full">
+            Muat Ulang Soal Ujian
+          </Button>
+          <Button variant="outline" onClick={onExit} className="w-full">
+            Kembali ke Beranda
+          </Button>
+        </div>
+      </div>
+    );
+  }
+
   const currentAnswer = answers[currentQuestion.question_id] || {};
   const isTextQuestion = currentQuestion.question_type === "IS" || currentQuestion.question_type === "ES";
 
@@ -510,17 +526,17 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
           </div>
         </div>
 
-        {/* Question Content Box with KaTeX LaTeX Support */}
+        {/* Question Content Box with KaTeX LaTeX & Image Lightbox Support */}
         <div className="glass-panel p-4 sm:p-8 space-y-5 border border-slate-800">
           <div
             className={`text-slate-100 leading-relaxed font-sans ${
               fontSize === "large" ? "text-base sm:text-lg" : fontSize === "xlarge" ? "text-lg sm:text-xl" : "text-sm sm:text-base"
             }`}
           >
-            <MathText text={currentQuestion.content} />
+            <LaTeXText content={currentQuestion.content} />
           </div>
 
-          {/* Multiple Choice Options (PG) with KaTeX LaTeX Support */}
+          {/* Multiple Choice Options (PG) with KaTeX LaTeX & Image Lightbox Support */}
           {currentQuestion.question_type === "PG" && currentQuestion.options && (
             <div className="space-y-2.5 pt-2">
               {currentQuestion.options.map((opt) => {
@@ -543,7 +559,7 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
                       {opt.key}
                     </span>
                     <span className={`pt-0.5 text-xs sm:text-sm ${fontSize === "large" ? "text-sm sm:text-base" : fontSize === "xlarge" ? "text-base sm:text-lg" : ""}`}>
-                      <MathText text={opt.text} />
+                      <LaTeXText content={opt.text} />
                     </span>
                   </button>
                 );
@@ -551,32 +567,44 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
             </div>
           )}
 
-          {/* Text Input (Short Answer / Essay) */}
+          {/* Text Input (Short Answer / Essay) with Image Upload Support */}
           {isTextQuestion && (
             <div className="space-y-3 pt-2">
-              <div className="flex items-center justify-between">
+              <div className="flex items-center justify-between flex-wrap gap-2">
                 <label className="block text-xs font-bold text-slate-300">Jawaban Anda:</label>
-                <button
-                  onClick={() => setIsKeyboardVisible(!isKeyboardVisible)}
-                  className="px-2.5 py-1 bg-indigo-950 border border-indigo-500/50 text-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-indigo-900 transition-colors"
-                >
-                  <Keyboard className="w-3.5 h-3.5" />
-                  <span>{isKeyboardVisible ? "Sembunyikan Keyboard" : "Buka Keypad Lockxam"}</span>
-                </button>
+                <div className="flex items-center gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setIsKeyboardVisible(!isKeyboardVisible)}
+                    className="px-2.5 py-1 bg-indigo-950 border border-indigo-500/50 text-indigo-300 rounded-lg text-xs font-bold flex items-center gap-1.5 hover:bg-indigo-900 transition-colors"
+                  >
+                    <Keyboard className="w-3.5 h-3.5" />
+                    <span>{isKeyboardVisible ? "Sembunyikan Keyboard" : "Buka Keypad Lockxam"}</span>
+                  </button>
+                </div>
               </div>
 
-              {/* Readonly textarea acting as input display */}
-              <div
+              {/* Interactive textarea with cursor positioning */}
+              <textarea
+                ref={textareaRef}
+                value={currentAnswer.text_answer || ""}
+                onChange={(e) => saveAnswer(currentQuestion.question_id, undefined, e.target.value)}
+                onFocus={() => setIsKeyboardVisible(true)}
                 onClick={() => setIsKeyboardVisible(true)}
-                className="w-full min-h-[90px] bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs sm:text-sm text-slate-100 cursor-pointer focus:border-indigo-500 transition-colors font-mono whitespace-pre-wrap relative"
-              >
-                {currentAnswer.text_answer ? (
-                  currentAnswer.text_answer
-                ) : (
-                  <span className="text-slate-600 italic">Tekan untuk mengetik dengan keyboard Lockxam...</span>
-                )}
-                <span className="inline-block w-[2px] h-4 sm:h-5 bg-indigo-400 ml-0.5 animate-[pulse_0.8s_infinite] align-middle shadow-[0_0_6px_rgba(129,140,248,0.8)]" />
-              </div>
+                placeholder="Ketik jawaban Anda di sini, atau sisipkan foto lembar jawaban kertas Anda..."
+                className="w-full min-h-[100px] bg-slate-950 border border-slate-800 rounded-xl p-3.5 text-xs sm:text-sm text-slate-100 focus:border-indigo-500 focus:outline-none transition-colors font-mono resize-y"
+                rows={4}
+              />
+
+              {/* Preview of student's uploaded images/content */}
+              {currentAnswer.text_answer && currentAnswer.text_answer.includes("![") && (
+                <div className="p-3 bg-slate-900/60 rounded-xl border border-slate-800 space-y-1">
+                  <span className="text-[10px] font-bold text-slate-400 block uppercase">Preview Tampilan Jawaban Anda:</span>
+                  <div className="text-xs text-slate-200">
+                    <LaTeXText content={currentAnswer.text_answer} />
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -642,7 +670,17 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
           <div className="w-full bg-slate-950/95 p-2 sm:p-4 select-none animate-slide-up border-t border-slate-800">
             <LockxamBottomKeyboard
               value={currentAnswer.text_answer || ""}
-              onChange={(newVal) => saveAnswer(currentQuestion.question_id, undefined, newVal)}
+              textareaRef={textareaRef}
+              onChange={(newVal, newPos) => {
+                saveAnswer(currentQuestion.question_id, undefined, newVal);
+                if (newPos !== undefined && textareaRef.current) {
+                  const el = textareaRef.current;
+                  setTimeout(() => {
+                    el.setSelectionRange(newPos, newPos);
+                    el.focus();
+                  }, 0);
+                }
+              }}
               onClose={() => setIsKeyboardVisible(false)}
             />
           </div>
@@ -759,11 +797,12 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
 
 interface LockxamBottomKeyboardProps {
   value: string;
-  onChange: (newValue: string) => void;
+  onChange: (newValue: string, newCursorPos?: number) => void;
   onClose: () => void;
+  textareaRef?: React.RefObject<HTMLTextAreaElement | null>;
 }
 
-function LockxamBottomKeyboard({ value, onChange, onClose }: LockxamBottomKeyboardProps) {
+function LockxamBottomKeyboard({ value, onChange, onClose, textareaRef }: LockxamBottomKeyboardProps) {
   const [shiftMode, setShiftMode] = useState<"off" | "shift" | "caps">("shift");
   const [mode, setMode] = useState<"ABC" | "123" | "SYM">("ABC");
   const lastShiftTapRef = useRef<number>(0);
@@ -774,10 +813,8 @@ function LockxamBottomKeyboard({ value, onChange, onClose }: LockxamBottomKeyboa
     lastShiftTapRef.current = now;
 
     if (diff < 350) {
-      // Double tap -> Permanent CAPS LOCK
       setShiftMode("caps");
     } else {
-      // Single tap -> Cycle off -> shift -> off
       setShiftMode((prev) => {
         if (prev === "off") return "shift";
         if (prev === "shift") return "off";
@@ -789,22 +826,50 @@ function LockxamBottomKeyboard({ value, onChange, onClose }: LockxamBottomKeyboa
   const handleKeyPress = (char: string) => {
     const isUpper = shiftMode !== "off";
     const nextChar = isUpper ? char.toUpperCase() : char.toLowerCase();
-    onChange(value + nextChar);
 
-    // Auto-reset single-tap Shift back to lowercase after 1 character!
+    const textarea = textareaRef?.current;
+    if (textarea) {
+      const start = textarea.selectionStart ?? value.length;
+      const end = textarea.selectionEnd ?? value.length;
+      const newValue = value.slice(0, start) + nextChar + value.slice(end);
+      const newPos = start + nextChar.length;
+      onChange(newValue, newPos);
+    } else {
+      onChange(value + nextChar);
+    }
+
     if (shiftMode === "shift") {
       setShiftMode("off");
     }
   };
 
   const handleBackspace = () => {
-    if (value.length > 0) {
+    const textarea = textareaRef?.current;
+    if (textarea) {
+      const start = textarea.selectionStart ?? value.length;
+      const end = textarea.selectionEnd ?? value.length;
+      if (start !== end) {
+        const newValue = value.slice(0, start) + value.slice(end);
+        onChange(newValue, start);
+      } else if (start > 0) {
+        const newValue = value.slice(0, start - 1) + value.slice(start);
+        onChange(newValue, start - 1);
+      }
+    } else if (value.length > 0) {
       onChange(value.slice(0, -1));
     }
   };
 
   const handleEnter = () => {
-    onChange(value + "\n");
+    const textarea = textareaRef?.current;
+    if (textarea) {
+      const start = textarea.selectionStart ?? value.length;
+      const end = textarea.selectionEnd ?? value.length;
+      const newValue = value.slice(0, start) + "\n" + value.slice(end);
+      onChange(newValue, start + 1);
+    } else {
+      onChange(value + "\n");
+    }
   };
 
   const handleClear = () => {

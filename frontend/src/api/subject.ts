@@ -71,6 +71,9 @@ export const subjectApi = {
   bulkDeactivateSubjects: (subjectIds: number[]): Promise<void> =>
     apiClient.post<void>("/api/v1/admin/subjects/bulk-deactivate", { subject_ids: subjectIds }),
 
+  bulkActivateSubjects: (subjectIds: number[]): Promise<void> =>
+    apiClient.post<void>("/api/v1/admin/subjects/bulk-activate", { subject_ids: subjectIds }),
+
   assignTeacherCompetency: (subjectId: number, teacherId: number): Promise<TeacherSubjectResponse> =>
     apiClient.post<TeacherSubjectResponse>(`/api/v1/admin/subjects/${subjectId}/teachers/${teacherId}`),
 
@@ -79,4 +82,17 @@ export const subjectApi = {
 
   listQualifiedTeachers: (subjectId: number): Promise<TeacherCandidate[]> =>
     apiClient.get<TeacherCandidate[]>(`/api/v1/admin/subjects/${subjectId}/teachers`),
+
+  importSubjects: (data: {
+    subjects: Array<{
+      code: string;
+      name: string;
+      description?: string;
+      row_num?: number;
+    }>;
+  }): Promise<{
+    status: string;
+    imported_count: number;
+    data: Subject[];
+  }> => apiClient.post("/api/v1/admin/subjects/import", data),
 };

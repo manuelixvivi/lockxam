@@ -65,14 +65,11 @@ class SubjectService:
             raise BusinessException("Kode dan Nama Mata Pelajaran wajib diisi.", status_code=400)
 
         if code_clean != subj.code:
-            existing = subject_repository.get_by_code(db, school_id, code_clean)
-            if existing and existing.id != subj.id:
-                raise BusinessException(
-                    f"Mata pelajaran dengan kode '{code_clean}' sudah terdaftar di sekolah ini.",
-                    status_code=400,
-                )
+            raise BusinessException(
+                f"Kode mata pelajaran ('{subj.code}') bersifat IMMUTABLE dan tidak dapat diubah setelah dibuat.",
+                status_code=400,
+            )
 
-        subj.code = code_clean
         subj.name = name_clean
         subj.description = description.strip() if description else None
         subj.is_active = is_active
@@ -84,54 +81,14 @@ class SubjectService:
         if not subj or subj.school_id != school_id:
             raise BusinessException("Mata pelajaran tidak ditemukan.", status_code=404)
 
-        from app.models.academic.teacher_subject import TeacherSubject
-        from app.models.academic.class_subject import ClassSubject
-        from app.models.academic.class_subject_teacher import ClassSubjectTeacher
-        from app.models.academic.exam_schedule import ExamSchedule
-        from app.models.exam.exam_session import ExamSession
-        from app.models.exam.package_snapshot import ExamPackageSnapshot
-
-        # 1. Clean active class & teacher bindings
-        db.query(TeacherSubject).filter(TeacherSubject.subject_id == subj.id).delete(synchronize_session=False)
-        db.query(ClassSubjectTeacher).filter(ClassSubjectTeacher.subject_id == subj.id).delete(synchronize_session=False)
-        db.query(ClassSubject).filter(ClassSubject.subject_id == subj.id).delete(synchronize_session=False)
-
-        # 2. Check for active/completed exam sessions with student attempts
-        linked_schedules = db.query(ExamSchedule).filter(ExamSchedule.subject_id == subj.id).all()
-        has_historical_sessions = False
-        if linked_schedules:
-            sch_ids = [s.id for s in linked_schedules]
-            hist_sess = db.query(ExamSession).filter(
-                ExamSession.schedule_id.in_(sch_ids),
-                ExamSession.status.in_(["ACTIVE", "COMPLETED"])
-            ).first()
-            if hist_sess:
-                has_historical_sessions = True
-
-        from app.models.academic.exam_snapshot import ExamSnapshot
-
-        if has_historical_sessions:
-            # Soft delete: deactivate subject so it vanishes from active lists & drop-downs while preserving past exam session records intact
+        if subject_repository.is_subject_in_use(db, subj.id):
+            # Non-destructive deactivation (preserves all historical relationships)
             subj.is_active = False
             db.flush()
         else:
-            # Clean non-historical session snapshots and schedules
-            for sch in linked_schedules:
-                db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == sch.id).delete(synchronize_session=False)
-                sessions = db.query(ExamSession).filter(ExamSession.schedule_id == sch.id).all()
-                for sess in sessions:
-                    snapshots = db.query(ExamPackageSnapshot).filter(ExamPackageSnapshot.exam_session_id == sess.id).all()
-                    for snap in snapshots:
-                        db.delete(snap)
-                    db.delete(sess)
-                db.delete(sch)
-
+            # Safe hard delete for unused master record only
+            subject_repository.delete(db, subj)
             db.flush()
-            try:
-                subject_repository.delete(db, subj)
-            except Exception:
-                subj.is_active = False
-                db.flush()
 
     @staticmethod
     def list_subjects(
@@ -151,27 +108,18 @@ class SubjectService:
         if not subj or subj.school_id != school_id:
             raise BusinessException("Mata pelajaran tidak ditemukan.", status_code=404)
 
-        # Sync with profile subjects_taught list
-        current_taught = list(teacher.subjects_taught or [])
-        if subj.name not in current_taught:
-            current_taught.append(subj.name)
-            teacher.subjects_taught = current_taught
-
+        # TeacherSubject is the ONLY authority for competency.
+        # Do NOT write teacher.subjects_taught here.
+        # The derived projection is computed at read-time in SchoolStaffService.list_teachers().
         return teacher_subject_repository.assign(db, school_id, teacher_id, subject_id)
 
     @staticmethod
     def unassign_teacher_competency(
         db: Session, teacher_id: int, subject_id: int
     ) -> bool:
-        teacher = auth_repository.get_by_id(db, teacher_id)
-        subj = subject_repository.get_by_id(db, subject_id)
-
-        if teacher and subj and teacher.subjects_taught:
-            teacher.subjects_taught = [
-                s for s in teacher.subjects_taught
-                if s.strip().lower() != subj.name.strip().lower() and s.strip().lower() != subj.code.strip().lower()
-            ]
-
+        # TeacherSubject DELETE is the ONLY authority for removing competency.
+        # Do NOT write teacher.subjects_taught here.
+        # The derived projection is computed at read-time in SchoolStaffService.list_teachers().
         return teacher_subject_repository.unassign(db, teacher_id, subject_id)
 
     @staticmethod
@@ -179,29 +127,114 @@ class SubjectService:
         db: Session, school_id: int, subject_id: int
     ) -> list[AuthAccount]:
         subj = subject_repository.get_by_id(db, subject_id)
-        if not subj or subj.school_id != school_id:
+        if not subj or subj.school_id != school_id or not subj.is_active:
             return []
 
-        # 1. Teachers explicitly registered in teacher_subjects table
         teacher_ids = teacher_subject_repository.list_teacher_ids_by_subject(
             db, school_id, subject_id
         )
-        qualified_teachers = [
+        return [
             t
             for t in [auth_repository.get_by_id(db, tid) for tid in teacher_ids]
             if t and t.is_active and t.school_id == school_id
         ]
-        qualified_ids = {t.id for t in qualified_teachers}
 
-        # 2. Also check teachers whose profile subjects_taught contains subject name or code (case-insensitive)
-        all_school_teachers = auth_repository.list_teachers_by_school(db, school_id)
-        for t in all_school_teachers:
-            if t.id not in qualified_ids and t.is_active:
-                taught = [s.strip().lower() for s in (t.subjects_taught or [])]
-                if subj.name.strip().lower() in taught or subj.code.strip().lower() in taught:
-                    # Auto-sync to teacher_subject table for persistent relational integrity
-                    teacher_subject_repository.assign(db, school_id, t.id, subj.id)
-                    qualified_teachers.append(t)
-                    qualified_ids.add(t.id)
+    @staticmethod
+    def import_subjects_xlsx(
+        db: Session,
+        school_id: int,
+        subjects_data: list[dict],
+    ) -> tuple[bool, list[Subject], list[dict]]:
+        errors = []
+        validated_batch_data = []
+        seen_codes = set()
 
-        return qualified_teachers
+        # First Pass: Validate ALL subjects before persistence
+        for idx, item in enumerate(subjects_data):
+            row_num = item.get("row_num") or (idx + 2)
+            code = str(item.get("code") or "").strip()
+            name = str(item.get("name") or "").strip()
+            description = item.get("description")
+
+            if not code:
+                errors.append({
+                    "row": row_num,
+                    "field": "code",
+                    "value": "",
+                    "code": "SUBJECT_CODE_REQUIRED",
+                    "message": "Kode Mata Pelajaran wajib diisi."
+                })
+                continue
+
+            code_clean = code.upper()
+
+            if code_clean in seen_codes:
+                errors.append({
+                    "row": row_num,
+                    "field": "code",
+                    "value": code,
+                    "code": "DUPLICATE_SUBJECT_CODE_IN_FILE",
+                    "message": f"Kode mata pelajaran '{code_clean}' ganda di dalam file Excel."
+                })
+                continue
+            seen_codes.add(code_clean)
+
+            existing = subject_repository.get_by_code(db, school_id, code_clean)
+            if existing:
+                errors.append({
+                    "row": row_num,
+                    "field": "code",
+                    "value": code,
+                    "code": "DUPLICATE_SUBJECT_CODE_IN_DB",
+                    "message": f"Mata pelajaran dengan kode '{code_clean}' sudah terdaftar di sekolah ini."
+                })
+                continue
+
+            if not name:
+                errors.append({
+                    "row": row_num,
+                    "field": "name",
+                    "value": "",
+                    "code": "SUBJECT_NAME_REQUIRED",
+                    "message": "Nama Mata Pelajaran wajib diisi."
+                })
+                continue
+
+            validated_batch_data.append({
+                "code": code_clean,
+                "name": name,
+                "description": description.strip() if description else None,
+            })
+
+        if errors:
+            return False, [], errors
+
+        # Second Pass: Atomic Persistence under transaction/savepoint
+        created_subjects = []
+        try:
+            savepoint = db.begin_nested()
+            for subject_info in validated_batch_data:
+                subj = Subject(
+                    school_id=school_id,
+                    code=subject_info["code"],
+                    name=subject_info["name"],
+                    description=subject_info["description"],
+                    is_active=True,
+                )
+                subject_repository.create(db, subj)
+                created_subjects.append(subj)
+
+            db.flush()
+            savepoint.commit()
+            return True, created_subjects, []
+
+        except Exception as e:
+            savepoint.rollback()
+            db.rollback()
+            from app.logging.logger import logger
+            logger.error(f"Subject bulk import persistence failure: {str(e)}", exc_info=True)
+            raise BusinessException(
+                "Gagal melakukan penyimpanan data ke database. Terjadi kesalahan internal pada server.",
+                status_code=500,
+            )
+

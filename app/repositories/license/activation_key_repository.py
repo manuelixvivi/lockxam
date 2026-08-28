@@ -17,5 +17,12 @@ class ActivationKeyRepository(BaseRepository[ActivationKey]):
     def get_by_public_id(self, db: Session, public_id: UUID) -> ActivationKey | None:
         return db.scalar(select(ActivationKey).where(ActivationKey.public_id == public_id))
 
+    def get_all_ordered_by_created_at_desc(self, db: Session) -> list[ActivationKey]:
+        return list(
+            db.scalars(
+                select(ActivationKey).order_by(ActivationKey.created_at.desc())
+            ).all()
+        )
+
 
 activation_key_repository = ActivationKeyRepository()

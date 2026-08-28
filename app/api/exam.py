@@ -22,12 +22,20 @@ from app.schemas.exam.exam import (
     StudentAnswerResponse,
 )
 from app.services.exam.exam_service import ExamService
+from app.repositories.exam.attempt_repository import attempt_repository
+from app.repositories.exam.exam_session_repository import exam_session_repository
+from app.repositories.exam.student_answer_repository import student_answer_repository
+from app.repositories.exam.checkin_repository import checkin_repository
+from app.repositories.teacher.proctor_event_repository import proctor_event_repository
+from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
+from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+from app.repositories.academic.subject_repository import subject_repository
+from app.repositories.security.auth_repository import auth_repository
 
 router = APIRouter(prefix="/api/v1/exam", tags=["Exam — Student"])
 
-# Storage Telemetry Real-time & Broadcast Messages
+# Storage Telemetry Real-time
 TELEMETRY_STORE: dict[int, dict] = {}
-BROADCAST_STORE: dict[int, list[dict]] = {}
 
 
 class TelemetryPayload(BaseModel):
@@ -48,14 +56,7 @@ def update_attempt_telemetry(
 ):
     """Siswa mengirimkan data telemetry HP (baterai, ping, sinyal, dan event kecurangan/split-screen)."""
     student_id = int(current_user["sub"])
-    from app.models.exam.enums import ExamAttemptStatus
-    from app.models.exam.exam_attempt import ExamAttempt
-
-    attempt = (
-        db.query(ExamAttempt)
-        .filter(ExamAttempt.id == attempt_id, ExamAttempt.student_id == student_id)
-        .first()
-    )
+    attempt = attempt_repository.get_by_id_and_student(db, attempt_id=attempt_id, student_id=student_id)
 
     if not attempt:
         raise HTTPException(status_code=404, detail="Exam attempt not found")
@@ -71,6 +72,7 @@ def update_attempt_telemetry(
     }
 
     if payload.violation_type in ["SPLIT_SCREEN", "APP_SWITCH", "UNPINNED"]:
+        from app.models.exam.enums import ExamAttemptStatus
         attempt.status = ExamAttemptStatus.PAUSED
         db.commit()
         return {
@@ -86,9 +88,18 @@ def update_attempt_telemetry(
 def get_session_broadcasts(
     session_id: int,
     current_user=Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
 ):
-    """Mendapatkan pengumuman darurat / broadcast dari pengawas untuk sesi ujian ini."""
-    broadcasts = BROADCAST_STORE.get(session_id, [])
+    """Mendapatkan pengumuman darurat / broadcast dari pengawas untuk sesi ujian ini (Dari DB)."""
+    events = proctor_event_repository.get_by_assignment(db, assignment_id=session_id)
+    broadcasts = [
+        {
+            "id": ev.id,
+            "message": ev.reason,
+            "timestamp": ev.timestamp.isoformat() if ev.timestamp else "",
+        }
+        for ev in events
+    ]
     return {"broadcasts": broadcasts}
 
 
@@ -108,76 +119,52 @@ def list_my_schedules(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    from datetime import datetime, timezone
-
-    from app.models.academic.exam_schedule import ExamSchedule
-    from app.models.academic.student_class_enrollment import StudentClassEnrollment
-    from app.models.exam.enums import ExamSessionStatus
-    from app.models.exam.exam_attempt import ExamAttempt
-    from app.models.exam.exam_checkin import ExamCheckin
-    from app.models.exam.exam_session import ExamSession
-    from app.repositories.academic.subject_repository import subject_repository
-    from app.utils.timezone import ensure_wib
-
-    enrollments = (
-        db.query(StudentClassEnrollment)
-        .filter(
-            StudentClassEnrollment.student_id == student_id,
-            StudentClassEnrollment.status == "ACTIVE",
-        )
-        .all()
-    )
+    enrollments = student_enrollment_repository.list_active_by_student(db, student_id)
     if not enrollments:
         return []
 
     class_ids = [e.class_id for e in enrollments]
 
     # 1. Active class schedules
-    active_schedules = (
-        db.query(ExamSchedule)
-        .filter(
-            ExamSchedule.school_id == school_id,
-            ExamSchedule.class_id.in_(class_ids),
-            ExamSchedule.status.in_(["READY", "ACTIVE"]),
-        )
-        .all()
-    )
+    active_schedules = exam_schedule_repository.list_active_for_classes(db, school_id, class_ids)
 
-    # 2. Preserve historical schedules where student has attempt or check-in (jejak histori akademik)
-    my_attempts = db.query(ExamAttempt).filter(ExamAttempt.student_id == student_id).all()
+    # 2. Preserve historical schedules where student has attempt or check-in
+    my_attempts = attempt_repository.get_by_student(db, student_id)
     attempt_session_ids = [a.exam_session_id for a in my_attempts]
 
     historical_schedule_ids = []
     if attempt_session_ids:
-        attempt_sessions = (
-            db.query(ExamSession).filter(ExamSession.id.in_(attempt_session_ids)).all()
-        )
+        attempt_sessions = exam_session_repository.get_by_ids(db, attempt_session_ids)
         historical_schedule_ids.extend([se.schedule_id for se in attempt_sessions])
 
-    my_checkins = db.query(ExamCheckin).filter(ExamCheckin.student_id == student_id).all()
+    my_checkins = checkin_repository.get_by_student(db, student_id)
     if my_checkins:
         historical_schedule_ids.extend([c.schedule_id for c in my_checkins])
 
     historical_schedules = []
     if historical_schedule_ids:
-        historical_schedules = (
-            db.query(ExamSchedule)
-            .filter(ExamSchedule.id.in_(list(set(historical_schedule_ids))))
-            .all()
-        )
+        historical_schedules = exam_schedule_repository.get_by_ids(db, list(set(historical_schedule_ids)))
 
     schedule_dict = {s.id: s for s in active_schedules + historical_schedules}
     schedules = sorted(schedule_dict.values(), key=lambda s: s.start_time)
+
+    # Auto-sweep & auto-submit expired attempts (ensures disconnected students have last autosaved answers submitted on timeout)
+    try:
+        ExamService.auto_submit_expired_attempts(db, student_id=student_id)
+    except Exception as sweep_err:
+        print(f"Sweep error in get_my_schedules: {sweep_err}")
 
     res = []
     now_wib = ensure_wib(datetime.now(timezone.utc))
 
     for s in schedules:
         subj = subject_repository.get_by_id(db, s.subject_id)
-        session = db.query(ExamSession).filter(ExamSession.schedule_id == s.id).first()
+        session = exam_session_repository.get_by_schedule_id(db, s.id)
 
-        if not session and s.status in ["READY", "ACTIVE"]:
+        if not session and s.status != "CANCELLED":
             start_wib = ensure_wib(s.start_time)
+            from app.models.exam.enums import ExamSessionStatus
+            from app.models.exam.exam_session import ExamSession
             sess_status = (
                 ExamSessionStatus.ACTIVE if now_wib >= start_wib else ExamSessionStatus.PLANNED
             )
@@ -192,26 +179,19 @@ def list_my_schedules(
             db.add(session)
             db.commit()
             db.refresh(session)
+        elif session and session.status != ExamSessionStatus.ACTIVE:
+            start_wib = ensure_wib(s.start_time)
+            if now_wib >= start_wib:
+                from app.models.exam.enums import ExamSessionStatus
+                session.status = ExamSessionStatus.ACTIVE
+                db.commit()
 
         attempt = None
         if session:
-            attempt = (
-                db.query(ExamAttempt)
-                .filter(
-                    ExamAttempt.exam_session_id == session.id, ExamAttempt.student_id == student_id
-                )
-                .first()
-            )
+            attempt = attempt_repository.get_by_session_and_student(db, session.id, student_id)
 
         # Cek apakah siswa sudah checkin QR untuk jadwal ini
-        checkin = (
-            db.query(ExamCheckin)
-            .filter(
-                ExamCheckin.schedule_id == s.id,
-                ExamCheckin.student_id == student_id,
-            )
-            .first()
-        )
+        checkin = checkin_repository.get_by_schedule_and_student(db, s.id, student_id)
 
         res.append(
             {
@@ -258,15 +238,7 @@ def get_class_leaderboard(
     from app.models.exam.exam_attempt import ExamAttempt
     from app.models.security.auth_account import AuthAccount
 
-    # Get student active enrollment class
-    enrollment = (
-        db.query(StudentClassEnrollment)
-        .filter(
-            StudentClassEnrollment.student_id == student_id,
-            StudentClassEnrollment.status == "ACTIVE",
-        )
-        .first()
-    )
+    enrollment = student_enrollment_repository.get_active_by_student(db, student_id)
 
     if not enrollment:
         return {"rank_self": None, "leaderboard": []}
@@ -274,36 +246,14 @@ def get_class_leaderboard(
     class_id = enrollment.class_id
 
     # Get all active student IDs in this class
-    class_students = (
-        db.query(StudentClassEnrollment)
-        .filter(
-            StudentClassEnrollment.class_id == class_id, StudentClassEnrollment.status == "ACTIVE"
-        )
-        .all()
-    )
+    class_students = student_enrollment_repository.list_by_class(db, class_id, status="ACTIVE")
     student_ids = [cs.student_id for cs in class_students]
 
     # Calculate average final_score for each student in this class
-    results = (
-        db.query(
-            ExamAttempt.student_id,
-            func.avg(ExamAttempt.final_score).label("avg_score"),
-            func.count(ExamAttempt.id).label("total_exams"),
-        )
-        .filter(
-            ExamAttempt.student_id.in_(student_ids),
-            ExamAttempt.status.in_(
-                [ExamAttemptStatus.GRADED, ExamAttemptStatus.SUBMITTED, "GRADED", "SUBMITTED"]
-            ),
-            ExamAttempt.final_score.isnot(None),
-        )
-        .group_by(ExamAttempt.student_id)
-        .order_by(func.avg(ExamAttempt.final_score).desc())
-        .all()
-    )
+    results = attempt_repository.get_class_leaderboard(db, student_ids)
 
     # Map student names
-    accounts = db.query(AuthAccount).filter(AuthAccount.id.in_(student_ids)).all()
+    accounts = auth_repository.get_by_ids(db, student_ids)
     account_map = {a.id: a for a in accounts}
 
     leaderboard = []
@@ -339,8 +289,8 @@ def get_class_leaderboard(
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# GET /schedules/{schedule_id}/qr-token  â€” Pengawas generate token QR absen
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# In-memory PIN cache for 6-digit short checkin tokens
+ACTIVE_PIN_CACHE: dict[str, dict] = {}
 
 
 @router.get(
@@ -353,36 +303,49 @@ def get_qr_checkin_token(
     db: Session = Depends(get_db),
 ):
     """Pengawas mengambil token QR absen untuk suatu jadwal ujian.
-    Token berlaku 10 menit dan di-sign dengan HMAC-SHA256."""
+    Token berlaku 3 menit dan di-sign dengan HMAC-SHA256."""
     import hmac
     import time
 
-    from app.models.academic.exam_schedule import ExamSchedule
+    from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
 
-    schedule = db.get(ExamSchedule, schedule_id)
+    schedule = exam_schedule_repository.get_by_id(db, schedule_id)
     title = f"Jadwal Ujian #{schedule_id}"
     if schedule:
         title = getattr(schedule, "title", getattr(schedule, "name", f"Jadwal Ujian #{schedule_id}"))
 
     # Token: base64url( schedule_id | expires_ts | hmac )
     secret = os.environ.get("SECRET_KEY", "equigrade-secret")
-    expires_ts = int(time.time()) + 60  # 1 menit (60 detik)
+    expires_ts = int(time.time()) + 180  # 3 menit (180 detik)
     payload_str = f"{schedule_id}:{expires_ts}"
     sig = hmac.new(secret.encode(), payload_str.encode(), hashlib.sha256).hexdigest()[:16]
     token = f"{schedule_id}:{expires_ts}:{sig}"
+
+    # Generate short 6-digit numeric PIN
+    pin_number = (int(sig[:8], 16) % 900000) + 100000
+    pin_code = str(pin_number)
+
+    # Cache PIN mapping
+    ACTIVE_PIN_CACHE[pin_code] = {
+        "schedule_id": schedule_id,
+        "token": token,
+        "expires_ts": expires_ts,
+    }
 
     return {
         "schedule_id": schedule_id,
         "schedule_title": title,
         "token": token,
         "qr_token": token,
-        "expires_in_seconds": 60,
+        "pin_code": pin_code,
+        "display_code": pin_code,
+        "expires_in_seconds": 180,
     }
 
 
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
-# POST /checkin  â€” Siswa scan QR absen, merekam device fingerprint
-# â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
+# ─────────────────────────────────────────────────────────────────────────────
+# POST /checkin  — Siswa scan QR absen / input PIN 6-digit
+# ─────────────────────────────────────────────────────────────────────────────
 
 
 @router.post("/checkin", status_code=status.HTTP_200_OK)
@@ -391,42 +354,48 @@ def student_checkin(
     current_user=Depends(require_role(UserRole.STUDENT)),
     db: Session = Depends(get_db),
 ):
-    """Siswa melakukan absensi dengan scan QR dari pengawas.
-    Endpoint ini:
-    1. Memvalidasi token QR (sudah di-sign & belum expired)
-    2. Merekam device_id siswa ke tabel exam_checkins (upsert)
-    3. Mengembalikan info jadwal agar siswa bisa menunggu jam ujian
-    """
+    """Siswa melakukan absensi dengan scan QR / input PIN 6-digit dari pengawas."""
     import hmac
     import time
 
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.exam.exam_checkin import ExamCheckin
 
-    body = request.json() if hasattr(request, "json") else {}
-    # FastAPI endpoint menerima JSON body â€” gunakan Pydantic inline
-
-    # Baca body secara sinkron (endpoint ini sync)
-    body_bytes = b""
-    # Body sudah di-cache oleh Starlette â€” akses via scope
-    # Kita gunakan query param karena ini lebih aman di sync handler
-    token: str = request.query_params.get("token", "")
+    raw_token: str = request.query_params.get("token", "").strip()
+    expected_schedule_id_raw = request.query_params.get("expected_schedule_id")
+    expected_schedule_id = int(expected_schedule_id_raw) if expected_schedule_id_raw and expected_schedule_id_raw.isdigit() else None
     device_id: str = request.headers.get("X-Device-Id", "unknown")
 
-    if not token:
-        raise HTTPException(status_code=422, detail="Token QR wajib disertakan.")
+    if not raw_token:
+        raise HTTPException(status_code=422, detail="Token QR atau Kode PIN 6-digit wajib disertakan.")
+
+    clean_pin = raw_token.replace("-", "").replace(" ", "").upper()
+
+    # Resolution from 6-digit PIN cache if student typed PIN
+    if clean_pin in ACTIVE_PIN_CACHE:
+        cached = ACTIVE_PIN_CACHE[clean_pin]
+        if int(time.time()) <= cached["expires_ts"]:
+            raw_token = cached["token"]
 
     # Validasi token
     secret = os.environ.get("SECRET_KEY", "equigrade-secret")
     try:
-        parts = token.split(":")
+        parts = raw_token.split(":")
         if len(parts) != 3:
             raise ValueError()
         schedule_id_str, expires_ts_str, sig_received = parts
         schedule_id = int(schedule_id_str)
         expires_ts = int(expires_ts_str)
     except (ValueError, IndexError):
-        raise HTTPException(status_code=400, detail="Format token QR tidak valid.")
+        raise HTTPException(status_code=400, detail="Format token QR atau Kode PIN 6-digit tidak valid.")
+
+    if expected_schedule_id and expected_schedule_id != schedule_id:
+        target_schedule = exam_schedule_repository.get_by_id(db, schedule_id)
+        target_title = getattr(target_schedule, "title", getattr(target_schedule, "name", f"Jadwal #{schedule_id}")) if target_schedule else f"Jadwal #{schedule_id}"
+        raise HTTPException(
+            status_code=400,
+            detail=f"Token QR ini milik mata pelajaran '{target_title}'. Silakan scan QR sesuai jadwal ujian yang Anda buka!",
+        )
 
     # Cek expiry
     if int(time.time()) > expires_ts:
@@ -441,7 +410,7 @@ def student_checkin(
         raise HTTPException(status_code=400, detail="Token QR tidak valid atau telah dimodifikasi.")
 
     # Cek jadwal ada
-    schedule = db.get(ExamSchedule, schedule_id)
+    schedule = exam_schedule_repository.get_by_id(db, schedule_id)
     if not schedule:
         raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan.")
 
@@ -449,14 +418,7 @@ def student_checkin(
 
     # Upsert ExamCheckin
     try:
-        checkin = (
-            db.query(ExamCheckin)
-            .filter(
-                ExamCheckin.schedule_id == schedule_id,
-                ExamCheckin.student_id == student_id,
-            )
-            .first()
-        )
+        checkin = checkin_repository.get_by_schedule_and_student(db, schedule_id, student_id)
 
         if checkin:
             # Update device_id jika berbeda (rebind pre-exam)
@@ -476,6 +438,14 @@ def student_checkin(
 
         db.commit()
         db.refresh(checkin)
+
+        # Auto-mark student present in Proctor BAP / BAU Document
+        try:
+            from app.services.teacher.proctor_service import ProctorService
+            ProctorService.auto_mark_student_present(db, schedule_id, student_id)
+        except Exception as _bau_err:
+            print(f"[Checkin BAP Sync Warning] {_bau_err}")
+
     except Exception as e:
         db.rollback()
         raise HTTPException(status_code=500, detail=f"Gagal menyimpan data absensi: {str(e)}")
@@ -521,16 +491,25 @@ def start_attempt(
         ip_address=ip_address,
     )
 
-    from app.models.exam.student_answer import StudentAnswer
-    from app.repositories.exam.snapshot_repository import snapshot_repository
+    from app.repositories.exam.exam_session_repository import exam_session_repository
 
     snapshot = snapshot_repository.get_by_session(db, session_id)
+    if not snapshot:
+        session = exam_session_repository.get_by_id(db, session_id)
+        if session:
+            try:
+                snapshot = ExamService._lazy_create_package_snapshot(db, session)
+            except Exception as e:
+                print(f"Lazy snapshot creation error: {e}")
+
     questions_data = []
 
     if snapshot and snapshot.questions_json:
         q_map = {}
         for q in snapshot.questions_json:
             q_id = q.get("id") or q.get("question_id")
+            if q_id is None:
+                continue
             opts = q.get("options", [])
             formatted_opts = []
             if isinstance(opts, list):
@@ -567,16 +546,16 @@ def start_attempt(
         for q_id in order_list:
             if q_id in q_map:
                 questions_data.append(q_map[q_id])
-            elif isinstance(q_id, int) and q_id in q_map:
-                questions_data.append(q_map[q_id])
+            elif str(q_id) in q_map:
+                questions_data.append(q_map[str(q_id)])
+            elif isinstance(q_id, str) and q_id.isdigit() and int(q_id) in q_map:
+                questions_data.append(q_map[int(q_id)])
 
         for q_id, q_item in q_map.items():
             if q_item not in questions_data:
                 questions_data.append(q_item)
 
-    saved_answers = (
-        db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id == attempt.id).all()
-    )
+    saved_answers = student_answer_repository.get_all_by_attempt(db, attempt.id)
     answers_map = {}
     for sa in saved_answers:
         answers_map[sa.question_id] = {
@@ -611,29 +590,87 @@ def start_attempt(
     response_model=StudentAnswerResponse,
     status_code=status.HTTP_200_OK,
 )
-def autosave_answer(
+async def autosave_answer(
     attempt_id: int,
-    question_id: int,
-    selected_option: str | None = None,
-    text_answer: str | None = None,
+    request: Request,
     x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
     current_user=Depends(require_role(UserRole.STUDENT)),
     db: Session = Depends(get_db),
 ):
-    """UC-3: Autosave jawaban siswa per soal."""
+    """UC-3: Autosave jawaban siswa per soal (Mendukung JSON Body & Query Params)."""
     student_id = int(current_user["sub"])
-    if not x_device_token:
-        raise HTTPException(status_code=401, detail="X-Device-Token diperlukan.")
+    if not x_device_token or not x_device_token.strip():
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Header X-Device-Token wajib disertakan dan terdaftar.",
+        )
+    token_val = x_device_token.strip()
+
+    question_id = None
+    selected_option = None
+    text_answer = None
+
+    try:
+        body = await request.json()
+        if isinstance(body, dict):
+            question_id = body.get("question_id")
+            selected_option = body.get("selected_option")
+            text_answer = body.get("text_answer")
+    except Exception:
+        pass
+
+    if question_id is None:
+        q_param = request.query_params.get("question_id")
+        if q_param and q_param.isdigit():
+            question_id = int(q_param)
+        selected_option = request.query_params.get("selected_option")
+        text_answer = request.query_params.get("text_answer")
+
+    if question_id is None:
+        raise HTTPException(status_code=422, detail="question_id wajib disertakan.")
 
     return ExamService.autosave_answer(
         db=db,
         attempt_id=attempt_id,
-        question_id=question_id,
+        question_id=int(question_id),
         selected_option=selected_option,
         text_answer=text_answer,
         student_id=student_id,
-        token=x_device_token,
+        token=token_val,
     )
+
+
+@router.post(
+    "/attempts/{attempt_id}/flush-answers",
+    status_code=status.HTTP_200_OK,
+)
+async def flush_all_answers(
+    attempt_id: int,
+    request: Request,
+    x_device_token: str | None = Header(default=None, alias="X-Device-Token"),
+    current_user=Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    """UC-3.1: Flush & batch save semua jawaban lokal siswa ke database sebelum submit."""
+    student_id = int(current_user["sub"])
+    token_val = x_device_token or ""
+
+    body = {}
+    try:
+        body = await request.json()
+    except Exception:
+        pass
+
+    answers_map = body.get("answers", {}) if isinstance(body, dict) else {}
+
+    ExamService.flush_all_answers(
+        db=db,
+        attempt_id=attempt_id,
+        answers_map=answers_map,
+        student_id=student_id,
+        token=token_val,
+    )
+    return {"status": "OK", "flushed_count": len(answers_map)}
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€

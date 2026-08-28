@@ -394,7 +394,7 @@ def test_api_get_snapshot_payload_internal_only(client, test_teacher, db, test_s
     # 2. Accessing with correct internal token -> should succeed
     success_res = client.get(
         f"/api/v1/teacher/packages/{package.id}/snapshot-payload",
-        headers={"X-Internal-Service-Token": "super-secret-internal-token"},
+        headers={"X-Internal-Service-Token": "equigrade-internal-secret-token"},
     )
     assert success_res.status_code == 200
     data = success_res.json()

@@ -87,3 +87,13 @@ class SchoolResponse(BaseModel):
         from_attributes = True
 
 
+class AdminCredentials(BaseModel):
+    username: str
+    temporary_password: str
+
+
+class SchoolCreateResponse(BaseModel):
+    school: SchoolResponse
+    admin_credentials: AdminCredentials
+
+

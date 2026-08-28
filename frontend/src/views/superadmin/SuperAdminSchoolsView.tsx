@@ -39,6 +39,7 @@ import type { CreateSchoolPayload, SchoolLevelOption } from "../../api/superadmi
 import type { SchoolProfile } from "../../api/school";
 import type { AppApiError } from "../../api/client";
 import { ImportExportBar } from "../../components/ui/ImportExportBar";
+import { copyToClipboard } from "../../utils/clipboard";
 
 export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => void }> = ({
   onNavigate,
@@ -62,6 +63,7 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
     schoolName: string;
     username: string;
     newPassword: string;
+    type?: "create" | "reset";
   } | null>(null);
   const [isResetting, setIsResetting] = useState<boolean>(false);
   const [isCopied, setIsCopied] = useState<boolean>(false);
@@ -165,11 +167,17 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
         logo_url: logoUrl.trim() || undefined,
       };
 
-      await superadminApi.createSchool(payload);
+      const res = await superadminApi.createSchool(payload);
       toast.success("Sekolah Terdaftar", `Sekolah ${name} berhasil didaftarkan ke sistem.`);
       setIsCreateModalOpen(false);
       resetForm();
       fetchData();
+      setResetResult({
+        schoolName: res.school.name,
+        username: res.admin_credentials.username,
+        newPassword: res.admin_credentials.temporary_password,
+        type: "create",
+      });
     } catch (err: any) {
       const apiErr = err as AppApiError;
       setFormError(apiErr.message || "Gagal mendaftarkan sekolah baru.");
@@ -228,6 +236,7 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
         schoolName: school.name,
         username: res.username,
         newPassword: res.new_password,
+        type: "reset",
       });
       toast.success(
         "Password Berhasil Direset",
@@ -241,13 +250,17 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
     }
   };
 
-  const handleCopyCredentials = () => {
-    if (resetResult) {
+  const handleCopyCredentials = async () => {
+    if (resetResult && resetResult.username && resetResult.newPassword) {
       const textToCopy = `Kredensial Admin Sekolah ${resetResult.schoolName}\nUsername: ${resetResult.username}\nPassword: ${resetResult.newPassword}`;
-      navigator.clipboard.writeText(textToCopy);
-      setIsCopied(true);
-      toast.success("Disalin!", "Kredensial Admin Sekolah telah disalin ke clipboard.");
-      setTimeout(() => setIsCopied(false), 2000);
+      const success = await copyToClipboard(textToCopy);
+      if (success) {
+        setIsCopied(true);
+        toast.success("Disalin!", "Kredensial Admin Sekolah telah disalin.");
+        setTimeout(() => setIsCopied(false), 2000);
+      } else {
+        toast.error("Gagal Menyalin", "Gagal menyalin kredensial secara otomatis.");
+      }
     }
   };
 
@@ -424,11 +437,47 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                     {
                       key: "code",
                       header: "Kode & NPSN",
-                      width: "130px",
+                      width: "140px",
                       render: (item: SchoolProfile) => (
                         <div>
-                          <div className="font-mono text-xs font-bold text-indigo-400">{item.code}</div>
-                          <div className="text-[11px] font-mono text-slate-400">NPSN: {item.npsn}</div>
+                          <div className="flex items-center gap-1">
+                            <span className="font-mono text-xs font-bold text-indigo-400">{item.code}</span>
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const success = await copyToClipboard(item.code);
+                                if (success) {
+                                  toast.success("Disalin!", "Kode sekolah berhasil disalin.");
+                                } else {
+                                  toast.error("Gagal Menyalin", "Gagal menyalin kode sekolah.");
+                                }
+                              }}
+                              className="text-slate-500 hover:text-indigo-400 transition-colors p-0.5"
+                              title="Salin Kode Sekolah"
+                            >
+                              <Copy className="w-3 h-3" />
+                            </button>
+                          </div>
+                          <div className="flex items-center gap-1 text-[11px] font-mono text-slate-400 mt-0.5">
+                            <span>NPSN: {item.npsn}</span>
+                            <button
+                              type="button"
+                              onClick={async (e) => {
+                                e.stopPropagation();
+                                const success = await copyToClipboard(item.npsn);
+                                if (success) {
+                                  toast.success("Disalin!", "NPSN berhasil disalin.");
+                                } else {
+                                  toast.error("Gagal Menyalin", "Gagal menyalin NPSN.");
+                                }
+                              }}
+                              className="text-slate-550 hover:text-indigo-400 transition-colors p-0.5"
+                              title="Salin NPSN"
+                            >
+                              <Copy className="w-2.5 h-2.5" />
+                            </button>
+                          </div>
                         </div>
                       ),
                     },
@@ -459,15 +508,34 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                     {
                       key: "admin_username",
                       header: "Akun Admin Sekolah",
-                      render: (item: SchoolProfile) => (
-                        <div className="space-y-1">
-                          <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-purple-300">
-                            <UserCheck className="w-3.5 h-3.5 text-purple-400" />
-                            <span>{(item as any).admin_username || (item.domain ? `admin@admin.${item.domain}` : `admin_${item.npsn}`)}</span>
+                      render: (item: SchoolProfile) => {
+                        const uname = (item as any).admin_username || (item.domain ? `admin@admin.${item.domain}` : `admin_${item.npsn}`);
+                        return (
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-1.5 font-mono text-xs font-semibold text-purple-300">
+                              <UserCheck className="w-3.5 h-3.5 text-purple-400" />
+                              <span>{uname}</span>
+                              <button
+                                type="button"
+                                onClick={async (e) => {
+                                  e.stopPropagation();
+                                  const success = await copyToClipboard(uname);
+                                  if (success) {
+                                    toast.success("Disalin!", "Username Admin berhasil disalin.");
+                                  } else {
+                                    toast.error("Gagal Menyalin", "Gagal menyalin username admin.");
+                                  }
+                                }}
+                                className="text-slate-500 hover:text-purple-400 transition-colors p-0.5"
+                                title="Salin Username Admin"
+                              >
+                                <Copy className="w-3 h-3" />
+                              </button>
+                            </div>
+                            <div className="text-[10px] text-slate-400">{item.email || "Email resmi"}</div>
                           </div>
-                          <div className="text-[10px] text-slate-400">{item.email || "Email resmi"}</div>
-                        </div>
-                      ),
+                        );
+                      },
                     },
                     {
                       key: "subscription_status",
@@ -601,11 +669,39 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
 
                         {/* Badges: Code, NPSN, and Domain Suffix */}
                         <div className="flex flex-wrap gap-2 text-xs">
-                          <span className="bg-slate-800 text-indigo-400 px-2 py-0.5 rounded font-mono text-[10px]">
+                          <span className="bg-slate-800 text-indigo-400 px-2 py-0.5 rounded font-mono text-[10px] flex items-center gap-1">
                             {item.code}
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const success = await copyToClipboard(item.code);
+                                if (success) {
+                                  toast.success("Disalin!", "Kode sekolah disalin.");
+                                } else {
+                                  toast.error("Gagal Menyalin", "Gagal menyalin kode sekolah.");
+                                }
+                              }}
+                              className="text-slate-500 hover:text-indigo-400 p-0.5"
+                            >
+                              <Copy className="w-2.5 h-2.5" />
+                            </button>
                           </span>
-                          <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono text-[10px]">
+                          <span className="bg-slate-800 text-slate-400 px-2 py-0.5 rounded font-mono text-[10px] flex items-center gap-1">
                             NPSN: {item.npsn}
+                            <button
+                              type="button"
+                              onClick={async () => {
+                                const success = await copyToClipboard(item.npsn);
+                                if (success) {
+                                  toast.success("Disalin!", "NPSN disalin.");
+                                } else {
+                                  toast.error("Gagal Menyalin", "Gagal menyalin NPSN.");
+                                }
+                              }}
+                              className="text-slate-550 hover:text-indigo-400 p-0.5"
+                            >
+                              <Copy className="w-2.5 h-2.5" />
+                            </button>
                           </span>
                           {item.domain && (
                             <span className="bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded font-bold text-[10px]">
@@ -618,8 +714,23 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                         <div className="p-3 bg-slate-950/60 rounded-xl space-y-2 text-xs border border-slate-800/40">
                           <div className="flex items-center justify-between">
                             <span className="text-slate-400 font-semibold">Admin Account:</span>
-                            <span className="font-mono text-purple-300 font-bold">
+                            <span className="font-mono text-purple-300 font-bold flex items-center gap-1">
                               {(item as any).admin_username || (item.domain ? `admin@admin.${item.domain}` : `admin_${item.npsn}`)}
+                              <button
+                                type="button"
+                                onClick={async () => {
+                                  const uname = (item as any).admin_username || (item.domain ? `admin@admin.${item.domain}` : `admin_${item.npsn}`);
+                                  const success = await copyToClipboard(uname);
+                                  if (success) {
+                                    toast.success("Disalin!", "Username Admin disalin.");
+                                  } else {
+                                    toast.error("Gagal Menyalin", "Gagal menyalin username admin.");
+                                  }
+                                }}
+                                className="text-slate-500 hover:text-purple-400 p-0.5"
+                              >
+                                <Copy className="w-2.5 h-2.5" />
+                              </button>
                             </span>
                           </div>
                           <div className="flex items-center justify-between">
@@ -699,12 +810,20 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
           </div>
         )}
 
-        {/* Modal: Result Reset Password Admin Sekolah */}
+        {/* Modal: Result Reset Password / Registrasi Admin Sekolah */}
         <Modal
           isOpen={!!resetResult}
           onClose={() => setResetResult(null)}
-          title="Kata Sandi Admin Sekolah Berhasil Direset"
-          subtitle={`Informasi kredensial baru untuk ${resetResult?.schoolName}.`}
+          title={
+            resetResult?.type === "create"
+              ? "Sekolah Berhasil Didaftarkan"
+              : "Kata Sandi Admin Sekolah Berhasil Direset"
+          }
+          subtitle={
+            resetResult?.type === "create"
+              ? `Kredensial login admin default untuk ${resetResult?.schoolName}.`
+              : `Informasi kredensial baru untuk ${resetResult?.schoolName}.`
+          }
           maxWidth="md"
         >
           {resetResult && (
@@ -719,7 +838,9 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                   <span className="font-mono text-xs font-bold text-purple-300">{resetResult.username}</span>
                 </div>
                 <div className="flex items-center justify-between pt-1">
-                  <span className="text-xs text-amber-300 font-semibold">Kata Sandi Baru (Temporary)</span>
+                  <span className="text-xs text-amber-300 font-semibold">
+                    {resetResult.type === "create" ? "Kata Sandi Default" : "Kata Sandi Baru (Temporary)"}
+                  </span>
                   <span className="font-mono text-sm font-black text-slate-100 bg-slate-900 px-3 py-1 rounded-lg border border-slate-700 select-all">
                     {resetResult.newPassword}
                   </span>

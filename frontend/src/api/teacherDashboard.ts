@@ -57,6 +57,7 @@ export interface StudentAttemptProctor {
 export interface EssayGradingEvaluation {
   evaluation_id: number;
   attempt_id: number;
+  schedule_id: number;
   student_name: string;
   exam_title: string;
   class_name: string;
@@ -64,6 +65,8 @@ export interface EssayGradingEvaluation {
   question_content: string;
   student_answer: string | null;
   ai_score: number;
+  teacher_score?: number | null;
+  package_name?: string | null;
   max_score?: number;
   ai_feedback: string | null;
   grading_status: string;
@@ -104,6 +107,9 @@ export const teacherDashboardApi = {
 
   listGradingEvaluations: (): Promise<EssayGradingEvaluation[]> =>
     apiClient.get<EssayGradingEvaluation[]>("/api/v1/teacher/grading/evaluations"),
+
+  getExamHistory: (): Promise<{ grouped_packages: { package_title: string; schedules: any[] }[] }> =>
+    apiClient.get<{ grouped_packages: { package_title: string; schedules: any[] }[] }>("/api/v1/teacher/exam-history"),
 
   finalizeGrading: (evaluationId: number, score: number, feedback?: string): Promise<any> =>
     apiClient.post<any>(`/api/v1/teacher/grading/evaluations/${evaluationId}/finalize`, {

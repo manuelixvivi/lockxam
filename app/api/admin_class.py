@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.rbac import require_admin
 from app.exceptions.base import BusinessException
+from app.schemas.common.import_validation import ImportResponse
 from app.schemas.academic.admin_academic import (
     ClassCreateRequest,
     ClassResponse,
@@ -99,6 +100,12 @@ def list_classes(
     from app.repositories.academic.class_repository import class_repository
     from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
     from app.repositories.academic.class_subject_repository import class_subject_repository
+    from app.repositories.academic.academic_year_repository import academic_year_repository
+
+    if academic_year_id is None:
+        active_year = academic_year_repository.get_active_year(db, school_id)
+        if active_year:
+            academic_year_id = active_year.id
 
     if academic_year_id is not None:
         classes = class_repository.list_by_academic_year(
@@ -111,7 +118,7 @@ def list_classes(
 
     res = []
     for c in classes:
-        students = student_enrollment_repository.list_by_class(db, c.id, status="ACTIVE")
+        students = student_enrollment_repository.list_by_class(db, c.id, status=["ACTIVE", "COMPLETED", "TRANSFERRED"])
         subjects = class_subject_repository.list_by_class(db, c.id)
         res.append(
             ClassResponse(
@@ -146,7 +153,7 @@ def get_class(
     if not cls or cls.school_id != school_id:
         raise BusinessException("Kelas tidak ditemukan.", status_code=404)
 
-    students = student_enrollment_repository.list_by_class(db, cls.id, status="ACTIVE")
+    students = student_enrollment_repository.list_by_class(db, cls.id, status=["ACTIVE", "COMPLETED", "TRANSFERRED"])
     subjects = class_subject_repository.list_by_class(db, cls.id)
 
     return ClassResponse(
@@ -608,141 +615,100 @@ def bulk_remove_subjects(
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
-    from app.repositories.academic.class_subject_repository import class_subject_repository
     for subj_id in data.subject_ids:
-        class_subject_repository.remove(db, class_id, subj_id)
+        ClassStructureService.remove_subject_from_class(
+            db=db, school_id=school_id, class_id=class_id, subject_id=subj_id
+        )
     db.commit()
     return {"status": "success", "removed_count": len(data.subject_ids)}
 
 
-@router.post("/import-full", status_code=status.HTTP_200_OK)
+@router.post("/import-full", response_model=ImportResponse[ClassSubjectTeacherResponse])
 def import_full_classes_xlsx(
+    request: Request,
     data: ClassFullImportRequest,
     current_user=Depends(require_admin()),
     db: Session = Depends(get_db),
 ):
+    from fastapi.responses import JSONResponse
+    from app.schemas.common.import_validation import ImportResponse, ImportRowError
+
     school_id = _get_school_id(current_user)
-    from app.models.security.auth_account import AuthAccount
-    from app.models.security.enums import UserRole
-    from app.repositories.academic.class_repository import class_repository
-    from app.repositories.academic.subject_repository import subject_repository
-    from app.repositories.academic.teacher_subject_repository import teacher_subject_repository
 
-    imported_classes_count = 0
-    total_students_enrolled = 0
-    total_subjects_assigned = 0
+    classes_list = []
+    for cls in data.classes:
+        classes_list.append(cls.model_dump())
 
-    for cls_data in data.classes:
-        class_name = cls_data.name.strip()
-        if not class_name:
-            continue
+    success, created_relations, errors = ClassStructureService.import_classes_xlsx(
+        db=db,
+        school_id=school_id,
+        academic_year_id=data.academic_year_id,
+        classes_data=classes_list,
+    )
 
-        # 1. Get or Create Class (silently reuse if exists)
-        try:
-            existing_cls = class_repository.get_by_name(
-                db, school_id=school_id, academic_year_id=data.academic_year_id, name=class_name
-            )
-            if not existing_cls:
-                existing_cls = ClassService.create_class(
-                    db=db,
-                    school_id=school_id,
-                    academic_year_id=data.academic_year_id,
-                    name=class_name,
-                    grade_level=cls_data.grade_level,
-                )
-        except Exception:
-            db.rollback()
-            continue
-        imported_classes_count += 1
+    if not success:
+        row_errors = [ImportRowError(**err) for err in errors]
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=ImportResponse(
+                status="error",
+                message="Impor struktur kelas gagal karena terdapat kesalahan validasi.",
+                imported_count=0,
+                errors=row_errors,
+            ).model_dump()
+        )
 
-        # 2. Process Students
-        for st_info in cls_data.students:
-            nisn = str(st_info.get("nisn") or "").strip()
-            nis = str(st_info.get("nis") or "").strip()
-            uname = str(st_info.get("username") or "").strip()
-
-            query = db.query(AuthAccount).filter(
-                AuthAccount.school_id == school_id,
-                AuthAccount.role.in_([UserRole.STUDENT, "STUDENT"])
-            )
-            student = None
-            if nisn:
-                student = query.filter(AuthAccount.nisn.ilike(nisn)).first()
-            if not student and nis:
-                student = query.filter(AuthAccount.nis.ilike(nis)).first()
-            if not student and uname:
-                student = query.filter(AuthAccount.username.ilike(uname)).first()
-
-            if student:
-                try:
-                    ClassStructureService.enroll_student_to_class(
-                        db=db, school_id=school_id, student_id=student.id, class_id=existing_cls.id
-                    )
-                    total_students_enrolled += 1
-                except Exception:
-                    db.rollback()
-
-        # 3. Process Subjects & Teachers
-        for sb_info in cls_data.subjects:
-            s_code = str(sb_info.get("subject_code") or sb_info.get("code") or "").strip()
-            s_name = str(sb_info.get("subject_name") or sb_info.get("name") or "").strip()
-            t_identifier = str(
-                sb_info.get("teacher_code") or sb_info.get("teacher_nip") or sb_info.get("teacher_username") or ""
-            ).strip()
-
-            subj = None
-            if s_code:
-                subj = db.query(subject_repository.model).filter(
-                    subject_repository.model.school_id == school_id,
-                    subject_repository.model.code.ilike(s_code)
-                ).first()
-            if not subj and s_name:
-                subj = db.query(subject_repository.model).filter(
-                    subject_repository.model.school_id == school_id,
-                    subject_repository.model.name.ilike(s_name)
-                ).first()
-
-            if subj:
-                try:
-                    ClassStructureService.assign_subject_to_class(
-                        db=db, school_id=school_id, class_id=existing_cls.id, subject_id=subj.id
-                    )
-                    total_subjects_assigned += 1
-                except Exception:
-                    db.rollback()
-
-                if t_identifier:
-                    teacher = db.query(AuthAccount).filter(
-                        AuthAccount.school_id == school_id,
-                        AuthAccount.role.in_([UserRole.TEACHER, "TEACHER"]),
-                        (AuthAccount.teacher_code.ilike(t_identifier)) |
-                        (AuthAccount.nip.ilike(t_identifier)) |
-                        (AuthAccount.username.ilike(t_identifier))
-                    ).first()
-
-                    if teacher:
-                        try:
-                            comp = teacher_subject_repository.get_by_teacher_and_subject(
-                                db, teacher.id, subj.id
-                            )
-                            if not comp:
-                                teacher_subject_repository.assign(db, school_id, teacher.id, subj.id)
-
-                            ClassStructureService.assign_teacher_to_class_subject(
-                                db=db,
-                                school_id=school_id,
-                                class_id=existing_cls.id,
-                                subject_id=subj.id,
-                                teacher_id=teacher.id,
-                            )
-                        except Exception:
-                            db.rollback()
+    # Logging activity
+    user_id = int(current_user["sub"])
+    ActivityService.log_activity(
+        db=db,
+        auth_account_id=user_id,
+        action_type="CLASS_STRUCTURE",
+        action_name="IMPORT_CLASS_STRUCTURE",
+        school_id=school_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "academic_year_id": data.academic_year_id,
+            "classes_count": len(data.classes),
+            "assigned_teachers_count": len(created_relations)
+        },
+    )
 
     db.commit()
-    return {
-        "status": "success",
-        "imported_classes_count": imported_classes_count,
-        "total_students_enrolled": total_students_enrolled,
-        "total_subjects_assigned": total_subjects_assigned,
-    }
+
+    # Resolve details for response
+    from app.repositories.security.auth_repository import auth_repository
+    from app.repositories.academic.subject_repository import subject_repository
+    from app.repositories.academic.class_repository import class_repository
+
+    response_data = []
+    for cst in created_relations:
+        teacher = auth_repository.get_by_id(db, cst.teacher_id)
+        subj = subject_repository.get_by_id(db, cst.subject_id)
+        cls = class_repository.get_by_id(db, cst.class_id)
+        response_data.append(
+            ClassSubjectTeacherResponse(
+                id=cst.id,
+                school_id=cst.school_id,
+                class_id=cst.class_id,
+                subject_id=cst.subject_id,
+                teacher_id=cst.teacher_id,
+                created_at=cst.created_at,
+                teacher_name=teacher.name if teacher else None,
+                teacher_username=teacher.username if teacher else None,
+                teacher_nip=teacher.nip if teacher else None,
+                subject_name=subj.name if subj else None,
+                class_name=cls.name if cls else None,
+            )
+        )
+
+    return ImportResponse[ClassSubjectTeacherResponse](
+        status="success",
+        message=f"Berhasil menyinkronkan {len(data.classes)} rombel kelas secara massal.",
+        imported_count=len(created_relations),
+        data=response_data,
+    )
 

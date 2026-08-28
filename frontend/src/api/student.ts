@@ -67,4 +67,7 @@ export const studentApi = {
 
   resetPassword: (publicId: string): Promise<StudentResetPasswordResult> =>
     apiClient.post<StudentResetPasswordResult>(`/api/v1/admin/students/${publicId}/reset-password`),
+
+  clearSessions: (publicId: string): Promise<{ message: string; username: string }> =>
+    apiClient.post<{ message: string; username: string }>(`/api/v1/admin/students/${publicId}/clear-sessions`),
 };

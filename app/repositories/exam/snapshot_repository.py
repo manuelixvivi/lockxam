@@ -16,4 +16,10 @@ class SnapshotRepository(BaseRepository[ExamPackageSnapshot]):
         return db.scalar(stmt)
 
 
+    def delete_by_session(self, db: Session, session_id: int) -> None:
+        snap = self.get_by_session(db, session_id)
+        if snap:
+            db.delete(snap)
+
+
 snapshot_repository = SnapshotRepository()

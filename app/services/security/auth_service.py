@@ -89,10 +89,29 @@ class AuthService:
             if role_str in ["STUDENT", UserRole.STUDENT]:
                 active_sessions = session_repository.get_active_sessions_by_user(db, account.id)
                 if active_sessions:
-                    raise PermissionException(
-                        "Akun siswa ini sedang aktif/terikat pada perangkat lain. "
-                        "Pengeluaran akun dari perangkat sebelumnya memerlukan verifikasi pengawas."
-                    )
+                    # Cek (1) apakah siswa sudah scan QR presensi, atau (2) attempt pengerjaan ujian sedang aktif
+                    from app.repositories.exam.checkin_repository import checkin_repository
+                    from app.repositories.exam.attempt_repository import attempt_repository
+
+                    my_checkins = checkin_repository.get_by_student(db, account.id)
+                    has_checkin = bool(my_checkins)
+
+                    active_attempts = attempt_repository.get_active_or_paused(db, student_id=account.id)
+                    active_exam = active_attempts[0] if active_attempts else None
+
+                    if has_checkin or active_exam:
+                        # SISWA SUDAH SCAN QR ABSEN ATAU SEDANG UJIAN: Kunci total! Login dari HP lain DITOLAK
+                        raise PermissionException(
+                            "Kunci Keamanan Presensi QR: Akun Anda telah melakukan presensi QR / pengerjaan ujian. "
+                            "Login dari perangkat lain DITOLAK! Pengeluaran akun WAJIB meminta 'Reset Perangkat' kepada Pengawas Ruangan."
+                        )
+                    else:
+                        # HANYA DILUAR JAM UJIAN & BELUM SCAN QR: Auto-overwrite sesi lama
+                        now_utc = datetime.now(timezone.utc)
+                        for old_sess in active_sessions:
+                            old_sess.revoked = True
+                            old_sess.revoked_at = now_utc
+                            old_sess.revoked_reason = "RELOGIN_AUTO_OVERWRITE"
 
             # Reset rate limit attempt counter on successful login
             if attempt_record:
@@ -100,14 +119,15 @@ class AuthService:
                 attempt_record.blocked_until = None
                 login_attempt_repository.update(db, attempt_record)
 
-            # 5. Start session and log activity
-            session = AuthService._create_session(db, request, account)
+            # 7. Define session lifetime (30 days for APK, 12 hours for Web)
+            expires_delta = timedelta(days=30) if is_apk else timedelta(hours=12)
+
+            # 5. Start session and log activity with calculated expires_delta
+            session = AuthService._create_session(db, request, account, expires_delta=expires_delta)
 
             # 6. Commit transaction
             db.commit()
 
-            # 7. Build and return response (90 days / 3 months for APK, 12 hours for Web)
-            expires_delta = timedelta(days=90) if is_apk else timedelta(hours=12)
             return AuthService._build_login_response(account, session, expires_delta=expires_delta)
 
         except AuthenticationException as ae:
@@ -254,7 +274,18 @@ class AuthService:
                 refresh_jti=new_refresh_jti,
             )
 
-            return TokenResponse(access_token=new_access_token, refresh_token=new_refresh_token)
+            # Calculate remaining session lifetime (absolute expiry)
+            expires_at = user_session.expires_at
+            if expires_at.tzinfo is None:
+                expires_at = expires_at.replace(tzinfo=timezone.utc)
+            remaining = expires_at - datetime.now(timezone.utc)
+            session_expires_in = max(0, int(remaining.total_seconds()))
+
+            return TokenResponse(
+                access_token=new_access_token,
+                refresh_token=new_refresh_token,
+                session_expires_in=session_expires_in,
+            )
         except Exception:
             db.rollback()
             raise
@@ -382,14 +413,9 @@ class AuthService:
 
         # Check school subscription status (Block login if SUSPENDED)
         if account.school_id and account.role in [UserRole.ADMIN, "SCHOOL_ADMIN", UserRole.TEACHER, "TEACHER"]:
-            from app.models.license.school_license import SchoolLicense
+            from app.repositories.license.school_license_repository import school_license_repository
 
-            latest_license = (
-                db.query(SchoolLicense)
-                .filter(SchoolLicense.school_id == account.school_id)
-                .order_by(SchoolLicense.created_at.desc())
-                .first()
-            )
+            latest_license = school_license_repository.get_latest_license(db, account.school_id)
             if latest_license and latest_license.status in ["SUSPENDED", "PAUSED"]:
                 raise PermissionException(
                     "Layanan subscription sekolah Anda sedang dijeda / ditangguhkan oleh SuperAdmin. Akses login ditolak."
@@ -402,8 +428,8 @@ class AuthService:
 
 
     @staticmethod
-    def _create_session(db: Session, request: Request, account) -> dict:
-        session = SessionService.create_session()
+    def _create_session(db: Session, request: Request, account, expires_delta: timedelta | None = None) -> dict:
+        session = SessionService.create_session(expires_delta)
 
         ip_address = request.client.host if request.client else None
         user_agent = request.headers.get("user-agent")
@@ -446,10 +472,13 @@ class AuthService:
             refresh_jti=session["refresh_jti"],
         )
 
+        session_expires_in = int(expires_delta.total_seconds()) if expires_delta else None
+
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
             role=account.role,
             school_id=account.school_id,
             must_change_password=account.must_change_password,
+            session_expires_in=session_expires_in,
         )

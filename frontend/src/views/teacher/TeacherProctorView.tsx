@@ -61,7 +61,8 @@ export function TeacherProctorView() {
   const [isQrOpen, setIsQrOpen] = useState(false);
   const [qrDuty, setQrDuty] = useState<TeacherProctorAssignment | null>(null);
   const [qrToken, setQrToken] = useState("");
-  const [qrCountdown, setQrCountdown] = useState(30);
+  const [pinCode, setPinCode] = useState("");
+  const [qrCountdown, setQrCountdown] = useState(180);
 
   const fetchDuties = async () => {
     setIsLoading(true);
@@ -111,8 +112,10 @@ export function TeacherProctorView() {
           `/api/v1/exam/schedules/${qrDuty.id}/qr-token`
         );
         const tokenVal = res?.token || res?.qr_token || "";
+        const pinVal = res?.pin_code || res?.display_code || tokenVal;
         setQrToken(tokenVal);
-        const ttl = res?.expires_in_seconds || 60;
+        setPinCode(pinVal);
+        const ttl = res?.expires_in_seconds || 180;
         setQrCountdown(ttl);
       } catch (err) {
         console.error("QR token fetch error:", err);
@@ -124,7 +127,7 @@ export function TeacherProctorView() {
       setQrCountdown((prev) => {
         if (prev <= 1) {
           fetchToken();
-          return 60;
+          return 180;
         }
         return prev - 1;
       });
@@ -203,6 +206,7 @@ export function TeacherProctorView() {
 
       await apiClient.post(endpointMap[commandType], {
         attempt_id: selectedAttempt.attempt_id,
+        student_id: selectedAttempt.student_id,
         proctor_assignment_id: activeDuty.id,
         exam_session_id: activeDuty.exam_session_id,
         reason: commandReason,
@@ -463,19 +467,41 @@ export function TeacherProctorView() {
                                 ? "indigo"
                                 : att.status === "PAUSED"
                                 ? "amber"
+                                : att.status === "CHECKED_IN"
+                                ? "emerald"
+                                : att.status === "LOGGED_IN"
+                                ? "indigo"
                                 : "slate"
                             }
                           >
-                            {att.status === "NOT_STARTED" ? "Belum Ujian" : att.status}
+                            {att.status === "NOT_STARTED"
+                              ? "Belum Ujian"
+                              : att.status === "CHECKED_IN"
+                              ? "Sudah Absen QR"
+                              : att.status === "LOGGED_IN"
+                              ? "Sesi Login Aktif"
+                              : att.status === "IN_PROGRESS"
+                              ? "Mengerjakan"
+                              : att.status === "PAUSED"
+                              ? "Terkunci / Paused"
+                              : att.status}
                           </Badge>
                         </td>
 
                         <td className="py-3 px-4 text-center">
-                          {att.device_status === "ACTIVE" && (
+                          {(att.device_status === "ACTIVE" || att.device_status === "CHECKED_IN") && (
                             <Badge variant="emerald">
                               <span className="flex items-center gap-1">
                                 <CheckCircle className="w-3.5 h-3.5" />
-                                Aktif & Terkunci
+                                {att.device_status === "CHECKED_IN" ? "Presensi QR Valid" : "Aktif & Terkunci"}
+                              </span>
+                            </Badge>
+                          )}
+                          {att.device_status === "LOGGED_IN" && (
+                            <Badge variant="indigo">
+                              <span className="flex items-center gap-1">
+                                <CheckCircle className="w-3.5 h-3.5" />
+                                HP Terhubung
                               </span>
                             </Badge>
                           )}
@@ -487,7 +513,22 @@ export function TeacherProctorView() {
                               </span>
                             </Badge>
                           )}
-                          {!att.device_status && <span className="text-slate-500">Belum Login</span>}
+                          {att.device_status === "INVALIDATED" && (
+                            <Badge variant="amber">
+                              <span className="flex items-center gap-1">
+                                <RefreshCw className="w-3.5 h-3.5" />
+                                Device Reset
+                              </span>
+                            </Badge>
+                          )}
+                          {(!att.device_status || att.device_status === "NOT_STARTED") && (
+                            <span className="text-slate-500">Belum Login</span>
+                          )}
+                          {att.device_id && (
+                            <span className="block text-[10px] font-mono text-slate-400 mt-0.5">
+                              ID: {att.device_id.slice(0, 20)}
+                            </span>
+                          )}
                         </td>
 
                         {/* Telemetry Column */}
@@ -590,21 +631,45 @@ export function TeacherProctorView() {
                               ? "indigo"
                               : att.status === "PAUSED"
                               ? "amber"
+                              : att.status === "CHECKED_IN"
+                              ? "emerald"
+                              : att.status === "LOGGED_IN"
+                              ? "indigo"
                               : "slate"
                           }
                         >
-                          {att.status === "NOT_STARTED" ? "Belum Ujian" : att.status}
+                          {att.status === "NOT_STARTED"
+                            ? "Belum Ujian"
+                            : att.status === "CHECKED_IN"
+                            ? "Sudah Absen QR"
+                            : att.status === "LOGGED_IN"
+                            ? "Sesi Login Aktif"
+                            : att.status === "IN_PROGRESS"
+                            ? "Mengerjakan"
+                            : att.status === "PAUSED"
+                            ? "Terkunci / Paused"
+                            : att.status}
                         </Badge>
 
                         {/* Status Perangkat Badge on Mobile */}
-                        {att.device_status === "ACTIVE" && (
+                        {(att.device_status === "ACTIVE" || att.device_status === "CHECKED_IN") && (
                           <span className="text-[10px] text-emerald-400 font-semibold flex items-center gap-1">
-                            <CheckCircle className="w-3 h-3" /> HP Terkunci
+                            <CheckCircle className="w-3 h-3" /> {att.device_status === "CHECKED_IN" ? "Presensi QR Valid" : "HP Terkunci"}
+                          </span>
+                        )}
+                        {att.device_status === "LOGGED_IN" && (
+                          <span className="text-[10px] text-indigo-400 font-semibold flex items-center gap-1">
+                            <CheckCircle className="w-3 h-3" /> HP Terhubung
                           </span>
                         )}
                         {att.device_status === "BLOCKED" && (
                           <span className="text-[10px] text-amber-400 font-semibold flex items-center gap-1">
                             <AlertTriangle className="w-3 h-3" /> Terdeteksi Keluar
+                          </span>
+                        )}
+                        {att.device_status === "INVALIDATED" && (
+                          <span className="text-[10px] text-amber-400 font-semibold flex items-center gap-1">
+                            <RefreshCw className="w-3 h-3" /> Device Reset
                           </span>
                         )}
                       </div>
@@ -708,8 +773,21 @@ export function TeacherProctorView() {
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
               {filteredDuties.map((duty) => {
                 const isCancelled = duty.status === "CANCELLED";
+                const nowMs = Date.now();
+                const endTimeMs = new Date(duty.end_time).getTime();
+                const isEnded =
+                  nowMs > endTimeMs ||
+                  ["COMPLETED", "FINISHED", "PASSED", "CLOSED", "ARCHIVED"].includes(duty.status);
+
                 return (
-                  <div key={duty.id} className={`glass-panel p-6 flex flex-col justify-between gap-5 border transition-all ${isCancelled ? "opacity-60 grayscale bg-slate-950/60 border-slate-800/60" : "border-slate-800 hover:border-slate-700"}`}>
+                  <div
+                    key={duty.id}
+                    className={`glass-panel p-6 flex flex-col justify-between gap-5 border transition-all ${
+                      isCancelled || isEnded
+                        ? "opacity-80 bg-slate-950/60 border-slate-800/80"
+                        : "border-slate-800 hover:border-slate-700"
+                    }`}
+                  >
                     <div className="space-y-3">
                       <div className="flex items-start justify-between gap-2">
                         <div>
@@ -719,21 +797,72 @@ export function TeacherProctorView() {
                             <Badge variant="slate">{duty.subject_name || "Mapel"}</Badge>
                           </div>
                         </div>
-                        {isCancelled ? <Badge variant="slate">DIBATALKAN</Badge> : <Badge variant="emerald">AKTIF</Badge>}
+                        {isCancelled ? (
+                          <Badge variant="slate">DIBATALKAN</Badge>
+                        ) : isEnded ? (
+                          <Badge variant="amber">SELESAI</Badge>
+                        ) : (
+                          <Badge variant="emerald">AKTIF (LIVE)</Badge>
+                        )}
                       </div>
 
                       <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-850 text-xs space-y-1 text-slate-400">
-                        <div className="flex justify-between"><span>Waktu Mulai:</span><span className="font-semibold text-slate-200">{formatDateTime(duty.start_time)}</span></div>
-                        <div className="flex justify-between"><span>Waktu Selesai:</span><span className="font-semibold text-slate-200">{formatDateTime(duty.end_time)}</span></div>
+                        <div className="flex justify-between">
+                          <span>Waktu Mulai:</span>
+                          <span className="font-semibold text-slate-200">{formatDateTime(duty.start_time)}</span>
+                        </div>
+                        <div className="flex justify-between">
+                          <span>Waktu Selesai:</span>
+                          <span className="font-semibold text-slate-200">{formatDateTime(duty.end_time)}</span>
+                        </div>
                       </div>
                     </div>
 
                     <div className="flex flex-col gap-2">
-                      <Button variant="primary" className="w-full" disabled={isCancelled} onClick={() => setActiveDuty(duty)}>Masuk Live Monitoring</Button>
-                      <div className="grid grid-cols-2 gap-2">
-                        <Button variant="outline" size="sm" disabled={isCancelled} onClick={() => handleOpenQr(duty)}>QR Absen</Button>
-                        <Button variant="outline" size="sm" disabled={isCancelled} onClick={() => handleOpenBap(duty)}>BAP</Button>
-                      </div>
+                      {isEnded ? (
+                        <>
+                          <Button variant="secondary" className="w-full cursor-not-allowed opacity-60 text-xs" disabled>
+                            Sesi Ujian Selesai
+                          </Button>
+                          <Button
+                            variant="primary"
+                            className="w-full text-xs font-bold"
+                            disabled={isCancelled}
+                            onClick={() => handleOpenBap(duty)}
+                          >
+                            📄 Isi / Lihat Berita Acara (BAP)
+                          </Button>
+                        </>
+                      ) : (
+                        <>
+                          <Button
+                            variant="primary"
+                            className="w-full text-xs font-bold"
+                            disabled={isCancelled}
+                            onClick={() => setActiveDuty(duty)}
+                          >
+                            Masuk Live Monitoring
+                          </Button>
+                          <div className="grid grid-cols-2 gap-2">
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={isCancelled}
+                              onClick={() => handleOpenQr(duty)}
+                            >
+                              QR Absen
+                            </Button>
+                            <Button
+                              variant="outline"
+                              size="sm"
+                              disabled={isCancelled}
+                              onClick={() => handleOpenBap(duty)}
+                            >
+                              BAP
+                            </Button>
+                          </div>
+                        </>
+                      )}
                     </div>
                   </div>
                 );
@@ -792,16 +921,27 @@ export function TeacherProctorView() {
         <div className="space-y-4 text-center text-xs">
           <p className="text-slate-300">Tampilkan QR Code ini di layar pengawas agar discan oleh siswa melalui aplikasi HP.</p>
           {qrToken ? (
-            <div className="p-4 bg-white rounded-2xl inline-block border-4 border-indigo-500/40 shadow-xl">
-              <img
-                src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrToken)}`}
-                onError={(e) => {
-                  // Fallback to Google Charts QR API if primary CDN fails/times out
-                  (e.target as HTMLImageElement).src = `https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=${encodeURIComponent(qrToken)}`;
-                }}
-                alt="QR Token Absen"
-                className="w-56 h-56 mx-auto object-contain"
-              />
+            <div className="space-y-3">
+              <div className="p-4 bg-white rounded-2xl inline-block border-4 border-indigo-500/40 shadow-xl">
+                <img
+                  src={`https://api.qrserver.com/v1/create-qr-code/?size=250x250&data=${encodeURIComponent(qrToken)}`}
+                  onError={(e) => {
+                    // Fallback to Google Charts QR API if primary CDN fails/times out
+                    (e.target as HTMLImageElement).src = `https://chart.googleapis.com/chart?cht=qr&chs=250x250&chl=${encodeURIComponent(qrToken)}`;
+                  }}
+                  alt="QR Token Absen"
+                  className="w-56 h-56 mx-auto object-contain"
+                />
+              </div>
+
+              <div className="p-3 bg-slate-900/90 border border-slate-800 rounded-xl space-y-1 max-w-xs mx-auto">
+                <span className="text-[11px] text-slate-400 font-semibold block uppercase tracking-wider">
+                  Kode PIN Presensi 6-Digit (Sebutkan ke Siswa):
+                </span>
+                <span className="text-3xl font-black font-mono text-emerald-400 tracking-widest select-all">
+                  {pinCode || qrToken}
+                </span>
+              </div>
             </div>
           ) : (
             <div className="w-56 h-56 mx-auto bg-slate-900 rounded-2xl flex flex-col items-center justify-center gap-2 border border-slate-800">

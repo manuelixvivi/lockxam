@@ -60,6 +60,28 @@ export interface ExamAttemptData {
   answers?: Record<number, { selected_option?: string; text_answer?: string; is_flagged?: boolean }>;
 }
 
+let activeDeviceId: string | null = null;
+let activeDeviceToken: string | null = null;
+
+export const setDeviceToken = (token: string | null) => {
+  activeDeviceToken = token;
+};
+
+export const getDeviceId = (): string => {
+  if (!activeDeviceId) {
+    try {
+      activeDeviceId = sessionStorage.getItem("equigrade_device_id");
+    } catch {}
+    if (!activeDeviceId) {
+      activeDeviceId = `DEV_${Math.random().toString(36).substring(2, 10)}`;
+      try {
+        sessionStorage.setItem("equigrade_device_id", activeDeviceId);
+      } catch {}
+    }
+  }
+  return activeDeviceId;
+};
+
 export const studentExamApi = {
   // Get active exam schedules for the student
   getMySchedules: async (): Promise<StudentSchedule[]> => {
@@ -69,9 +91,7 @@ export const studentExamApi = {
 
   // Start or resume exam attempt
   startAttempt: async (sessionId: number): Promise<ExamAttemptData> => {
-    const deviceId = localStorage.getItem("equigrade_device_id") || `DEV_${Math.random().toString(36).substring(2, 10)}`;
-    localStorage.setItem("equigrade_device_id", deviceId);
-
+    const deviceId = getDeviceId();
     const res = await apiClient.post<ExamAttemptData>(
       `/api/v1/exam/sessions/${sessionId}/start-attempt`,
       {},
@@ -80,7 +100,7 @@ export const studentExamApi = {
     return res;
   },
 
-  // Autosave single question answer
+  // Autosave single question answer (JSON Body)
   autosaveAnswer: async (
     attemptId: number,
     questionId: number,
@@ -88,21 +108,37 @@ export const studentExamApi = {
     textAnswer?: string,
     deviceToken?: string
   ) => {
-    const token = deviceToken || localStorage.getItem("equigrade_device_token") || "token_default";
+    const token = deviceToken || activeDeviceToken || "";
+    if (!token) {
+      throw new Error("Device token tidak tersedia / belum terdaftar.");
+    }
 
-    const params = new URLSearchParams();
-    params.append("question_id", questionId.toString());
+    const payload: any = { question_id: questionId };
     if (selectedOption !== undefined && selectedOption !== null) {
-      params.append("selected_option", selectedOption);
+      payload.selected_option = selectedOption;
     }
     if (textAnswer !== undefined && textAnswer !== null) {
-      params.append("text_answer", textAnswer);
+      payload.text_answer = textAnswer;
     }
 
     const res = await apiClient.post(
-      `/api/v1/exam/attempts/${attemptId}/autosave?${params.toString()}`,
-      {},
+      `/api/v1/exam/attempts/${attemptId}/autosave`,
+      payload,
       { "X-Device-Token": token }
+    );
+    return res;
+  },
+
+  // Batch flush all local answers before submit
+  flushAnswers: async (
+    attemptId: number,
+    answers: Record<number, { selected_option?: string; text_answer?: string }>
+  ) => {
+    const token = activeDeviceToken || "";
+    const res = await apiClient.post(
+      `/api/v1/exam/attempts/${attemptId}/flush-answers`,
+      { answers },
+      token ? { "X-Device-Token": token } : {}
     );
     return res;
   },
@@ -114,7 +150,10 @@ export const studentExamApi = {
   },
 
   // QR Absensi — siswa submit token yang discan dari QR pengawas
-  checkin: async (token: string): Promise<{
+  checkin: async (
+    token: string,
+    expectedScheduleId?: number
+  ): Promise<{
     success: boolean;
     message: string;
     schedule_id: number;
@@ -124,11 +163,12 @@ export const studentExamApi = {
     checked_in_at: string;
     device_id: string;
   }> => {
-    const deviceId = localStorage.getItem("equigrade_device_id") || `DEV_${Math.random().toString(36).substring(2, 10)}`;
-    localStorage.setItem("equigrade_device_id", deviceId);
+    const deviceId = getDeviceId();
+    const query = new URLSearchParams({ token });
+    if (expectedScheduleId) query.append("expected_schedule_id", expectedScheduleId.toString());
 
     const res = await apiClient.post(
-      `/api/v1/exam/checkin?token=${encodeURIComponent(token)}`,
+      `/api/v1/exam/checkin?${query.toString()}`,
       {},
       { "X-Device-Id": deviceId }
     );

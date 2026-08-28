@@ -73,6 +73,10 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
   const [deletingPackage, setDeletingPackage] = useState<ExamSchedulePackage | null>(null);
   const [isDeletingPackage, setIsDeletingPackage] = useState<boolean>(false);
 
+  // Modal: Close Package
+  const [closingPackage, setClosingPackage] = useState<ExamSchedulePackage | null>(null);
+  const [isClosingPackage, setIsClosingPackage] = useState<boolean>(false);
+
   // Selected Package Schedules View State
   const [schedules, setSchedules] = useState<ExamSchedule[]>([]);
   const [isSchedulesLoading, setIsSchedulesLoading] = useState<boolean>(false);
@@ -189,7 +193,9 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
   }, []);
 
   useEffect(() => {
-    loadPackages();
+    if (packageFilterYearId !== null) {
+      loadPackages();
+    }
   }, [packageFilterYearId]);
 
   // Load class subjects & students when class dropdown is selected in Schedule Modal
@@ -313,6 +319,26 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
       showToast({ type: "error", title: "Gagal Menghapus Paket", message: err?.message || "Gagal menghapus." });
     } finally {
       setIsDeletingPackage(false);
+    }
+  };
+
+  // Action: Close Package Confirm
+  const handleClosePackageConfirm = async () => {
+    if (!closingPackage) return;
+    setIsClosingPackage(true);
+    try {
+      await examScheduleApi.closePackage(closingPackage.public_id);
+      showToast({ type: "success", title: "Paket Ditutup", message: `Paket '${closingPackage.title}' telah resmi ditutup.` });
+      setClosingPackage(null);
+      await loadPackages();
+      if (selectedPackage && selectedPackage.public_id === closingPackage.public_id) {
+        setSelectedPackage((prev) => prev ? { ...prev, is_closed: true } : null);
+        await loadPackageSchedules(closingPackage.public_id);
+      }
+    } catch (err: any) {
+      showToast({ type: "error", title: "Gagal Menutup Paket", message: err?.message || "Gagal menutup paket." });
+    } finally {
+      setIsClosingPackage(false);
     }
   };
 
@@ -680,29 +706,47 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
       header: "Aksi",
       width: "220px",
       render: (item) => {
-        const canManage = item.status !== "ACTIVE" && item.status !== "ON_GOING" && item.status !== "COMPLETED";
+        const nowMs = Date.now();
+        let isEnded = false;
+        try {
+          const endDt = new Date(`${item.date}T${item.end_time}`);
+          if (!isNaN(endDt.getTime()) && nowMs > endDt.getTime()) isEnded = true;
+        } catch {}
+        if (["COMPLETED", "FINISHED", "PASSED", "CLOSED", "ARCHIVED"].includes(item.status) || selectedPackage?.is_closed) {
+          isEnded = true;
+        }
+
+        const canManage = item.status !== "ACTIVE" && item.status !== "ON_GOING" && !isEnded;
         return (
           <div className="flex items-center gap-1.5 flex-wrap">
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleOpenEditSchedule(item)}
-              title="Edit Jadwal Ujian"
-              className="text-xs text-indigo-400 hover:bg-indigo-500/15 px-2"
-            >
-              <Edit2 className="w-3.5 h-3.5 mr-1" />
-              Edit
-            </Button>
-            <Button
-              variant="ghost"
-              size="sm"
-              onClick={() => handleOpenProctorModal(item)}
-              title="Tugaskan Pengawas"
-              className="text-xs text-emerald-400 hover:bg-emerald-500/15 px-2"
-            >
-              <UserCheck className="w-3.5 h-3.5 mr-1" />
-              Proctor
-            </Button>
+            {!isEnded ? (
+              <>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleOpenEditSchedule(item)}
+                  title="Edit Jadwal Ujian"
+                  className="text-xs text-indigo-400 hover:bg-indigo-500/15 px-2"
+                >
+                  <Edit2 className="w-3.5 h-3.5 mr-1" />
+                  Edit
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => handleOpenProctorModal(item)}
+                  title="Tugaskan Pengawas"
+                  className="text-xs text-emerald-400 hover:bg-emerald-500/15 px-2"
+                >
+                  <UserCheck className="w-3.5 h-3.5 mr-1" />
+                  Proctor
+                </Button>
+              </>
+            ) : (
+              <span className="text-[11px] text-amber-300 font-semibold flex items-center gap-1 bg-amber-500/10 border border-amber-500/25 px-2 py-1 rounded-lg">
+                <Lock className="w-3 h-3 text-amber-400" /> Selesai (BAP Terkunci)
+              </span>
+            )}
 
             {item.status !== "DRAFT" && canManage && (
               <Button
@@ -726,11 +770,11 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
               >
                 <Trash2 className="w-3.5 h-3.5 text-rose-400" />
               </Button>
-            ) : (
-              <div className="px-2 py-1 text-[11px] text-slate-500 flex items-center gap-1 italic" title="Jadwal Berjalan / Selesai">
+            ) : !isEnded ? (
+              <div className="px-2 py-1 text-[11px] text-slate-500 flex items-center gap-1 italic" title="Jadwal Berjalan">
                 <Lock className="w-3 h-3" /> Berjalan
               </div>
-            )}
+            ) : null}
           </div>
         );
       },
@@ -738,9 +782,26 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
   ];
 
   // Stats boxes counts
-  const draftCount = schedules.filter((s) => s.status === "DRAFT").length;
-  const activeCount = schedules.filter((s) => s.status === "ACTIVE").length;
-  const completedCount = schedules.filter((s) => s.status === "COMPLETED").length;
+  const draftCount = useMemo(() => {
+    return schedules.filter((s) => {
+      const st = (s.status || "").toUpperCase();
+      return st === "DRAFT" || st === "READY" || st === "SCHEDULED" || st === "NOT_STARTED";
+    }).length;
+  }, [schedules]);
+
+  const activeCount = useMemo(() => {
+    return schedules.filter((s) => {
+      const st = (s.status || "").toUpperCase();
+      return st === "ACTIVE" || st === "OPEN" || st === "IN_PROGRESS" || st === "RUNNING";
+    }).length;
+  }, [schedules]);
+
+  const completedCount = useMemo(() => {
+    return schedules.filter((s) => {
+      const st = (s.status || "").toUpperCase();
+      return st === "COMPLETED" || st === "PASSED" || st === "FINISHED" || st === "LOCKED" || st === "ARCHIVED";
+    }).length;
+  }, [schedules]);
 
   return (
     <AppShell activeHref="/admin/exam-schedules" onNavigate={onNavigate}>
@@ -845,11 +906,16 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
                   key: "schedules_count",
                   header: "Jumlah Rencana Ujian",
                   width: "180px",
-                  render: (item) => (
-                    <span className="font-mono text-xs text-slate-300 bg-slate-900 px-2.5 py-1 rounded-md border border-slate-800">
-                      {(item.schedules || []).length} Jadwal
-                    </span>
-                  ),
+                  render: (item) => {
+                    const count = (item as any).schedules_count !== undefined && (item as any).schedules_count !== null
+                      ? (item as any).schedules_count
+                      : (item.schedules || []).length;
+                    return (
+                      <span className="font-mono text-xs text-slate-300 bg-slate-900 px-2.5 py-1 rounded-md border border-slate-800 font-bold">
+                        {count} Jadwal Ujian
+                      </span>
+                    );
+                  },
                 },
                 {
                   key: "actions",
@@ -858,6 +924,20 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
                   align: "right",
                   render: (item) => (
                     <div className="flex items-center justify-end gap-2">
+                      {item.is_closed ? (
+                        <Badge variant="amber" size="sm">DITUTUP</Badge>
+                      ) : (
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          className="text-amber-400 border-amber-500/30 hover:bg-amber-500/10 text-xs px-2.5"
+                          leftIcon={<Lock className="w-3.5 h-3.5" />}
+                          onClick={() => setClosingPackage(item)}
+                          title="Tutup paket ujian secara permanen"
+                        >
+                          Tutup Paket
+                        </Button>
+                      )}
                       <Button
                         variant="primary"
                         size="sm"
@@ -897,7 +977,12 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
               </button>
               <h1 className="text-2xl font-black text-slate-100 flex items-center gap-2.5">
                 <FileCheck className="w-6 h-6 text-indigo-400 shrink-0" />
-                Paket: {selectedPackage.title}
+                <span>Paket: {selectedPackage.title}</span>
+                {selectedPackage.is_closed ? (
+                  <Badge variant="amber" size="md">DITUTUP PERMANEN</Badge>
+                ) : (
+                  <Badge variant="emerald" size="md">AKTIF</Badge>
+                )}
               </h1>
               <p className="text-xs text-slate-400 mt-1">
                 Tahun Ajaran: <strong className="text-indigo-300">{selectedPackage.academic_year_name}</strong>
@@ -905,55 +990,73 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
             </div>
 
             <div className="flex flex-wrap items-center gap-2.5">
-              <Button
-                variant="ghost"
-                leftIcon={<FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />}
-                onClick={handleDownloadTemplate}
-                title="Unduh template Excel untuk impor massal jadwal"
-              >
-                Unduh Template Excel
-              </Button>
+              {!selectedPackage.is_closed ? (
+                <>
+                  <Button
+                    variant="outline"
+                    className="text-amber-400 border-amber-500/30 hover:bg-amber-500/10"
+                    leftIcon={<Lock className="w-4 h-4" />}
+                    onClick={() => setClosingPackage(selectedPackage)}
+                  >
+                    Tutup Paket Ujian
+                  </Button>
 
-              <Button
-                variant="ghost"
-                leftIcon={
-                  isImportingXlsx ? (
-                    <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
-                  ) : (
-                    <Upload className="w-3.5 h-3.5 text-amber-400" />
-                  )
-                }
-                onClick={() => fileInputRef.current?.click()}
-                isLoading={isImportingXlsx}
-                title="Impor jadwal massal via file Excel"
-              >
-                Impor Jadwal XLSX
-              </Button>
-              <input
-                ref={fileInputRef}
-                type="file"
-                accept=".xlsx,.xls"
-                className="hidden"
-                onChange={handleImportXlsx}
-              />
+                  <Button
+                    variant="ghost"
+                    leftIcon={<FileSpreadsheet className="w-3.5 h-3.5 text-indigo-400" />}
+                    onClick={handleDownloadTemplate}
+                    title="Unduh template Excel untuk impor massal jadwal"
+                  >
+                    Unduh Template Excel
+                  </Button>
 
-              <Button
-                variant="primary"
-                leftIcon={<Plus className="w-4 h-4" />}
-                onClick={() => {
-                  setEditingSchedule(null);
-                  setFormSchClassId(classes.length > 0 ? classes[0].id : null);
-                  setFormSchName("");
-                  setFormSchDate(new Date().toISOString().split("T")[0]);
-                  setFormSchStartTime("08:00");
-                  setFormSchEndTime("09:30");
-                  setFormSchDuration(90);
-                  setFormSchProctorId(null);
-                  setIsCreateScheduleOpen(true);
-                }}
-              >
-                Buat Jadwal Manual
-              </Button>
+                  <Button
+                    variant="ghost"
+                    leftIcon={
+                      isImportingXlsx ? (
+                        <Loader2 className="w-3.5 h-3.5 animate-spin text-amber-400" />
+                      ) : (
+                        <Upload className="w-3.5 h-3.5 text-amber-400" />
+                      )
+                    }
+                    onClick={() => fileInputRef.current?.click()}
+                    isLoading={isImportingXlsx}
+                    title="Impor jadwal massal via file Excel"
+                  >
+                    Impor Jadwal XLSX
+                  </Button>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    accept=".xlsx,.xls"
+                    className="hidden"
+                    onChange={handleImportXlsx}
+                  />
+
+                  <Button
+                    variant="primary"
+                    leftIcon={<Plus className="w-4 h-4" />}
+                    onClick={() => {
+                      setEditingSchedule(null);
+                      setFormSchClassId(classes.length > 0 ? classes[0].id : null);
+                      setFormSchName("");
+                      setFormSchDate(new Date().toISOString().split("T")[0]);
+                      setFormSchStartTime("08:00");
+                      setFormSchEndTime("09:30");
+                      setFormSchDuration(90);
+                      setFormSchProctorId(null);
+                      setIsCreateScheduleOpen(true);
+                    }}
+                  >
+                    Buat Jadwal Manual
+                  </Button>
+                </>
+              ) : (
+                <div className="flex items-center gap-2 bg-amber-500/10 border border-amber-500/30 px-3 py-1.5 rounded-xl text-xs font-semibold text-amber-300">
+                  <Lock className="w-4 h-4 text-amber-400" />
+                  Paket Terkunci & Ditutup Permanen (Read-Only)
+                </div>
+              )}
             </div>
           </div>
 
@@ -1502,6 +1605,27 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
         onConfirm={handleConfirmRevertSchedule}
         isLoading={isRevertingSchedule}
         confirmVariant="primary"
+      />
+
+      {/* ── Custom Confirmation MessageBox: Close Package ── */}
+      <MessageBox
+        isOpen={closingPackage !== null}
+        onClose={() => setClosingPackage(null)}
+        type="warning"
+        title="Tutup Paket Jadwal Ujian"
+        message={
+          <div>
+            Apakah Anda yakin ingin menutup paket jadwal ujian <strong>"{closingPackage?.title}"</strong>?
+            <p className="text-[11px] text-slate-400 mt-2 leading-relaxed bg-amber-950/40 p-3 rounded-lg border border-amber-500/30 text-amber-200">
+              🔒 <strong>Perhatian:</strong> Setelah ditutup, seluruh jadwal ujian di dalam paket ini akan dikunci permanen. Pengaturan soal dan jadwal tidak dapat diubah kembali.
+            </p>
+          </div>
+        }
+        confirmText="Tutup Paket Permanen"
+        cancelText="Batal"
+        onConfirm={handleClosePackageConfirm}
+        isLoading={isClosingPackage}
+        confirmVariant="danger"
       />
     </AppShell>
   );

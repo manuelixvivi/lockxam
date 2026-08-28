@@ -37,6 +37,7 @@ import {
   Download,
 } from "lucide-react";
 import { AddDataChoiceModal } from "../../components/ui/AddDataChoiceModal";
+import { copyToClipboard } from "../../utils/clipboard";
 
 interface StudentsViewProps {
   onNavigate?: (href: string) => void;
@@ -384,6 +385,26 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
     }
   };
 
+  // Clear student device session
+  const [clearingSessionId, setClearingSessionId] = useState<string | null>(null);
+
+  const handleClearSessions = async (student: StudentAccount) => {
+    setClearingSessionId(student.public_id);
+    try {
+      const res = await studentApi.clearSessions(student.public_id);
+      showToast({
+        type: "success",
+        title: "Riwayat Device Berhasil Dihapus",
+        message: res.message,
+      });
+      await loadStudents();
+    } catch (err: any) {
+      showToast({ type: "error", title: "Gagal menghapus riwayat device.", message: err?.message });
+    } finally {
+      setClearingSessionId(null);
+    }
+  };
+
   // Reset password
   const handleResetPassword = async () => {
     if (!resetTarget) return;
@@ -399,9 +420,13 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
     }
   };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast({ type: "success", title: "Disalin ke clipboard!" });
+  const handleCopy = async (text: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      showToast({ type: "success", title: "Disalin ke clipboard!" });
+    } else {
+      showToast({ type: "error", title: "Gagal menyalin secara otomatis." });
+    }
   };
 
   const closeResetModal = () => {
@@ -1113,6 +1138,18 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
                   }}
                 >
                   Reset Sandi
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="text-amber-400 hover:text-amber-300 border-amber-500/30"
+                  leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${clearingSessionId === detailTarget.public_id ? "animate-spin" : ""}`} />}
+                  onClick={() => {
+                    const s = detailTarget;
+                    handleClearSessions(s);
+                  }}
+                >
+                  Reset Sesi Device
                 </Button>
               </div>
               <Button

@@ -4,15 +4,15 @@
 
 ---
 
-## 📌 Status Terakhir: FASE 4 SELESAI (100% HIJAU) ➔ SIAP MASUK FASE 5
+## 📌 Status Terakhir: 🟡 IMPORT INTEGRITY REMEDIATION IN PROGRESS (Batch 1 & 2 Frozen, Batch 3 Remediated & Verified)
 
 ```text
 [FASE 1 & 2: Database Models & Domain Services]        ──> ✅ SELESAI & LULUS UJI
 [FASE 3: Academic Administration API & Contract Layer] ──> ✅ SELESAI & LULUS UJI (10/10 PASS) 🔒
-[FASE 4: School Admin UI (Mapel, Kelas, Jadwal Ujian)] ──> ✅ SELESAI & BUILD PASS (Vite TS) 🟢
-                                                              │
-                                                              ▼
-[FASE 5: Teacher Exam Selection, Proctor BAU & CBT UI] ──> 🚀 SIAP DIKERJAKAN
+[FASE 4: School Admin UI & Import Integrity Audit]     ──> 🟡 REMEDIATION IN PROGRESS (Student & Class structure FROZEN, Teacher & Subject implemented & tested)
+                                                               │
+                                                               ▼
+[FASE 5: Teacher Exam Selection, Proctor BAU & CBT UI] ──> ⏳ PENDING UNTIL ALL IMPORTS FROZEN
 ```
 
 ---
@@ -25,11 +25,11 @@
 | **Notifikasi & MessageBox Animasi** | ✅ 100% | ✅ 100% | **Selesai** | Spring-bounce animations, Glowing beacon, Countdown pause on hover, Tombol salin pesan error & MessageBox modal |
 | **Super Admin Portal** | ✅ 100% | ✅ 100% | **Selesai** | Kelola Sekolah, Lisensi, Activation Key Generator, Domain Rules, Reset Admin Password |
 | **School Admin Core** | ✅ 100% | ✅ 100% | **Selesai** | Profil Sekolah, Tahun Ajaran & Semester, Lisensi Aktif/Permanen |
-| **Direktori Guru & Siswa** | ✅ 100% | ✅ 100% | **Selesai** | Bento Box, Detail Modal, Sinkron Master Mapel/Kelas dinamis, Kelas/Mapel opsional, Hapus input kustom demi integritas master data |
+| **Direktori Guru & Siswa** | ✅ 100% | ✅ 100% | **Selesai** | Bento Box, Detail Modal, Sinkron Master Mapel/Kelas, Impor Guru & Siswa disesuaikan kontrak batch atomik (Batch 1 & 3) |
 | **Academic Admin API (Fase 3)** | ✅ 100% | ✅ 100% | **Selesai & Hijau** | Subject CRUD, Class CRUD, Student Enrollment, Class-Subject-Teacher, Teacher Candidate API, Exam Schedule API |
 | **Guru: Bank Soal & Paket Soal**| ✅ 100% | ✅ 100% | **Selesai** | PG (2–6 opsi A–F), Essay (Rubrik AI/Manual), Pembuatan Paket, Import Bank Soal, Reorder |
-| **Admin UI: Master Mapel (4.1)** | ✅ 100% | ✅ 100% | **Selesai** | `/admin/subjects`: List/Create/Edit/Delete, Import/Export XLSX & Template Download, Penugasan Guru Pengampu Mapel & Realtime Toggle |
-| **Admin UI: Rombel Kelas (4.2)** | ✅ 100% | ✅ 100% | **Selesai** | `/admin/classes`: Year Selector, Bento Stats, 3 Tabs (Siswa Enrollment, Mapel Rombel, Guru Calon Kompeten) |
+| **Admin UI: Master Mapel (4.1)** | ✅ 100% | ✅ 100% | **Selesai** | `/admin/subjects`: List/Create/Edit/Delete, Impor Batch Atomik (Batch 3), Penugasan Guru Pengampu Mapel & Realtime Toggle |
+| **Admin UI: Rombel Kelas (4.2)** | ✅ 100% | ✅ 100% | **Selesai** | `/admin/classes`: Year Selector, Bento Stats, Impor Rombel Kelas Batch Atomik (Batch 2), 3 Tabs |
 | **Admin UI: Jadwal Ujian (4.3)** | ✅ 100% | ✅ 100% | **Selesai** | `/admin/exam-schedules`: Filter Year/Sem/Class, Auto Guru Pengampu, Assign Proctor, State Protection (DRAFT/LOCKED/ACTIVE/COMPLETED) |
 | **Guru: Penugasan & Snapshot (5.1)**| ✅ API Siap | ⏳ **Target Fase 5** | **Backend Siap** | Guru memilih paket soal ➔ Membekukan `ExamSnapshot` secara *immutable* |
 | **Pengawas: Proctoring & BAU (5.2)**| ✅ API Siap | ⏳ Target Fase 5 | **Backend Siap** | Dashboard Pengawas: Live Attendance, Lock/Unlock Siswa, Reset Device, Cetak Berita Acara Ujian (BAU) |

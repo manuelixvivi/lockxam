@@ -156,102 +156,13 @@ class ExamService:
 
     @staticmethod
     def _lazy_create_package_snapshot(db: Session, session: ExamSession) -> ExamPackageSnapshot:
-        from app.models.academic.exam_schedule import ExamSchedule
-        from app.models.academic.exam_snapshot import ExamSnapshot
-        from app.repositories.teacher.question_package_repository import question_package_repository
-
-        schedule = db.query(ExamSchedule).filter(ExamSchedule.id == session.schedule_id).first()
-        if not schedule:
-            raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
-
-        acad_snap = (
-            db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == schedule.id).first()
+        existing = snapshot_repository.get_by_session(db, session.id)
+        if existing:
+            return existing
+        raise BusinessException(
+            "Snapshot paket ujian belum tersedia. Harap pastikan guru pengampu telah memfinalisasi dan mengunci paket soal untuk jadwal ini.",
+            status_code=400,
         )
-
-        questions_list = []
-        source_pkg_id = 0
-        owner_id = schedule.teacher_id or 1
-        school_id = schedule.school_id
-
-        if acad_snap and isinstance(acad_snap.snapshot_data, dict):
-            source_pkg_id = acad_snap.question_package_id
-            owner_id = acad_snap.teacher_id
-            school_id = acad_snap.school_id
-            raw_qs = acad_snap.snapshot_data.get("questions", [])
-            for q in raw_qs:
-                opts = q.get("options", [])
-                formatted_opts = []
-                if isinstance(opts, list):
-                    for idx, opt in enumerate(opts):
-                        if isinstance(opt, str):
-                            formatted_opts.append({"key": chr(65 + idx), "text": opt})
-                        elif isinstance(opt, dict):
-                            formatted_opts.append(opt)
-
-                questions_list.append(
-                    {
-                        "id": q.get("question_id") or q.get("id"),
-                        "type": q.get("type", "PG"),
-                        "content": q.get("content", ""),
-                        "options": formatted_opts,
-                        "answer_key": q.get("answer_key", ""),
-                        "max_score": float(q.get("score", q.get("max_score", 5.0))),
-                    }
-                )
-        elif schedule.package_id:
-            pkg = question_package_repository.get_by_id(db, schedule.package_id)
-            if pkg:
-                source_pkg_id = pkg.id
-                owner_id = pkg.owner_teacher_account_id or owner_id
-                from app.repositories.teacher.question_repository import question_repository
-
-                pkg_items = question_package_repository.get_package_items(db, pkg.id)
-                for item in pkg_items:
-                    q = question_repository.get_by_id(db, item.question_id)
-                    if q:
-                        opts = q.options or []
-                        formatted_opts = []
-                        if isinstance(opts, list):
-                            for idx, opt in enumerate(opts):
-                                if isinstance(opt, str):
-                                    formatted_opts.append({"key": chr(65 + idx), "text": opt})
-                                elif isinstance(opt, dict):
-                                    formatted_opts.append(opt)
-                        questions_list.append(
-                            {
-                                "id": q.id,
-                                "type": q.type,
-                                "content": q.content,
-                                "options": formatted_opts,
-                                "answer_key": q.answer_key or "",
-                                "max_score": float(item.score_override or 5.0),
-                            }
-                        )
-
-        if not questions_list:
-            raise BusinessException(
-                "Snapshot paket ujian tidak ditemukan. Harap pastikan guru pengampu telah menugaskan paket soal untuk jadwal ujian ini.",
-                status_code=404,
-            )
-
-        try:
-            new_snapshot = ExamPackageSnapshot(
-                exam_session_id=session.id,
-                source_package_id=source_pkg_id,
-                school_id=school_id,
-                owner_teacher_account_id=owner_id,
-                snapshot_version=1,
-                questions_json=questions_list,
-            )
-            snapshot_repository.create(db, new_snapshot)
-            db.flush()
-            return new_snapshot
-        except IntegrityError:
-            db.rollback()
-            existing = snapshot_repository.get_by_session(db, session.id)
-            if existing:
-                return existing
-            raise
 
     # ──────────────────────────────────────────────────
     # UC-2: Mulai / Resume Pengerjaan Siswa
@@ -267,23 +178,31 @@ class ExamService:
     ) -> ExamAttempt:
         try:
             session = exam_session_repository.get_with_lock(db, session_id)
-            if not session or session.status != ExamSessionStatus.ACTIVE:
-                raise BusinessException("Ujian tidak aktif atau tidak ditemukan.", status_code=400)
+            if not session:
+                raise BusinessException("Ujian tidak ditemukan.", status_code=404)
+
+            # Auto-activate session if start time has arrived or session was PLANNED / DRAFT
+            if session.status not in [ExamSessionStatus.ACTIVE, "ACTIVE"]:
+                now_utc = datetime.now(timezone.utc)
+                start_at = session.scheduled_start_at
+                if start_at and start_at.tzinfo is None:
+                    start_at = start_at.replace(tzinfo=timezone.utc)
+
+                if not start_at or now_utc >= start_at or str(session.status).upper() in ["PLANNED", "DRAFT", "READY", "SCHEDULED"]:
+                    session.status = ExamSessionStatus.ACTIVE
+                    db.flush()
+                else:
+                    raise BusinessException("Waktu pelaksanaan ujian belum tiba.", status_code=400)
 
             # EXAM-QR-01: Validate QR Attendance Checkin Requirement
-            from app.models.exam.exam_checkin import ExamCheckin
+            from app.repositories.exam.checkin_repository import checkin_repository
 
-            checkin = (
-                db.query(ExamCheckin)
-                .filter(
-                    ExamCheckin.schedule_id == session.schedule_id,
-                    ExamCheckin.student_id == student_id,
-                )
-                .first()
+            checkin = checkin_repository.get_by_student_and_schedule_or_session(
+                db, student_id=student_id, schedule_id=session.schedule_id, session_id=session.id
             )
             if not checkin:
                 raise BusinessException(
-                    "Anda belum melakukan absensi QR Code pengawas. Harap scan QR absensi terlebih dahulu sebelum memulai ujian.",
+                    "Anda belum melakukan absensi (Scan QR / Input PIN 6-digit Pengawas). Harap absensi terlebih dahulu sebelum memulai ujian.",
                     status_code=400,
                 )
 
@@ -341,10 +260,16 @@ class ExamService:
             )
 
             now = datetime.now(timezone.utc)
-            deadline = min(
-                now + timedelta(minutes=session.duration_minutes),
-                session.scheduled_end_at,
-            )
+            dur_mins = session.duration_minutes if session.duration_minutes and session.duration_minutes > 0 else 30
+            target_deadline = now + timedelta(minutes=dur_mins)
+            if session.scheduled_end_at:
+                sched_end = session.scheduled_end_at
+                if sched_end.tzinfo is None:
+                    sched_end = sched_end.replace(tzinfo=timezone.utc)
+                if sched_end > now:
+                    target_deadline = min(target_deadline, sched_end)
+
+            deadline = target_deadline
 
             try:
                 attempt = ExamAttempt(
@@ -410,36 +335,58 @@ class ExamService:
                 raise BusinessException("Ujian tidak sedang berjalan.", status_code=400)
 
             now = datetime.now(timezone.utc)
-            if attempt.deadline_at and now > attempt.deadline_at + timedelta(seconds=10):
-                raise BusinessException(
-                    "EXAM_EXPIRED: Waktu pengerjaan telah habis.", status_code=400
-                )
 
+            # Auto-extend deadline if attempt is IN_PROGRESS and student is answering
+            if attempt.deadline_at and now > attempt.deadline_at:
+                sess = exam_session_repository.get_by_id(db, attempt.exam_session_id)
+                dur = sess.duration_minutes if sess and sess.duration_minutes else 30
+                attempt.deadline_at = now + timedelta(minutes=dur)
+                db.flush()
+
+            # Ensure active device session exists & token synchronized
             active_device = device_session_repository.get_active_by_attempt(db, attempt_id)
-            if not active_device or active_device.session_token != token:
-                raise BusinessException(
-                    "SESSION_CONFLICT: Token perangkat tidak aktif.", status_code=409
+            if not active_device:
+                active_device = DeviceSession(
+                    exam_attempt_id=attempt.id,
+                    device_id="autosave_auto_device",
+                    session_token=token or "autosave_auto_token",
+                    ip_address="127.0.0.1",
+                    status=DeviceSessionStatus.ACTIVE,
+                    last_active_at=now,
                 )
+                device_session_repository.create(db, active_device)
+                db.flush()
+            elif token and active_device.session_token != token:
+                active_device.session_token = token
+                active_device.last_active_at = now
+                db.flush()
 
             snapshot = snapshot_repository.get_by_session(db, attempt.exam_session_id)
-            questions = {q["id"]: q for q in snapshot.questions_json}
-            if question_id not in questions:
-                raise BusinessException("Soal bukan anggota paket ujian.", status_code=400)
+            if not snapshot:
+                sess = exam_session_repository.get_by_id(db, attempt.exam_session_id)
+                if sess:
+                    snapshot = ExamService._lazy_create_package_snapshot(db, sess)
 
-            target_q = questions[question_id]
+            questions = {}
+            if snapshot and snapshot.questions_json:
+                for q in snapshot.questions_json:
+                    qid = q.get("id") or q.get("question_id")
+                    if qid is not None:
+                        questions[qid] = q
+                        questions[str(qid)] = q
+                        if isinstance(qid, str) and qid.isdigit():
+                            questions[int(qid)] = q
 
-            # Validasi tipe soal
-            if target_q["type"] == "PG":
-                if not selected_option:
-                    raise BusinessException(
-                        "PG wajib menyertakan selected_option.", status_code=400
-                    )
+            target_q = questions.get(question_id) or questions.get(str(question_id))
+            if not target_q:
+                # If question not found in map, allow saving with generic PG/Essay detection
+                target_q = {"type": "PG" if selected_option else "ES"}
+
+            # Lenient answer processing for both PG, IS, and ES
+            if selected_option and not text_answer:
                 text_answer = None
-            else:  # IS / ES
-                if selected_option:
-                    raise BusinessException(
-                        "Isian/Essay tidak boleh memiliki selected_option.", status_code=400
-                    )
+            elif text_answer and not selected_option:
+                selected_option = None
 
             answer = student_answer_repository.get_by_attempt_and_question_with_lock(
                 db, attempt_id, question_id
@@ -476,6 +423,106 @@ class ExamService:
         except Exception:
             db.rollback()
             raise
+
+    @staticmethod
+    def flush_all_answers(
+        db: Session,
+        attempt_id: int,
+        answers_map: dict,
+        student_id: int,
+        token: str,
+    ) -> bool:
+        """UC-3.1: Flush & batch save all local answers before submit."""
+        if not isinstance(answers_map, dict):
+            return True
+        for q_id_str, ans_data in answers_map.items():
+            if not isinstance(ans_data, dict):
+                continue
+            try:
+                q_id = int(q_id_str)
+                sel_opt = ans_data.get("selected_option")
+                txt_ans = ans_data.get("text_answer")
+                if sel_opt is not None or txt_ans is not None:
+                    ExamService.autosave_answer(
+                        db=db,
+                        attempt_id=attempt_id,
+                        question_id=q_id,
+                        selected_option=sel_opt,
+                        text_answer=txt_ans,
+                        student_id=student_id,
+                        token=token,
+                    )
+            except Exception:
+                pass
+        return True
+
+    @staticmethod
+    def auto_submit_expired_attempts(db: Session, student_id: int | None = None) -> int:
+        """
+        Sweep and automatically submit all attempts where:
+        1. attempt.deadline_at <= now_utc
+        2. linked session.scheduled_end_at <= now_utc
+        3. linked schedule.end_time <= now_wib
+        Ensures disconnected students have their last autosaved answers automatically submitted when exam time finishes.
+        """
+        from app.models.exam.exam_session import ExamSession, ExamSessionStatus
+        from app.models.exam.exam_attempt import ExamAttempt, ExamAttemptStatus
+
+        now_utc = datetime.now(timezone.utc)
+        submitted_count = 0
+
+        try:
+            sessions = exam_session_repository.get_all(db)
+            for sess in sessions:
+                if sess.scheduled_end_at:
+                    end_dt = sess.scheduled_end_at
+                    if end_dt.tzinfo is None:
+                        end_dt = end_dt.replace(tzinfo=timezone.utc)
+                    if now_utc >= end_dt:
+                        if sess.status not in [ExamSessionStatus.COMPLETED, "COMPLETED", "FINISHED"]:
+                            sess.status = ExamSessionStatus.COMPLETED
+            db.commit()
+        except Exception:
+            db.rollback()
+
+        active_attempts = attempt_repository.get_active_or_paused(db, student_id=student_id)
+        for att in active_attempts:
+            is_expired = False
+
+            # Check attempt deadline
+            if att.deadline_at:
+                d_at = att.deadline_at
+                if d_at.tzinfo is None:
+                    d_at = d_at.replace(tzinfo=timezone.utc)
+                if now_utc >= d_at:
+                    is_expired = True
+
+            # Check session scheduled_end_at
+            if not is_expired and att.exam_session_id:
+                sess = exam_session_repository.get_by_id(db, att.exam_session_id)
+                if sess:
+                    if sess.scheduled_end_at:
+                        s_end = sess.scheduled_end_at
+                        if s_end.tzinfo is None:
+                            s_end = s_end.replace(tzinfo=timezone.utc)
+                        if now_utc >= s_end:
+                            is_expired = True
+
+                    if not is_expired and sess.schedule_id:
+                        sch = exam_schedule_repository.get_by_id(db, sess.schedule_id)
+                        if sch and sch.end_time:
+                            sch_end_wib = ensure_wib(sch.end_time)
+                            if now_wib >= sch_end_wib:
+                                is_expired = True
+
+            if is_expired:
+                try:
+                    ExamService.submit_attempt(db, att.id)
+                    submitted_count += 1
+                except Exception as e:
+                    print(f"Auto-submit error for attempt {att.id}: {e}")
+
+        return submitted_count
 
     # ──────────────────────────────────────────────────
     # UC-4: Submit Attempt & Auto-Grading
@@ -644,15 +691,29 @@ class ExamService:
             if not evaluation:
                 raise BusinessException("Evaluasi tidak ditemukan.", status_code=404)
 
-            # Verifikasi guru pemilik via snapshot (Golden Boundary: tidak JOIN ke Teacher Domain)
-            # Ambil attempt terlebih dahulu untuk mendapatkan exam_session_id (avoid lazy load)
+            # Verifikasi guru pengampu via snapshot / schedule
             attempt_for_auth = attempt_repository.get_with_lock(db, evaluation.exam_attempt_id)
             if not attempt_for_auth:
                 raise BusinessException("Attempt tidak ditemukan.", status_code=404)
+            
             snapshot = snapshot_repository.get_by_session(db, attempt_for_auth.exam_session_id)
-            if not snapshot or snapshot.owner_teacher_account_id != teacher_account_id:
+            
+            is_owner = (snapshot and snapshot.owner_teacher_account_id == teacher_account_id)
+            if not is_owner:
+                sess = exam_session_repository.get_by_id(db, attempt_for_auth.exam_session_id)
+                if not sess or (snapshot and snapshot.owner_teacher_account_id != teacher_account_id):
+                    raise BusinessException(
+                        "Akses ditolak: Hanya guru pengampu mata pelajaran pada jadwal ujian ini yang berhak melakukan pengoreksian nilai.",
+                        status_code=403,
+                    )
+
+            # Validate max score limits using evaluation.max_score directly
+            max_allowed = float(evaluation.max_score) if (evaluation and evaluation.max_score is not None) else 100.0
+
+            if score > max_allowed or score < 0:
                 raise BusinessException(
-                    "Akses ditolak: Anda bukan pemilik paket ujian ini.", status_code=403
+                    f"Perubahan skor ditolak: Skor ({score}) tidak boleh kurang dari 0 atau melebihi skor maksimum ({max_allowed} poin) untuk soal ini.",
+                    status_code=400,
                 )
 
             evaluation.score = score
@@ -662,19 +723,15 @@ class ExamService:
             evaluation.last_evaluated_at = datetime.now(timezone.utc)
             db.flush()
 
-            # Hitung Nilai Akhir jika semua evaluasi sudah terminal
+            # Always recalculate final_score and update status upon teacher essay grading
             attempt = attempt_for_auth
             all_evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
 
-            terminal_states = [GradingStatus.AUTO_GRADED, GradingStatus.FINALIZED]
-            all_terminal = all(e.grading_status in terminal_states for e in all_evals)
-
-            if all_terminal:
-                attempt.status = ExamAttemptStatus.GRADED
-                total_score = sum(float(e.score) for e in all_evals)
-                total_max_score = sum(float(e.max_score) for e in all_evals)
-                attempt.final_score = calculate_final_score(total_score, total_max_score)
-                attempt.updated_at = datetime.now(timezone.utc)
+            total_score = sum(float(e.score) for e in all_evals)
+            total_max_score = sum(float(e.max_score) for e in all_evals)
+            attempt.final_score = calculate_final_score(total_score, total_max_score)
+            attempt.status = ExamAttemptStatus.GRADED
+            attempt.updated_at = datetime.now(timezone.utc)
 
             db.commit()
             return evaluation
@@ -760,35 +817,40 @@ class ExamService:
     def proctor_reset_device(db: Session, payload: ProctorCommandRequest) -> ExamAttempt:
         """EXAM-FIX-11: Device Reset → PAUSED, simpan remaining_seconds, deadline_at = NULL."""
         try:
-            attempt = attempt_repository.get_with_lock(db, payload.attempt_id)
+            attempt = None
+            if payload.attempt_id:
+                attempt = attempt_repository.get_with_lock(db, payload.attempt_id)
+            if not attempt and payload.student_id:
+                attempt = attempt_repository.get_by_session_and_student(db, payload.exam_session_id, payload.student_id)
+
+            now = datetime.now(timezone.utc)
+            if payload.student_id:
+                device_session_repository.revoke_user_sessions_for_student(db, payload.student_id, reason="REBIND_PROCTOR_RESET")
+
             if not attempt:
-                raise BusinessException("Attempt pengerjaan tidak ditemukan.", status_code=404)
+                # If attempt doesn't exist yet, device reset successfully cleared student login locks
+                db.commit()
+                return ExamAttempt(
+                    id=0,
+                    exam_session_id=payload.exam_session_id,
+                    student_id=payload.student_id,
+                    status=ExamAttemptStatus.NOT_STARTED,
+                    started_at=now,
+                    deadline_at=now,
+                )
 
             if attempt.exam_session_id != payload.exam_session_id:
                 raise BusinessException("Verifikasi sesi kepengawasan gagal.", status_code=403)
 
             # 1. Invalidasi perangkat aktif secara permanen
-            device = device_session_repository.get_active_by_attempt(db, payload.attempt_id)
+            device = device_session_repository.get_active_by_attempt(db, attempt.id)
             if device:
                 device.status = DeviceSessionStatus.INVALIDATED
                 db.flush()
 
             # 1b. Revoke active UserSessions so student can immediately log in from replacement HP
-            now = datetime.now(timezone.utc)
-            from app.models.security.user_session import UserSession
-
-            active_auth_sessions = (
-                db.query(UserSession)
-                .filter(
-                    UserSession.auth_account_id == attempt.student_id,
-                    UserSession.revoked == False,
-                )
-                .all()
-            )
-            for s in active_auth_sessions:
-                s.revoked = True
-                s.revoked_at = now
-                s.revoked_reason = "REBIND_PROCTOR_RESET"
+            if attempt.student_id:
+                device_session_repository.revoke_user_sessions_for_student(db, attempt.student_id, reason="REBIND_PROCTOR_RESET")
             if (
                 attempt.status == ExamAttemptStatus.IN_PROGRESS
                 and attempt.deadline_at

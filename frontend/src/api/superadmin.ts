@@ -72,6 +72,14 @@ export interface ProcessRenewalResponse {
   key_plain?: string;
 }
 
+export interface SchoolCreateResponse {
+  school: SchoolProfile;
+  admin_credentials: {
+    username: string;
+    temporary_password: string;
+  };
+}
+
 export const superadminApi = {
   getSchools: async (): Promise<SchoolProfile[]> => {
     return apiClient.get<SchoolProfile[]>("/api/v1/schools");
@@ -81,8 +89,8 @@ export const superadminApi = {
     return apiClient.get<SchoolLevelOption[]>("/api/v1/master/school-levels");
   },
 
-  createSchool: async (payload: CreateSchoolPayload): Promise<SchoolProfile> => {
-    return apiClient.post<SchoolProfile>("/api/v1/schools", payload);
+  createSchool: async (payload: CreateSchoolPayload): Promise<SchoolCreateResponse> => {
+    return apiClient.post<SchoolCreateResponse>("/api/v1/schools", payload);
   },
 
   updateSchool: async (publicId: string, payload: Partial<CreateSchoolPayload>): Promise<SchoolProfile> => {

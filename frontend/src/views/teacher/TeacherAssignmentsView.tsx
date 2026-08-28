@@ -11,6 +11,7 @@ import {
   GraduationCap,
   BookOpen,
   RotateCcw,
+  Lock,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -247,119 +248,156 @@ export function TeacherAssignmentsView() {
         </div>
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-          {filteredAssignments.map((item) => (
-            <div
-              key={item.id}
-              className={`glass-panel p-5 space-y-4 border transition-all ${
-                item.has_snapshot
-                  ? "border-emerald-500/20 bg-emerald-950/5 hover:border-emerald-500/30"
-                  : "border-slate-800 hover:border-slate-700"
-              }`}
-            >
-              {/* Header Info */}
-              <div className="flex items-start justify-between gap-3">
-                <div className="space-y-1">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {item.academic_year_name && (
-                      <span className="text-[10px] font-semibold text-indigo-400 bg-indigo-950/50 px-2 py-0.5 rounded border border-indigo-500/20 flex items-center gap-1">
-                        <CalendarDays className="w-3 h-3" />
-                        {item.academic_year_name}
+          {filteredAssignments.map((item) => {
+            const nowMs = Date.now();
+            let isEnded = false;
+            if (item.end_time) {
+              try {
+                const endMs = new Date(item.end_time).getTime();
+                if (!isNaN(endMs) && nowMs > endMs) isEnded = true;
+              } catch {}
+            }
+            const st = (item.status || "").toUpperCase();
+            if (["COMPLETED", "FINISHED", "PASSED", "CLOSED", "ARCHIVED"].includes(st)) {
+              isEnded = true;
+            }
+
+            return (
+              <div
+                key={item.id}
+                className={`glass-panel p-5 space-y-4 border transition-all ${
+                  isEnded
+                    ? "border-slate-800 bg-slate-950/70 opacity-90"
+                    : item.has_snapshot
+                    ? "border-emerald-500/20 bg-emerald-950/5 hover:border-emerald-500/30"
+                    : "border-slate-800 hover:border-slate-700"
+                }`}
+              >
+                {/* Header Info */}
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2 flex-wrap">
+                      {item.academic_year_name && (
+                        <span className="text-[10px] font-semibold text-indigo-400 bg-indigo-950/50 px-2 py-0.5 rounded border border-indigo-500/20 flex items-center gap-1">
+                          <CalendarDays className="w-3 h-3" />
+                          {item.academic_year_name}
+                        </span>
+                      )}
+                      <span className="text-[10px] font-semibold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 uppercase">
+                        Status: {isEnded ? "SELESAI" : item.status}
                       </span>
-                    )}
-                    <span className="text-[10px] font-semibold text-slate-400 bg-slate-900 px-2 py-0.5 rounded border border-slate-800 uppercase">
-                      Status: {item.status}
-                    </span>
+                    </div>
+                    <h3 className="text-sm font-bold text-slate-100 line-clamp-1">{item.title}</h3>
+                    <div className="flex items-center gap-1.5 pt-0.5">
+                      <Badge variant="indigo">
+                        <span className="flex items-center gap-1">
+                          <GraduationCap className="w-3 h-3" />
+                          {item.class_name}
+                        </span>
+                      </Badge>
+                      <Badge variant="slate">
+                        <span className="flex items-center gap-1">
+                          <BookOpen className="w-3 h-3" />
+                          {item.subject_name}
+                        </span>
+                      </Badge>
+                    </div>
                   </div>
-                  <h3 className="text-sm font-bold text-slate-100 line-clamp-1">{item.title}</h3>
-                  <div className="flex items-center gap-1.5 pt-0.5">
-                    <Badge variant="indigo">
+                  {isEnded ? (
+                    <Badge variant="amber">
                       <span className="flex items-center gap-1">
-                        <GraduationCap className="w-3 h-3" />
-                        {item.class_name}
+                        <Lock className="w-3.5 h-3.5 text-amber-400" />
+                        Ujian Selesai
                       </span>
                     </Badge>
-                    <Badge variant="slate">
+                  ) : item.has_snapshot ? (
+                    <Badge variant="emerald">
                       <span className="flex items-center gap-1">
-                        <BookOpen className="w-3 h-3" />
-                        {item.subject_name}
+                        <CheckCircle2 className="w-3.5 h-3.5" />
+                        Terkunci
                       </span>
                     </Badge>
+                  ) : (
+                    <Badge variant="amber">
+                      <span className="flex items-center gap-1">
+                        <AlertCircle className="w-3.5 h-3.5" />
+                        Belum Ada Paket
+                      </span>
+                    </Badge>
+                  )}
+                </div>
+
+                {/* Time Schedule Details */}
+                <div className="text-[11px] text-slate-400 space-y-1 bg-slate-900/60 p-3 rounded-lg border border-slate-800">
+                  <div className="flex justify-between">
+                    <span>Waktu Mulai:</span>
+                    <span className="font-semibold text-slate-300">{formatDateTime(item.start_time)}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span>Waktu Selesai:</span>
+                    <span className="font-semibold text-slate-300">{formatDateTime(item.end_time)}</span>
                   </div>
                 </div>
-                {item.has_snapshot ? (
-                  <Badge variant="emerald">
-                    <span className="flex items-center gap-1">
-                      <CheckCircle2 className="w-3.5 h-3.5" />
-                      Terkunci
-                    </span>
-                  </Badge>
+
+                {/* Assigned Package or Action Button */}
+                {isEnded ? (
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-850">
+                    <div className="flex-1 min-w-0 bg-slate-900/50 p-2.5 rounded-lg border border-slate-800">
+                      <span className="text-[10px] text-slate-500 block">Paket Soal Terpasang:</span>
+                      <span className="font-bold text-emerald-400 text-xs truncate block">
+                        {item.snapshot_package_name || "Paket Soal Ujian (Arsip Terkunci)"}
+                      </span>
+                    </div>
+                    <div className="px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/20 text-amber-300 text-xs font-semibold flex items-center gap-1.5 shrink-0">
+                      <Lock className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Permanen</span>
+                    </div>
+                  </div>
+                ) : item.has_snapshot ? (
+                  <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-850">
+                    <div className="flex-1 min-w-0 bg-slate-900/50 p-2.5 rounded-lg border border-slate-800">
+                      <span className="text-[10px] text-slate-500 block">Paket Soal Terpasang:</span>
+                      <span className="font-bold text-emerald-400 text-xs truncate block">
+                        {item.snapshot_package_name || "Paket Soal Ujian"}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        leftIcon={<Edit2 className="w-3.5 h-3.5 text-indigo-400" />}
+                        onClick={() => handleOpenAddModal(item)}
+                        title="Ubah Paket Soal"
+                      >
+                        Ubah Paket
+                      </Button>
+                      <Button
+                        variant="danger"
+                        size="sm"
+                        leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
+                        onClick={() => setUnassigningAssign(item)}
+                        title="Batalkan Penugasan Paket (Draft)"
+                      >
+                        Batalkan (Draft)
+                      </Button>
+                    </div>
+                  </div>
                 ) : (
-                  <Badge variant="amber">
-                    <span className="flex items-center gap-1">
-                      <AlertCircle className="w-3.5 h-3.5" />
-                      Belum Ada Paket
-                    </span>
-                  </Badge>
+                  <div className="pt-2">
+                    <Button
+                      variant="primary"
+                      size="sm"
+                      className="w-full"
+                      leftIcon={<FileCheck className="w-4 h-4" />}
+                      onClick={() => handleOpenAddModal(item)}
+                    >
+                      Tetapkan & Kunci Paket Soal
+                    </Button>
+                  </div>
                 )}
               </div>
-
-              {/* Time Schedule Details */}
-              <div className="text-[11px] text-slate-400 space-y-1 bg-slate-900/60 p-3 rounded-lg border border-slate-800">
-                <div className="flex justify-between">
-                  <span>Waktu Mulai:</span>
-                  <span className="font-semibold text-slate-300">{formatDateTime(item.start_time)}</span>
-                </div>
-                <div className="flex justify-between">
-                  <span>Waktu Selesai:</span>
-                  <span className="font-semibold text-slate-300">{formatDateTime(item.end_time)}</span>
-                </div>
-              </div>
-
-              {/* Assigned Package or Action Button */}
-              {item.has_snapshot ? (
-                <div className="flex items-center justify-between gap-2 pt-2 border-t border-slate-850">
-                  <div className="flex-1 min-w-0 bg-slate-900/50 p-2.5 rounded-lg border border-slate-800">
-                    <span className="text-[10px] text-slate-500 block">Paket Soal Terpasang:</span>
-                    <span className="font-bold text-emerald-400 text-xs truncate block">
-                      {item.snapshot_package_name || "Paket Soal Ujian"}
-                    </span>
-                  </div>
-                  <div className="flex items-center gap-1.5 shrink-0">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      leftIcon={<Edit2 className="w-3.5 h-3.5 text-indigo-400" />}
-                      onClick={() => handleOpenAddModal(item)}
-                      title="Ubah Paket Soal"
-                    >
-                      Ubah Paket
-                    </Button>
-                    <Button
-                      variant="danger"
-                      size="sm"
-                      leftIcon={<RotateCcw className="w-3.5 h-3.5" />}
-                      onClick={() => setUnassigningAssign(item)}
-                      title="Batalkan Penugasan Paket (Draft)"
-                    >
-                      Batalkan (Draft)
-                    </Button>
-                  </div>
-                </div>
-              ) : (
-                <div className="pt-2">
-                  <Button
-                    variant="primary"
-                    size="sm"
-                    className="w-full"
-                    leftIcon={<FileCheck className="w-4 h-4" />}
-                    onClick={() => handleOpenAddModal(item)}
-                  >
-                    Tetapkan & Kunci Paket Soal
-                  </Button>
-                </div>
-              )}
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
 

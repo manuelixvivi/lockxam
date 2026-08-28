@@ -131,7 +131,7 @@ def test_school_api_rbac(client, test_superadmin, test_teacher, db: Session):
         headers={"Authorization": f"Bearer {super_token}"},
     )
     assert res.status_code == 201
-    school_data = res.json()
+    school_data = res.json()["school"]
     assert school_data["npsn"] == "11112222"
     public_id = school_data["public_id"]
 

@@ -1,3 +1,4 @@
+import uuid
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -141,7 +142,7 @@ def test_create_and_activate_semester(db):
 
 
 def test_rollover_academic_year_success_and_infractions(db, test_superadmin):
-    school, admin = create_test_school_and_admin(db, "66660006")
+    school, admin = create_test_school_and_admin(db, f"666{uuid.uuid4().hex[:5]}")
 
     # 1. Create Year 1 (Active) & Year 2 (Planned)
     start1 = datetime.now(timezone.utc)
@@ -162,41 +163,84 @@ def test_rollover_academic_year_success_and_infractions(db, test_superadmin):
     AcademicService.create_academic_semester(db, year2.id, "ODD", "Ganjil")
     db.commit()
 
-    # 2. Test Rollover Infraction Validation (Dynamic Check)
-    # Dynamically inject the academic_year_id column to exam_sessions
-    db.execute(text("ALTER TABLE exam_sessions ADD COLUMN IF NOT EXISTS academic_year_id INTEGER"))
-    db.commit()
+    from app.models.academic.class_entity import ClassEntity
+    from app.models.academic.subject import Subject
+    from app.models.security.auth_account import AuthAccount
 
-    # Insert an active exam session for Year 1 with dummy values for required columns
-    db.execute(
-        text(
-            "INSERT INTO exam_sessions (academic_year_id, status, schedule_id, package_id, duration_minutes, "
-            "scheduled_start_at, scheduled_end_at, created_at, updated_at, public_id) "
-            "VALUES (:year_id, 'ACTIVE', 1, 1, 60, NOW(), NOW(), NOW(), NOW(), :public_id)"
-        ),
-        {"year_id": year1.id, "public_id": uuid4()},
+    cls1 = ClassEntity(school_id=school.id, academic_year_id=year1.id, name="Class 1")
+    db.add(cls1)
+    db.flush()
+
+    subj1 = Subject(school_id=school.id, code="SUB1", name="Subject 1")
+    db.add(subj1)
+    db.flush()
+
+    tcher = AuthAccount(school_id=school.id, public_id=uuid4(), username=f"teacher_{uuid4().hex[:6]}", password_hash="hash", role="TEACHER", is_active=True)
+    db.add(tcher)
+    db.flush()
+
+    # Insert an active exam schedule and session for Year 1
+    from app.models.academic.exam_schedule import ExamSchedule
+    from app.models.exam.exam_session import ExamSession, ExamSessionStatus
+
+    sch = ExamSchedule(
+        school_id=school.id,
+        academic_year_id=year1.id,
+        academic_semester_id=sem1.id,
+        class_id=cls1.id,
+        subject_id=subj1.id,
+        teacher_id=tcher.id,
+        title="Test Exam",
+        start_time=start1,
+        end_time=end1,
+        duration_minutes=60,
+        status="ACTIVE",
     )
+    db.add(sch)
+    db.flush()
+
+    from app.models.teacher.question_package import QuestionPackage
+
+    pkg1 = QuestionPackage(
+        owner_teacher_account_id=tcher.id,
+        school_id=school.id,
+        name="Rollover Package",
+        class_level="10",
+        target_counts={},
+        subject="SUB1",
+        status="READY",
+    )
+    db.add(pkg1)
+    db.flush()
+
+    sess = ExamSession(
+        schedule_id=sch.id,
+        package_id=pkg1.id,
+        scheduled_start_at=start1,
+        scheduled_end_at=end1,
+        duration_minutes=60,
+        status=ExamSessionStatus.ACTIVE,
+    )
+    db.add(sess)
     db.commit()
 
     # Rollover should fail with AcademicValidationException due to active exams (BR-ACA-011)
     with pytest.raises(AcademicValidationException) as excinfo:
         AcademicService.rollover_academic_year(db, school.id, year2.public_id)
-    assert "Active or ongoing exam sessions exist" in excinfo.value.errors[0]
+    assert "Masih ada sesi ujian yang sedang aktif" in excinfo.value.errors[0]
 
     # Clear active exams
+    db.execute(text("DELETE FROM exam_snapshots"))
+    db.execute(text("DELETE FROM student_answers"))
+    db.execute(text("DELETE FROM exam_attempts"))
     db.execute(text("DELETE FROM exam_sessions"))
+    db.execute(text("DELETE FROM exam_schedules"))
     db.commit()
 
-    # Rollover should now succeed
+    # Rollover should succeed
     active_year = AcademicService.rollover_academic_year(db, school.id, year2.public_id)
-    db.commit()
-
     assert active_year.status == "ACTIVE"
     assert year1.status == "ARCHIVED"
-    assert sem1.status == "ARCHIVED"
-
-    # Clean up mock column
-    db.execute(text("ALTER TABLE exam_sessions DROP COLUMN IF EXISTS academic_year_id"))
     db.commit()
 
 

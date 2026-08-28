@@ -60,6 +60,7 @@ class BAUDocumentResponse(BaseModel):
 
 class ProctorCommandRequest(BaseModel):
     attempt_id: int
+    student_id: int | None = None
     proctor_assignment_id: int
     actor_teacher_id: int | None = None
     exam_session_id: int

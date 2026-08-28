@@ -35,10 +35,15 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
   const [searchQuery, setSearchQuery] = useState("");
   const [filterSubject, setFilterSubject] = useState("");
 
+  const gradeOptions = React.useMemo(() => {
+    return getGradeOptionsForSchool(user?.school_level_code);
+  }, [user?.school_level_code]);
+  const defaultGrade = gradeOptions[0]?.value || "VII";
+
   // Modal State
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [name, setName] = useState("");
-  const [classLevel, setClassLevel] = useState("X");
+  const [classLevel, setClassLevel] = useState("");
   const [subject, setSubject] = useState("");
   
   // Targets
@@ -58,12 +63,15 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
   const assignedSubjectOptions = getTeacherAssignedSubjectOptions(subjectsTaught);
   const hasAssignedSubjects = subjectsTaught.length > 0;
 
-  // Set default subject when opening or mounting
+  // Set default subject and grade level when opening or mounting
   useEffect(() => {
     if (!subject && subjectsTaught.length > 0) {
       setSubject(subjectsTaught[0]);
     }
-  }, [subjectsTaught]);
+    if (!classLevel || classLevel === "X") {
+      setClassLevel(defaultGrade);
+    }
+  }, [subjectsTaught, defaultGrade]);
 
   const fetchPackages = async () => {
     setIsLoading(true);
@@ -87,7 +95,7 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
 
   const handleOpenAddModal = () => {
     setName("");
-    setClassLevel("X");
+    setClassLevel(defaultGrade);
     setSubject(subjectsTaught.length > 0 ? subjectsTaught[0] : "");
     setTargetPG("10");
     setTargetIS("5");

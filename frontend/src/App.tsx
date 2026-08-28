@@ -49,26 +49,27 @@ function NavigationRouter() {
     if (!role) return;
 
     const path = window.location.pathname;
+    const r = String(role);
 
-    if (role === UserRole.SCHOOL_ADMIN) {
+    if (r === "SCHOOL_ADMIN" || r === "ADMIN") {
       if (!path || !path.startsWith("/admin")) {
         handleNavigate("/admin/dashboard");
       } else if (currentPath !== path) {
         setCurrentPath(path);
       }
-    } else if (role === UserRole.SUPER_ADMIN) {
+    } else if (r === "SUPERADMIN" || r === "SUPER_ADMIN") {
       if (!path || !path.startsWith("/superadmin")) {
         handleNavigate("/superadmin/dashboard");
       } else if (currentPath !== path) {
         setCurrentPath(path);
       }
-    } else if (role === UserRole.TEACHER) {
+    } else if (r === "TEACHER") {
       if (!path || !path.startsWith("/teacher")) {
         handleNavigate("/teacher/dashboard");
       } else if (currentPath !== path) {
         setCurrentPath(path);
       }
-    } else if (role === UserRole.STUDENT) {
+    } else if (r === "STUDENT") {
       if (!path || !path.startsWith("/student")) {
         handleNavigate("/student/dashboard");
       } else if (currentPath !== path) {
@@ -94,11 +95,12 @@ function NavigationRouter() {
     return (
       <LoginView
         onLoginSuccess={(loggedInRole) => {
-          if (loggedInRole === UserRole.SCHOOL_ADMIN) {
+          const r = String(loggedInRole);
+          if (r === "SCHOOL_ADMIN" || r === "ADMIN") {
             handleNavigate("/admin/dashboard");
-          } else if (loggedInRole === UserRole.SUPER_ADMIN) {
+          } else if (r === "SUPERADMIN" || r === "SUPER_ADMIN") {
             handleNavigate("/superadmin/dashboard");
-          } else if (loggedInRole === UserRole.TEACHER) {
+          } else if (r === "TEACHER") {
             handleNavigate("/teacher/dashboard");
           } else {
             handleNavigate("/student/dashboard");
@@ -106,6 +108,10 @@ function NavigationRouter() {
         }}
       />
     );
+  }
+
+  if (user?.must_change_password) {
+    return <ForceChangePasswordView />;
   }
 
   // SuperAdmin Routes (Phase 3A)
@@ -117,10 +123,6 @@ function NavigationRouter() {
       return <SuperAdminLicensesView onNavigate={handleNavigate} />;
     }
     return <SuperAdminDashboardView onNavigate={handleNavigate} />;
-  }
-
-  if (user?.must_change_password) {
-    return <ForceChangePasswordView />;
   }
 
   // School Admin Routes (Phase 3B)
@@ -210,6 +212,7 @@ function NavigationRouter() {
 }
 
 import { ThemeProvider } from "./context/ThemeContext";
+import { OfflineDetector } from "./components/ui/OfflineDetector";
 
 export default function App() {
   return (
@@ -217,7 +220,9 @@ export default function App() {
       <ThemeProvider>
         <AuthProvider>
           <ToastProvider>
-            <NavigationRouter />
+            <OfflineDetector>
+              <NavigationRouter />
+            </OfflineDetector>
           </ToastProvider>
         </AuthProvider>
       </ThemeProvider>

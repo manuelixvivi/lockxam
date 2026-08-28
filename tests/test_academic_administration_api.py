@@ -282,13 +282,17 @@ def test_student_enrollment_and_mutation_history(client: TestClient, api_test_da
     assert res_trans.json()["status"] == "ACTIVE"
     assert res_trans.json()["class_name"] == "X-IPA-2"
 
-    # Class A now has 0 active students
+    # Class A now has 0 ACTIVE students (1 TRANSFERRED history record)
     res_list_a_after = client.get(f"/api/v1/admin/classes/{class_a_id}/students", headers=headers_a)
-    assert len(res_list_a_after.json()) == 0
+    active_in_a = [s for s in res_list_a_after.json() if s["status"] == "ACTIVE"]
+    transferred_in_a = [s for s in res_list_a_after.json() if s["status"] == "TRANSFERRED"]
+    assert len(active_in_a) == 0
+    assert len(transferred_in_a) == 1
 
-    # Class B now has 1 active student
+    # Class B now has 1 ACTIVE student
     res_list_b_after = client.get(f"/api/v1/admin/classes/{class_b_id}/students", headers=headers_a)
-    assert len(res_list_b_after.json()) == 1
+    active_in_b = [s for s in res_list_b_after.json() if s["status"] == "ACTIVE"]
+    assert len(active_in_b) == 1
 
 
 def test_candidate_teacher_api_and_class_assignment(client: TestClient, api_test_data):
@@ -335,7 +339,7 @@ def test_candidate_teacher_api_and_class_assignment(client: TestClient, api_test
         headers=headers_a,
     )
     assert res_fail.status_code == 400
-    assert "tidak memiliki kompetensi" in res_fail.json()["detail"]
+    assert "belum memiliki kompetensi" in res_fail.json()["detail"]
 
     # 7. Assign competent teacher (teacher_math) -> SUCCESS HTTP 200
     res_ok = client.post(
@@ -447,7 +451,7 @@ def test_exam_schedule_packages_and_import(client: TestClient, api_test_data, db
             gender="L",
             registered_year=2025,
             classes_taught=[],
-            subjects_taught=[],
+            # subjects_taught removed: competency assigned via TeacherSubject endpoint
             teacher_code="P-HEBAT",
         )
         db.commit()
@@ -563,7 +567,10 @@ def test_exam_schedule_class_overlap_validation(client: TestClient, api_test_dat
     assert res_sub2.status_code == 201
     sub2_id = res_sub2.json()["id"]
 
-    # 3. Assign Teacher competencies and class subjects
+    # 3. Assign Subjects to Class and assign Teacher competencies
+    client.post(f"/api/v1/admin/classes/{class_id}/subjects", json={"subject_id": sub1_id}, headers=headers_a)
+    client.post(f"/api/v1/admin/classes/{class_id}/subjects", json={"subject_id": sub2_id}, headers=headers_a)
+
     from app.services.academic.subject_service import SubjectService
     from app.services.academic.class_structure_service import ClassStructureService
 
@@ -589,6 +596,7 @@ def test_exam_schedule_class_overlap_validation(client: TestClient, api_test_dat
         },
         headers=headers_a,
     )
+    print("SCH1 RESPONSE:", res_sch1.status_code, res_sch1.json())
     assert res_sch1.status_code == 201
 
     # 5. Attempt to create overlapping Exam Schedule manually (09:00 - 10:30) -> should fail with 400
@@ -606,8 +614,9 @@ def test_exam_schedule_class_overlap_validation(client: TestClient, api_test_dat
         },
         headers=headers_a,
     )
+    print("SCH2 RESPONSE:", res_sch2.status_code, res_sch2.json())
     assert res_sch2.status_code == 400
-    assert "sudah memiliki jadwal ujian lain" in res_sch2.json()["detail"]
+    assert "Jadwal ujian bentrok dengan" in res_sch2.json()["detail"]
 
     # 6. Non-overlapping back-to-back Exam Schedule (09:30 - 11:00) -> should succeed
     res_sch3 = client.post(
@@ -677,3 +686,89 @@ def test_exam_schedule_class_overlap_validation(client: TestClient, api_test_dat
     )
     assert res_import2.status_code == 400
     assert "sudah memiliki jadwal ujian lain" in res_import2.json()["detail"]
+
+
+def test_bulk_subject_assignment_and_removal(client: TestClient, api_test_data):
+    """Tests bulk subject assignment, teacher isolation/competency, and bulk removal of subjects."""
+    headers_a = api_test_data["headers_admin_a"]
+    year_2025 = api_test_data["year_2025"]
+    teacher_math = api_test_data["teacher_math_a"]
+
+    # 1. Create Class
+    res_cls = client.post(
+        "/api/v1/admin/classes",
+        json={"academic_year_id": year_2025.id, "name": "X-IPA-5", "grade_level": "X"},
+        headers=headers_a
+    )
+    assert res_cls.status_code == 201
+    class_id = res_cls.json()["id"]
+
+    # 2. Create Subjects in Master List
+    res_sub1 = client.post(
+        "/api/v1/admin/subjects",
+        json={"code": "MAT-BULK", "name": "Matematika Bulk"},
+        headers=headers_a
+    )
+    assert res_sub1.status_code == 201
+    sub1_id = res_sub1.json()["id"]
+
+    res_sub2 = client.post(
+        "/api/v1/admin/subjects",
+        json={"code": "FIS-BULK", "name": "Fisika Bulk"},
+        headers=headers_a
+    )
+    assert res_sub2.status_code == 201
+    sub2_id = res_sub2.json()["id"]
+
+    # Assign Math competency to teacher_math
+    client.post(f"/api/v1/admin/subjects/{sub1_id}/teachers/{teacher_math.id}", headers=headers_a)
+
+    # 3. Bulk Assign Subjects
+    res_assign = client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects/bulk-assign",
+        json={"subject_ids": [sub1_id, sub2_id]},
+        headers=headers_a
+    )
+    assert res_assign.status_code == 200
+    assert res_assign.json()["assigned_count"] == 2
+
+    # Verify Class Subjects List
+    res_list = client.get(f"/api/v1/admin/classes/{class_id}/subjects", headers=headers_a)
+    assert res_list.status_code == 200
+    subjects_in_class = res_list.json()
+    assert len(subjects_in_class) == 2
+    subject_ids = [s["subject_id"] for s in subjects_in_class]
+    assert sub1_id in subject_ids
+    assert sub2_id in subject_ids
+
+    # 4. Assign Teacher to Mat-Bulk
+    res_teach = client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects/{sub1_id}/teachers",
+        json={"teacher_id": teacher_math.id},
+        headers=headers_a
+    )
+    assert res_teach.status_code == 200
+
+    # 5. Bulk Remove Subjects
+    res_remove = client.post(
+        f"/api/v1/admin/classes/{class_id}/subjects/bulk-remove",
+        json={"subject_ids": [sub1_id]},
+        headers=headers_a
+    )
+    assert res_remove.status_code == 200
+    assert res_remove.json()["removed_count"] == 1
+
+    # Verify Class Subjects List has only 1 subject left (FIS-BULK)
+    res_list2 = client.get(f"/api/v1/admin/classes/{class_id}/subjects", headers=headers_a)
+    assert res_list2.status_code == 200
+    subjects_in_class_after = res_list2.json()
+    assert len(subjects_in_class_after) == 1
+    assert subjects_in_class_after[0]["subject_id"] == sub2_id
+
+    # Verify that the master subject 'Matematika Bulk' still exists in the school's master subject list!
+    res_master_subj = client.get(f"/api/v1/admin/subjects", headers=headers_a)
+    assert res_master_subj.status_code == 200
+    master_subjects = res_master_subj.json()
+    master_subject_ids = [s["id"] for s in master_subjects]
+    assert sub1_id in master_subject_ids
+

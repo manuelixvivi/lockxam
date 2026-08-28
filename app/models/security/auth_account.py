@@ -38,7 +38,7 @@ class AuthAccount(TimestampMixin, PublicIdMixin, Base):
     class_name: Mapped[str | None] = mapped_column(String(50), nullable=True)
     registered_year: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
-    # Teacher Profile Fields
+    # Teacher Profile Fields (DEPRECATED/DERIVED: Read-only compatibility projection. TeacherSubject table is ONLY source of truth)
     nip: Mapped[str | None] = mapped_column(String(50), nullable=True)
     teacher_code: Mapped[str | None] = mapped_column(String(50), unique=True, nullable=True)
     classes_taught: Mapped[list[str] | None] = mapped_column(JSON, nullable=True)

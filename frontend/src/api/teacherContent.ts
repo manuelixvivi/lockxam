@@ -86,6 +86,9 @@ export const teacherContentApi = {
   revertPackageToDraft: (packageId: number): Promise<QuestionPackageDetail> =>
     apiClient.post<QuestionPackageDetail>(`/api/v1/teacher/packages/${packageId}/revert-draft`),
 
+  publishPackage: (packageId: number): Promise<QuestionPackageDetail> =>
+    apiClient.post<QuestionPackageDetail>(`/api/v1/teacher/packages/${packageId}/publish`),
+
   addQuestionToPackage: (packageId: number, questionId: number, score: number = 0.0): Promise<QuestionPackageDetail> =>
     apiClient.post<QuestionPackageDetail>(`/api/v1/teacher/packages/${packageId}/questions/${questionId}?score=${score}`),
 
@@ -116,4 +119,12 @@ export const teacherContentApi = {
     formData.append("file", file);
     return apiClient.post<{ url: string; filename: string }>("/api/v1/teacher/questions/upload-image", formData);
   },
+
+  generateAiRubric: (data: {
+    question_text: string;
+    answer_key: string;
+    education_level?: string;
+    education_class?: string;
+  }): Promise<{ status: string; rubrics: any[]; concepts: string[]; error?: string }> =>
+    apiClient.post<{ status: string; rubrics: any[]; concepts: string[]; error?: string }>("/api/v1/teacher/ai/generate-rubric", data),
 };

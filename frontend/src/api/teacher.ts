@@ -69,4 +69,19 @@ export const teacherApi = {
 
   resetPassword: (publicId: string): Promise<ResetPasswordResult> =>
     apiClient.post<ResetPasswordResult>(`/api/v1/admin/teachers/${publicId}/reset-password`),
+
+  importTeachers: (data: {
+    teachers: Array<{
+      name: string;
+      nip?: string;
+      teacher_code?: string;
+      gender: string;
+      registered_year?: number;
+      row_num?: number;
+    }>;
+  }): Promise<{
+    status: string;
+    imported_count: number;
+    data: TeacherAccount[];
+  }> => apiClient.post("/api/v1/admin/teachers/import", data),
 };

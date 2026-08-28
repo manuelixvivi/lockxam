@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { useToast } from "../../context/ToastContext";
 import type { ToastType, ToastMessage } from "../../context/ToastContext";
+import { copyToClipboard } from "../../utils/clipboard";
 
 interface ToastItemProps {
   toast: ToastMessage;
@@ -94,13 +95,15 @@ const ToastItem: React.FC<ToastItemProps> = ({ toast, onRemove }) => {
     return () => clearInterval(timer);
   }, [duration, isHovered, onRemove, toast.id]);
 
-  const handleCopy = () => {
+  const handleCopy = async () => {
     const textToCopy = toast.message
       ? `${toast.title}\n${toast.message}`
       : toast.title;
-    navigator.clipboard.writeText(textToCopy);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
+    const success = await copyToClipboard(textToCopy);
+    if (success) {
+      setCopied(true);
+      setTimeout(() => setCopied(false), 2000);
+    }
   };
 
   const progressPercent = Math.max(0, Math.min(100, (timeLeft / duration) * 100));

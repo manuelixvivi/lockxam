@@ -16,52 +16,24 @@ export interface RequestOptions extends Omit<RequestInit, "headers"> {
 
 class ApiClient {
   private accessToken: string | null = null;
-  private refreshToken: string | null = null;
   private isRefreshing = false;
   private refreshSubscribers: Array<(token: string) => void> = [];
 
   constructor() {
-    this.accessToken = localStorage.getItem("equigrade_access_token");
-    this.refreshToken = localStorage.getItem("equigrade_refresh_token");
+    // Access Token stored ONLY in runtime memory.
+    // Refresh Token stored ONLY in HttpOnly + Secure Cookie.
   }
 
-  public setAccessToken(token: string | null, refreshToken?: string | null): void {
+  public setAccessToken(token: string | null): void {
     this.accessToken = token;
-    if (token) {
-      localStorage.setItem("equigrade_access_token", token);
-    } else {
-      localStorage.removeItem("equigrade_access_token");
-    }
-
-    if (refreshToken !== undefined) {
-      this.refreshToken = refreshToken;
-      if (refreshToken) {
-        localStorage.setItem("equigrade_refresh_token", refreshToken);
-      } else {
-        localStorage.removeItem("equigrade_refresh_token");
-      }
-    }
   }
 
   public getAccessToken(): string | null {
-    if (!this.accessToken) {
-      this.accessToken = localStorage.getItem("equigrade_access_token");
-    }
     return this.accessToken;
-  }
-
-  public getRefreshToken(): string | null {
-    if (!this.refreshToken) {
-      this.refreshToken = localStorage.getItem("equigrade_refresh_token");
-    }
-    return this.refreshToken;
   }
 
   public clearTokens(): void {
     this.accessToken = null;
-    this.refreshToken = null;
-    localStorage.removeItem("equigrade_access_token");
-    localStorage.removeItem("equigrade_refresh_token");
   }
 
   private subscribeTokenRefresh(callback: (token: string) => void): void {
@@ -80,10 +52,16 @@ class ApiClient {
     const url = endpoint.startsWith("http") ? endpoint : endpoint;
     const { headers: inputHeaders, isRetry, ...restOptions } = options;
 
+    const isFormData = typeof FormData !== "undefined" && restOptions.body instanceof FormData;
+
     const reqHeaders: Record<string, string> = {
-      "Content-Type": "application/json",
+      ...(isFormData ? {} : { "Content-Type": "application/json" }),
       ...(inputHeaders || {}),
     };
+
+    if (isFormData) {
+      delete reqHeaders["Content-Type"];
+    }
 
     const token = this.getAccessToken();
     if (token && !reqHeaders["Authorization"]) {
@@ -97,28 +75,22 @@ class ApiClient {
         credentials: "include", // Required for HttpOnly Refresh Cookie
       });
 
-      // Handle HTTP 401 Unauthorized -> Attempt Silent Refresh once
+      // Handle HTTP 401 Unauthorized -> Attempt Silent Refresh once via HttpOnly Cookie
       if (response.status === 401 && !isRetry && !endpoint.includes("/auth/login")) {
         if (!this.isRefreshing) {
           this.isRefreshing = true;
           try {
-            const currentRefreshToken = this.getRefreshToken();
-            if (!currentRefreshToken) {
-              throw new Error("No refresh token available");
-            }
-
-            const refreshRes = await this.request<{ access_token: string; refresh_token?: string }>(
+            const refreshRes = await this.request<{ access_token: string }>(
               "/api/v1/auth/refresh",
               {
                 method: "POST",
-                body: JSON.stringify({ refresh_token: currentRefreshToken }),
+                body: JSON.stringify({}),
                 isRetry: true,
               }
             );
 
             const newToken = refreshRes.access_token;
-            const newRefreshToken = refreshRes.refresh_token || currentRefreshToken;
-            this.setAccessToken(newToken, newRefreshToken);
+            this.setAccessToken(newToken);
             this.isRefreshing = false;
             this.onTokenRefreshed(newToken);
 
@@ -203,17 +175,19 @@ class ApiClient {
   }
 
   public post<T = any>(endpoint: string, body?: any, headers?: Record<string, string>): Promise<T> {
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
     return this.request<T>(endpoint, {
       method: "POST",
-      body: body ? JSON.stringify(body) : undefined,
+      body: isFormData ? body : (body ? JSON.stringify(body) : undefined),
       headers,
     });
   }
 
   public put<T = any>(endpoint: string, body?: any, headers?: Record<string, string>): Promise<T> {
+    const isFormData = typeof FormData !== "undefined" && body instanceof FormData;
     return this.request<T>(endpoint, {
       method: "PUT",
-      body: body ? JSON.stringify(body) : undefined,
+      body: isFormData ? body : (body ? JSON.stringify(body) : undefined),
       headers,
     });
   }

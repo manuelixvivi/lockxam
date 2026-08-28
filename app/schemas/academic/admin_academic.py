@@ -287,9 +287,22 @@ class ExamSchedulePackageResponse(BaseModel):
     school_id: int
     academic_year_id: int
     title: str
+    is_closed: bool = False
     created_at: datetime
     updated_at: datetime
     academic_year_name: str | None = None
     schedules: list[ExamScheduleResponse] = []
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class SubjectImportItem(BaseModel):
+    code: str
+    name: str
+    description: str | None = None
+    row_num: int | None = None
+
+
+class SubjectImportRequest(BaseModel):
+    subjects: list[SubjectImportItem]
+

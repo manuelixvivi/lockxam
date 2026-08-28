@@ -43,3 +43,6 @@ from app.core.security.password import (
 from app.core.security.password import (
     verify_password as verify_password,
 )
+from app.core.security.keys import (
+    COOKIE_SECURE as COOKIE_SECURE,
+)

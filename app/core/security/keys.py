@@ -24,3 +24,5 @@ for key, value in os.environ.items():
     if key.startswith("JWT_SECRET_"):
         kid = key.replace("JWT_SECRET_", "")
         SECRETS[kid] = value
+
+COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"

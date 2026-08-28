@@ -130,6 +130,12 @@ def list_exam_schedules(
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
+    if academic_year_id is None:
+        from app.repositories.academic.academic_year_repository import academic_year_repository
+        active_year = academic_year_repository.get_active_year(db, school_id)
+        if active_year:
+            academic_year_id = active_year.id
+
     schedules = ExamScheduleService.list_schedules(
         db=db,
         school_id=school_id,
@@ -148,12 +154,17 @@ def _enrich_package_response(db: Session, p) -> ExamSchedulePackageResponse:
     schedules = exam_schedule_repository.list_by_package(db, p.id)
     enriched_schedules = [_enrich_schedule_response(db, s) for s in schedules]
     
+    is_closed_val = bool(getattr(p, "is_closed", False))
+    if not is_closed_val and schedules:
+        is_closed_val = all(s.status in ["COMPLETED", "CLOSED", "ARCHIVED", "CANCELLED", "FINISHED"] for s in schedules)
+
     return ExamSchedulePackageResponse(
         id=p.id,
         public_id=p.public_id,
         school_id=p.school_id,
         academic_year_id=p.academic_year_id,
         title=p.title,
+        is_closed=is_closed_val,
         created_at=p.created_at,
         updated_at=p.updated_at,
         academic_year_name=year.name if year else None,
@@ -183,6 +194,12 @@ def list_exam_schedule_packages(
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
+    if academic_year_id is None:
+        from app.repositories.academic.academic_year_repository import academic_year_repository
+        active_year = academic_year_repository.get_active_year(db, school_id)
+        if active_year:
+            academic_year_id = active_year.id
+
     packages = ExamScheduleService.list_schedule_packages(db, school_id, academic_year_id)
     return [_enrich_package_response(db, p) for p in packages]
 
@@ -209,6 +226,25 @@ def delete_exam_schedule_package(
     
     ExamScheduleService.delete_schedule_package(db, school_id, public_id)
     db.commit()
+
+
+@router.post("/packages/{public_id}/close", response_model=ExamSchedulePackageResponse)
+def close_exam_schedule_package(
+    public_id: UUID,
+    current_user=Depends(require_admin()),
+    db: Session = Depends(get_db),
+):
+    school_id = _get_school_id(current_user)
+    package = ExamScheduleService.get_schedule_package(db, school_id, public_id)
+    package.is_closed = True
+    
+    from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+    schedules = exam_schedule_repository.list_by_package(db, package.id)
+    for sch in schedules:
+        if sch.status != "CANCELLED":
+            sch.status = "COMPLETED"
+    db.commit()
+    return _enrich_package_response(db, package)
 
 
 @router.post("/packages/{public_id}/import", response_model=list[ExamScheduleResponse])

@@ -39,7 +39,7 @@ export const LoginView: React.FC<{ onLoginSuccess?: (role: UserRole) => void }> 
         password: passToLogin,
       });
 
-      apiClient.setAccessToken(response.access_token, response.refresh_token);
+      apiClient.setAccessToken(response.access_token);
 
       const me = await apiClient.get("/api/v1/auth/me");
 

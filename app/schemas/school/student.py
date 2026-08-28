@@ -1,4 +1,5 @@
 from datetime import date, datetime
+from typing import Any
 from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -54,3 +55,19 @@ class StudentResetPasswordResponse(BaseModel):
     message: str
     username: str
     new_password: str
+
+
+class StudentImportRow(BaseModel):
+    name: str | None = None
+    nisn: str | None = None
+    nis: str | None = None
+    gender: str | None = None
+    birth_date: Any | None = None
+    class_name: str | None = None
+    registered_year: Any | None = None
+
+
+class StudentBulkImportRequest(BaseModel):
+    academic_year_id: int
+    rows: list[StudentImportRow]
+

@@ -17,52 +17,7 @@ class AcademicService:
 
     @staticmethod
     def verify_archive_checklist(db: Session, academic_year_id: int) -> list[str]:
-        errors = []
-        inspector = inspect(db.connection())
-
-        # BR-ACA-011: Archive Validation Checklist (Dynamic table existence checks)
-        # 1. Exam sessions check
-        if inspector.has_table("exam_sessions"):
-            active_exams = db.execute(
-                text(
-                    "SELECT COUNT(*) FROM exam_sessions "
-                    "WHERE academic_year_id = :year_id "
-                    "AND CAST(status AS VARCHAR) IN ('ACTIVE', 'ON_GOING')"
-                ),
-                {"year_id": academic_year_id},
-            ).scalar()
-            if active_exams and active_exams > 0:
-                errors.append("Active or ongoing exam sessions exist in this academic period.")
-
-        # 2. Draft grades check
-        if inspector.has_table("grades"):
-            draft_grades = db.execute(
-                text(
-                    "SELECT COUNT(*) FROM grades "
-                    "WHERE academic_year_id = :year_id "
-                    "AND status = 'DRAFT'"
-                ),
-                {"year_id": academic_year_id},
-            ).scalar()
-            if draft_grades and draft_grades > 0:
-                errors.append("Draft academic grades exist in this academic period.")
-
-        # 3. Active AI evaluation tasks check
-        if inspector.has_table("ai_evaluations"):
-            active_ai = db.execute(
-                text(
-                    "SELECT COUNT(*) FROM ai_evaluations "
-                    "WHERE academic_year_id = :year_id "
-                    "AND status = 'PROCESSING'"
-                ),
-                {"year_id": academic_year_id},
-            ).scalar()
-            if active_ai and active_ai > 0:
-                errors.append(
-                    "Active AI evaluation pipelines are running for this academic period."
-                )
-
-        return errors
+        return academic_year_repository.verify_archive_checklist(db, academic_year_id)
 
     @staticmethod
     def create_academic_year(
@@ -207,11 +162,12 @@ class AcademicService:
                     academic_semester_repository.update(db, sem)
             academic_year_repository.update(db, current_active)
 
-        # 2. Automatically promote classes & active students to next grade level for new academic year
-        if current_active:
-            AcademicService.promote_classes_and_students_for_rollover(
-                db=db, school_id=school_id, old_year_id=current_active.id, new_year_id=new_year.id
-            )
+        # 2. Archive current active semesters
+        if current_active and current_active.semesters:
+            for sem in current_active.semesters:
+                if sem.status == AcademicStatus.ACTIVE.value:
+                    sem.status = AcademicStatus.ARCHIVED.value
+                    academic_semester_repository.update(db, sem)
 
         # 3. Activate target planned year
         new_year.status = AcademicStatus.ACTIVE.value
@@ -229,91 +185,12 @@ class AcademicService:
     def promote_classes_and_students_for_rollover(
         db: Session, school_id: int, old_year_id: int, new_year_id: int
     ) -> dict:
-        """
-        Automates class & student grade promotion during Academic Year rollover.
-        SD: I->II->III->IV->V->VI->LULUS
-        SMP: VII->VIII->IX->LULUS
-        SMA/SMK: X->XI->XII->LULUS
-        """
-        from app.models.academic.class_entity import ClassEntity
-        from app.models.academic.student_class_enrollment import StudentClassEnrollment
-        from app.models.academic.enums import EnrollmentStatus
-        from app.models.security.auth_account import AuthAccount
-        from app.services.academic.class_structure_service import ClassStructureService
-
-        promotion_map = {
-            "I": "II", "II": "III", "III": "IV", "IV": "V", "V": "VI", "VI": "LULUS",
-            "VII": "VIII", "VIII": "IX", "IX": "LULUS",
-            "7": "8", "8": "9", "9": "LULUS",
-            "X": "XI", "XI": "XII", "XII": "LULUS",
-            "10": "11", "11": "12", "12": "LULUS",
-        }
-
-        old_classes = db.query(ClassEntity).filter(
-            ClassEntity.school_id == school_id,
-            ClassEntity.academic_year_id == old_year_id,
-            ClassEntity.is_active == True,
-        ).all()
-
-        promoted_classes_count = 0
-        graduated_students_count = 0
-        promoted_students_count = 0
-
-        for old_cls in old_classes:
-            gl = (old_cls.grade_level or "X").strip().upper()
-            next_gl = promotion_map.get(gl, "LULUS")
-
-            active_enrollments = db.query(StudentClassEnrollment).filter(
-                StudentClassEnrollment.class_id == old_cls.id,
-                StudentClassEnrollment.status == EnrollmentStatus.ACTIVE.value,
-            ).all()
-
-            if next_gl == "LULUS":
-                for enr in active_enrollments:
-                    enr.status = EnrollmentStatus.GRADUATED.value
-                    enr.end_date = datetime.utcnow()
-                    st = db.query(AuthAccount).filter(AuthAccount.id == enr.student_id).first()
-                    if st:
-                        st.class_name = "LULUS (Alumni)"
-                    graduated_students_count += 1
-            else:
-                rombel_suffix = old_cls.name
-                if old_cls.grade_level and rombel_suffix.upper().startswith(old_cls.grade_level.upper()):
-                    rombel_suffix = rombel_suffix[len(old_cls.grade_level):].strip()
-
-                new_class_name = f"{next_gl} {rombel_suffix}".strip()
-
-                new_cls = db.query(ClassEntity).filter(
-                    ClassEntity.school_id == school_id,
-                    ClassEntity.academic_year_id == new_year_id,
-                    ClassEntity.name == new_class_name,
-                ).first()
-
-                if not new_cls:
-                    new_cls = ClassEntity(
-                        school_id=school_id,
-                        academic_year_id=new_year_id,
-                        name=new_class_name,
-                        grade_level=next_gl,
-                        is_active=True,
-                    )
-                    db.add(new_cls)
-                    db.flush()
-
-                promoted_classes_count += 1
-
-                for enr in active_enrollments:
-                    ClassStructureService.enroll_student_to_class(
-                        db=db, school_id=school_id, student_id=enr.student_id, class_id=new_cls.id
-                    )
-                    promoted_students_count += 1
-
-        db.flush()
-        return {
-            "promoted_classes_count": promoted_classes_count,
-            "promoted_students_count": promoted_students_count,
-            "graduated_students_count": graduated_students_count,
-        }
+        """DEPRECATED — Automated 'Promote All' is disabled per BRS baseline."""
+        raise BusinessException(
+            "Promote All otomatis dinonaktifkan sesuai BRS baseline. "
+            "Admin sekolah wajib mendaftarkan struktur kelas dan memindahkan/mendaftarkan siswa secara manual per tahun ajaran baru.",
+            status_code=400,
+        )
 
     @staticmethod
     def create_academic_semester(

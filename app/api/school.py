@@ -5,13 +5,11 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.rbac import require_authenticated, require_staff, require_superadmin
-from app.models.security.enums import UserRole
 from app.exceptions.base import BusinessException
-
-
-
+from app.models.security.enums import UserRole
 from app.schemas.school.school import (
     SchoolCreateRequest,
+    SchoolCreateResponse,
     SchoolResponse,
     SchoolUpdateRequest,
 )
@@ -23,7 +21,7 @@ router = APIRouter(prefix="/api/v1/schools", tags=["School Management"])
 
 @router.post(
     "",
-    response_model=SchoolResponse,
+    response_model=SchoolCreateResponse,
     status_code=201,
 )
 def create_school(
@@ -48,7 +46,13 @@ def create_school(
         metadata={"npsn": school.npsn, "name": school.name},
     )
 
-    return school
+    return {
+        "school": school,
+        "admin_credentials": {
+            "username": getattr(school, "admin_username", None),
+            "temporary_password": getattr(school, "temporary_password", "")
+        }
+    }
 
 
 @router.get(

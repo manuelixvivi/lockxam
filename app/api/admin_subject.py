@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.rbac import require_admin
 from app.exceptions.base import BusinessException
+from app.schemas.common.import_validation import ImportResponse
 from app.schemas.academic.admin_academic import (
     SubjectCreateRequest,
     SubjectResponse,
@@ -13,6 +14,7 @@ from app.schemas.academic.admin_academic import (
     TeacherSubjectResponse,
     SubjectBulkDeleteRequest,
     SubjectBulkDeactivateRequest,
+    SubjectImportRequest,
 )
 from app.services.academic.subject_service import SubjectService
 from app.services.security.activity_service import ActivityService
@@ -65,7 +67,7 @@ def create_subject(
 
 @router.get("", response_model=list[SubjectResponse])
 def list_subjects(
-    is_active: bool | None = True,
+    is_active: bool | None = None,
     current_user=Depends(require_admin()),
     db: Session = Depends(get_db),
 ):
@@ -183,6 +185,22 @@ def bulk_deactivate_subjects(
     db.commit()
 
 
+@router.post("/bulk-activate", status_code=status.HTTP_204_NO_CONTENT)
+def bulk_activate_subjects(
+    data: SubjectBulkDeactivateRequest,
+    request: Request,
+    current_user=Depends(require_admin()),
+    db: Session = Depends(get_db),
+):
+    school_id = _get_school_id(current_user)
+    from app.repositories.academic.subject_repository import subject_repository
+    for sid in data.subject_ids:
+        subj = subject_repository.get_by_id(db, sid)
+        if subj and subj.school_id == school_id:
+            subj.is_active = True
+    db.commit()
+
+
 # ── Teacher Subject Competency Mapping ──
 
 @router.post("/{subject_id}/teachers/{teacher_id}", response_model=TeacherSubjectResponse)
@@ -292,3 +310,63 @@ def list_qualified_teachers(
         )
         for t in teachers
     ]
+
+
+@router.post("/import", response_model=ImportResponse[SubjectResponse])
+def import_subjects(
+    request: Request,
+    data: SubjectImportRequest,
+    current_user=Depends(require_admin()),
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import JSONResponse
+    from app.schemas.common.import_validation import ImportResponse, ImportRowError
+
+    school_id = _get_school_id(current_user)
+
+    subjects_list = [subj.model_dump() for subj in data.subjects]
+
+    success, created_subjects, errors = SubjectService.import_subjects_xlsx(
+        db=db,
+        school_id=school_id,
+        subjects_data=subjects_list,
+    )
+
+    if not success:
+        row_errors = [ImportRowError(**err) for err in errors]
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=ImportResponse(
+                status="error",
+                message="Impor mata pelajaran gagal karena terdapat kesalahan validasi.",
+                imported_count=0,
+                errors=row_errors,
+            ).model_dump()
+        )
+
+    # Logging activity
+    user_id = int(current_user["sub"])
+    ActivityService.log_activity(
+        db=db,
+        auth_account_id=user_id,
+        action_type="SUBJECT",
+        action_name="IMPORT_SUBJECT",
+        school_id=school_id,
+        endpoint=str(request.url.path),
+        method=request.method,
+        ip_address=request.client.host if request.client else None,
+        user_agent=request.headers.get("user-agent"),
+        metadata={
+            "subjects_count": len(created_subjects)
+        },
+    )
+
+    db.commit()
+
+    return ImportResponse[SubjectResponse](
+        status="success",
+        message=f"Berhasil menyinkronkan {len(created_subjects)} mata pelajaran secara massal.",
+        imported_count=len(created_subjects),
+        data=created_subjects,
+    )
+

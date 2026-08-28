@@ -80,56 +80,12 @@ class ClassService:
         if not cls or cls.school_id != school_id:
             raise BusinessException("Kelas tidak ditemukan.", status_code=404)
 
-        from app.models.academic.class_subject import ClassSubject
-        from app.models.academic.class_subject_teacher import ClassSubjectTeacher
-        from app.models.academic.student_class_enrollment import StudentClassEnrollment
-        from app.models.academic.exam_schedule import ExamSchedule
-        from app.models.exam.exam_session import ExamSession
-        from app.models.exam.package_snapshot import ExamPackageSnapshot
-
-        # 1. Clean active bindings
-        db.query(ClassSubjectTeacher).filter(ClassSubjectTeacher.class_id == cls.id).delete(synchronize_session=False)
-        db.query(ClassSubject).filter(ClassSubject.class_id == cls.id).delete(synchronize_session=False)
-        db.query(StudentClassEnrollment).filter(
-            StudentClassEnrollment.class_id == cls.id,
-            StudentClassEnrollment.status == "ACTIVE"
-        ).delete(synchronize_session=False)
-
-        # 2. Check for past exam sessions with student attempt history
-        linked_schedules = db.query(ExamSchedule).filter(ExamSchedule.class_id == cls.id).all()
-        has_historical_sessions = False
-        if linked_schedules:
-            sch_ids = [s.id for s in linked_schedules]
-            hist_sess = db.query(ExamSession).filter(
-                ExamSession.schedule_id.in_(sch_ids),
-                ExamSession.status.in_(["ACTIVE", "COMPLETED"])
-            ).first()
-            if hist_sess:
-                has_historical_sessions = True
-
-        from app.models.academic.exam_snapshot import ExamSnapshot
-
-        if has_historical_sessions:
-            # Soft delete class so it disappears from active class management views while preserving student attempt history and grade reports intact
+        if class_repository.has_historical_records(db, cls.id):
+            # Soft delete class so historical records and student enrollment logs stay 100% intact
             cls.is_active = False
             db.flush()
         else:
-            for sch in linked_schedules:
-                db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == sch.id).delete(synchronize_session=False)
-                sessions = db.query(ExamSession).filter(ExamSession.schedule_id == sch.id).all()
-                for sess in sessions:
-                    snapshots = db.query(ExamPackageSnapshot).filter(ExamPackageSnapshot.exam_session_id == sess.id).all()
-                    for snap in snapshots:
-                        db.delete(snap)
-                    db.delete(sess)
-                db.delete(sch)
-
-            db.flush()
-            try:
-                class_repository.delete(db, cls)
-            except Exception:
-                cls.is_active = False
-                db.flush()
+            class_repository.delete(db, cls)
 
     @staticmethod
     def list_classes_by_year(

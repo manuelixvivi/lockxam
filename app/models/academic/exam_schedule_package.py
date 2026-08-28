@@ -1,4 +1,4 @@
-from sqlalchemy import ForeignKey, String
+from sqlalchemy import ForeignKey, String, Boolean
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.core.database import Base
@@ -13,6 +13,7 @@ class ExamSchedulePackage(TimestampMixin, PublicIdMixin, Base):
     school_id: Mapped[int] = mapped_column(ForeignKey("schools.id", ondelete="CASCADE"))
     academic_year_id: Mapped[int] = mapped_column(ForeignKey("academic_years.id", ondelete="RESTRICT"))
     title: Mapped[str] = mapped_column(String(255))
+    is_closed: Mapped[bool] = mapped_column(Boolean, default=False)
 
     # Relationships
     school = relationship("School", foreign_keys=[school_id])

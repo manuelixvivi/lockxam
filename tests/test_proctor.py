@@ -1,5 +1,5 @@
 import uuid
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 import pytest
 
@@ -73,7 +73,10 @@ def test_bau_lifecycle_service(db):
     assert submitted_doc.proctor_notes == "Ujian lancar"
     assert submitted_doc.submitted_at is not None
 
-    # 4. Attempt to update attendance in SUBMITTED -> Fail
+    # 4. Try updating after SUBMITTED (> 24 hours) -> FAIL (Locked)
+    doc.submitted_at = datetime.now(timezone.utc) - timedelta(hours=25)
+    db.commit()
+
     with pytest.raises(BusinessException) as exc_info:
         ProctorService.update_attendance(
             db=db,
@@ -81,7 +84,7 @@ def test_bau_lifecycle_service(db):
             student_id=student_id,
             status=AttendanceStatus.SAKIT,
         )
-    assert "Berita Acara sudah dikunci" in str(exc_info.value)
+    assert "Berita Acara telah dikunci" in str(exc_info.value)
 
     # 5. Request Correction -> CORRECTION_REQUESTED
     correction_doc = ProctorService.request_correction(db, doc.id)
@@ -216,10 +219,101 @@ def test_proctor_command_endpoints(client, test_teacher, db, test_school, monkey
     )
     teacher_token = teacher_login.json()["access_token"]
 
+    from app.models.security.auth_account import AuthAccount
+    from app.models.academic.exam_schedule import ExamSchedule
+    from app.models.exam.exam_session import ExamSession, ExamSessionStatus
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.enums import ExamAttemptStatus
+
+    std = AuthAccount(
+        id=123,
+        public_id=uuid.uuid4(),
+        school_id=test_school.id,
+        username="siswa_test_proctor",
+        password_hash="hash",
+        role="STUDENT",
+        is_active=True,
+    )
+    db.add(std)
+    db.flush()
+
+    from app.models.academic.academic_year import AcademicYear
+    from app.models.academic.academic_semester import AcademicSemester
+    from app.models.academic.class_entity import ClassEntity as Class
+    from app.models.academic.subject import Subject
+
+    ay = AcademicYear(school_id=test_school.id, name="2026/2027", start_date=datetime.now(timezone.utc), end_date=datetime.now(timezone.utc)+timedelta(days=365), status="ACTIVE")
+    db.add(ay)
+    db.flush()
+
+    sem = AcademicSemester(academic_year_id=ay.id, code="GANJIL", display_name="Ganjil", status="ACTIVE")
+    db.add(sem)
+    db.flush()
+
+    cls = Class(school_id=test_school.id, academic_year_id=ay.id, name="Proctor Class")
+    db.add(cls)
+    db.flush()
+
+    subj = Subject(school_id=test_school.id, code="PROCTOR_SUBJ", name="Proctor Subject")
+    db.add(subj)
+    db.flush()
+
+    sch = ExamSchedule(
+        school_id=test_school.id,
+        academic_year_id=ay.id,
+        academic_semester_id=sem.id,
+        class_id=cls.id,
+        subject_id=subj.id,
+        teacher_id=test_teacher["account"].id,
+        title="Proctor Test Schedule",
+        start_time=datetime.now(timezone.utc),
+        end_time=datetime.now(timezone.utc) + timedelta(hours=2),
+        duration_minutes=60,
+    )
+    db.add(sch)
+    db.flush()
+
+    from app.models.teacher.question_package import QuestionPackage
+
+    pkg = QuestionPackage(
+        owner_teacher_account_id=test_teacher["account"].id,
+        school_id=test_school.id,
+        name="Proctor Test Package",
+        class_level="10",
+        target_counts={},
+        subject="Proctor Subject",
+        status="READY",
+    )
+    db.add(pkg)
+    db.flush()
+
+    sess = ExamSession(
+        schedule_id=sch.id,
+        package_id=pkg.id,
+        scheduled_start_at=datetime.now(timezone.utc),
+        scheduled_end_at=datetime.now(timezone.utc) + timedelta(hours=2),
+        duration_minutes=60,
+        status=ExamSessionStatus.ACTIVE,
+    )
+    db.add(sess)
+    db.flush()
+
+    attempt = ExamAttempt(
+        exam_session_id=sess.id,
+        student_id=std.id,
+        status=ExamAttemptStatus.IN_PROGRESS,
+        randomized_order=[],
+        started_at=datetime.now(timezone.utc),
+        deadline_at=datetime.now(timezone.utc) + timedelta(minutes=60),
+        remaining_seconds=3600,
+    )
+    db.add(attempt)
+    db.commit()
+
     payload = {
-        "attempt_id": 99,
-        "proctor_assignment_id": 456,
-        "exam_session_id": 789,
+        "attempt_id": attempt.id,
+        "proctor_assignment_id": sch.id,
+        "exam_session_id": sess.id,
         "reason": "Membuka aplikasi terlarang",
     }
 
@@ -230,7 +324,7 @@ def test_proctor_command_endpoints(client, test_teacher, db, test_school, monkey
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
     assert res.status_code == 200
-    assert "mock-executed" in res.json()["message"]
+    assert "berhasil dieksekusi" in res.json()["message"]
 
     # 2. Unlock Student Endpoint -> Success
     res = client.post(
@@ -239,7 +333,7 @@ def test_proctor_command_endpoints(client, test_teacher, db, test_school, monkey
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
     assert res.status_code == 200
-    assert "mock-executed" in res.json()["message"]
+    assert "berhasil dieksekusi" in res.json()["message"]
 
     # 3. Device Reset Endpoint -> Success
     res = client.post(
@@ -248,4 +342,4 @@ def test_proctor_command_endpoints(client, test_teacher, db, test_school, monkey
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
     assert res.status_code == 200
-    assert "mock-executed" in res.json()["message"]
+    assert "berhasil dieksekusi" in res.json()["message"]

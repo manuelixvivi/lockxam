@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.rbac import require_academic_staff, require_admin, require_superadmin
+from app.repositories.license.activation_key_repository import activation_key_repository
 from app.repositories.license.renewal_request_repository import renewal_request_repository
 from app.schemas.license.license import (
     ActivationKeyGenerateRequest,
@@ -100,10 +101,7 @@ def list_activation_keys(
     current_user=Depends(require_superadmin()),
     db: Session = Depends(get_db),
 ):
-    from app.repositories.license.activation_key_repository import activation_key_repository
-    # Return all activation keys ordered by created_at desc
-    from app.models.license.activation_key import ActivationKey
-    return db.query(ActivationKey).order_by(ActivationKey.created_at.desc()).all()
+    return activation_key_repository.get_all_ordered_by_created_at_desc(db)
 
 
 @router.post("/activate", response_model=LicenseActivateResponse)

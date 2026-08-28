@@ -3,6 +3,7 @@ from datetime import datetime, timezone
 from sqlalchemy.orm import Session
 
 from app.exceptions import BusinessException
+from app.models.security.enums import UserRole
 from app.models.teacher.bau_attendance import BAUAttendance
 from app.models.teacher.bau_document import BAUDocument
 from app.models.teacher.enums import AttendanceStatus, BAUStatus, ProctorEventType
@@ -90,7 +91,13 @@ class ProctorService:
                 bau_repository.create(db, doc)
                 db.flush()
 
-            schedule = db.query(ExamSchedule).filter(ExamSchedule.id == proctor_assignment_id).first()
+            from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+            from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
+            from app.repositories.exam.exam_session_repository import exam_session_repository
+            from app.repositories.exam.attempt_repository import attempt_repository
+            from app.repositories.exam.checkin_repository import checkin_repository
+
+            schedule = exam_schedule_repository.get_by_id(db, proctor_assignment_id)
 
             # Rule: 24-Hour Auto-Submit after exam end_time if still DRAFT
             if schedule and doc.status == BAUStatus.DRAFT:
@@ -104,30 +111,31 @@ class ProctorService:
 
             # Sync default attendance for class students
             if schedule:
-                session = db.query(ExamSession).filter(ExamSession.schedule_id == schedule.id).first()
+                session = exam_session_repository.get_by_schedule_id(db, schedule.id)
                 attempt_student_ids = set()
                 if session:
-                    attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id == session.id).all()
+                    attempts = attempt_repository.get_by_session_id(db, session.id)
                     attempt_student_ids = {a.student_id for a in attempts}
 
-                enrollments = db.query(StudentClassEnrollment).filter(
-                    StudentClassEnrollment.class_id == schedule.class_id,
-                    StudentClassEnrollment.status == "ACTIVE"
-                ).all()
+                checkins = checkin_repository.get_by_schedule(db, schedule.id)
+                checkin_student_ids = {c.student_id for c in checkins}
+                present_student_ids = attempt_student_ids | checkin_student_ids
+
+                enrollments = student_enrollment_repository.list_by_class(db, schedule.class_id, status="ACTIVE")
 
                 existing_atts = {att.student_id: att for att in doc.attendances}
                 for en in enrollments:
                     sid = en.student_id
                     if sid not in existing_atts:
-                        # Default is ALPA unless student started attempt
-                        st = AttendanceStatus.HADIR if sid in attempt_student_ids else AttendanceStatus.ALPA
+                        # Default is ALPA unless student started attempt or scanned QR check-in
+                        st = AttendanceStatus.HADIR if sid in present_student_ids else AttendanceStatus.ALPA
                         new_att = BAUAttendance(
                             bau_document_id=doc.id,
                             student_id=sid,
                             attendance_status=st,
                         )
                         db.add(new_att)
-                    elif sid in attempt_student_ids and existing_atts[sid].attendance_status == AttendanceStatus.ALPA:
+                    elif sid in present_student_ids and existing_atts[sid].attendance_status == AttendanceStatus.ALPA:
                         existing_atts[sid].attendance_status = AttendanceStatus.HADIR
 
             db.commit()
@@ -261,18 +269,15 @@ class ProctorService:
         attempt_id: int,
         proctor_assignment_id: int,
         exam_session_id: int,
+        student_id: int | None = None,
         reason: str = "",
     ) -> dict:
         """EXAM-FIX-12: Teacher Domain memverifikasi otorisasi pengawas sebelum mengirim internal command."""
         # 1. Validasi Identitas & Peran Guru Pengawas
-        from app.models.security.auth_account import AuthAccount
+        from app.repositories.security.auth_repository import auth_repository
 
-        teacher = (
-            db.query(AuthAccount)
-            .filter(AuthAccount.id == proctor_id, AuthAccount.role == "TEACHER")
-            .first()
-        )
-        if not teacher:
+        teacher = auth_repository.get_by_id(db, proctor_id)
+        if not teacher or teacher.role not in ["TEACHER", UserRole.TEACHER]:
             raise BusinessException("Akses ditolak: Pengawas tidak terdaftar.", status_code=403)
 
         # 2. Validasi Hubungan Kepengawasan Sesi (Mock/Placeholder Check karena tabel penjadwalan belum dimodelkan)
@@ -287,6 +292,7 @@ class ProctorService:
 
         cmd_payload = ProctorCommandRequest(
             attempt_id=attempt_id,
+            student_id=student_id,
             proctor_assignment_id=proctor_assignment_id,
             actor_teacher_id=proctor_id,
             exam_session_id=exam_session_id,

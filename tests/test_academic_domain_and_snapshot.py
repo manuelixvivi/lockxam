@@ -171,7 +171,7 @@ def test_teacher_assignment_eligibility(db):
         ClassStructureService.assign_teacher_to_class_subject(
             db, school_id=school.id, class_id=cls.id, subject_id=subj_fisika.id, teacher_id=bu_sari.id
         )
-    assert "tidak memiliki kompetensi" in str(exc_info.value)
+    assert "belum memiliki kompetensi" in str(exc_info.value)
 
 
 # ── TEST 3: Student Enrollment & Mutation Invariant (STUDENT-ACADEMIC-001) ──
@@ -326,15 +326,16 @@ def test_immutable_exam_snapshot(db):
     assert saved_snapshot_rubrics[0]["weight"] == 25  # Still 25, not 20!
     assert saved_snapshot_rubrics[2]["weight"] == 25  # Still 25, not 30!
 
-    # 7. Updating package snapshot before active session -> SUCCESS (re-assign allowed)
-    updated_snapshot = ExamSnapshotService.create_immutable_snapshot(
-        db,
-        school_id=school.id,
-        teacher_id=guru.id,
-        schedule_public_id=schedule.public_id,
-        package_public_id=pkg.public_id,
-    )
-    assert updated_snapshot.id == snapshot.id
+    # 7. Updating/overwriting locked package snapshot -> MUST FAIL (Snapshot Immutability)
+    with pytest.raises(BusinessException) as exc_info:
+        ExamSnapshotService.create_immutable_snapshot(
+            db,
+            school_id=school.id,
+            teacher_id=guru.id,
+            schedule_public_id=schedule.public_id,
+            package_public_id=pkg.public_id,
+        )
+    assert "telah dikunci (IMMUTABLE)" in str(exc_info.value)
 
     # 8. Once active exam session exists, re-assignment must be REJECTED
     from app.models.exam.exam_session import ExamSession
@@ -358,4 +359,249 @@ def test_immutable_exam_snapshot(db):
             schedule_public_id=schedule.public_id,
             package_public_id=pkg.public_id,
         )
-    assert "sedang/telah berlangsung" in str(exc_info.value).lower()
+    assert "telah dikunci (IMMUTABLE)" in str(exc_info.value)
+
+
+# ── TEST 5: Student & Teacher Historical Data Preservation Invariant ──
+def test_historical_preservation_on_student_and_teacher_deactivation(db):
+    from app.services.school.student_service import SchoolStudentService
+    from app.services.school.staff_service import SchoolStaffService
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.models.exam.exam_session import ExamSession
+
+    school = create_test_school(db)
+    year = create_test_academic_year(db, school.id, name="2026/2027")
+    sem = create_test_semester(db, year.id, code="GANJIL")
+    cls = ClassService.create_class(db, school.id, year.id, name="X IPA 1")
+    subj = SubjectService.create_subject(db, school.id, code="BIO", name="Biologi")
+    guru = create_test_teacher(db, school.id, name="Bu Ani Historical")
+    student = create_test_student(db, school.id, name="Budi Historical")
+
+    # Assign Teacher & Subject to Class
+    SubjectService.assign_teacher_competency(db, school.id, guru.id, subj.id)
+    ClassStructureService.assign_teacher_to_class_subject(db, school.id, cls.id, subj.id, guru.id)
+
+    pkg = QuestionPackage(
+        owner_teacher_account_id=guru.id,
+        school_id=school.id,
+        name="Paket UTS Biologi",
+        class_level="X",
+        target_counts={"ES": 1},
+        subject="Biologi",
+        status=PackageStatus.READY.value,
+    )
+    db.add(pkg)
+    db.flush()
+
+    now = datetime.now(timezone.utc)
+    schedule = ExamScheduleService.create_exam_schedule(
+        db,
+        school_id=school.id,
+        academic_year_id=year.id,
+        academic_semester_id=sem.id,
+        class_id=cls.id,
+        subject_id=subj.id,
+        title="UTS Biologi",
+        start_time=now + timedelta(days=1),
+        end_time=now + timedelta(days=1, hours=2),
+        duration_minutes=90,
+    )
+
+    from app.models.exam.enums import ExamSessionStatus, ExamAttemptStatus
+
+    session = ExamSession(
+        schedule_id=schedule.id,
+        package_id=pkg.id,
+        scheduled_start_at=schedule.start_time,
+        scheduled_end_at=schedule.end_time,
+        duration_minutes=90,
+        status=ExamSessionStatus.ACTIVE,
+    )
+    db.add(session)
+    db.flush()
+
+    attempt = ExamAttempt(
+        exam_session_id=session.id,
+        student_id=student.id,
+        status=ExamAttemptStatus.IN_PROGRESS,
+        randomized_order=[1],
+    )
+    db.add(attempt)
+    db.flush()
+
+    # 1. Attempting hard delete on student with exam attempt -> MUST REJECT!
+    with pytest.raises(BusinessException) as exc_info:
+        SchoolStudentService.delete_student(db, school.id, str(student.public_id))
+    assert "memiliki riwayat ujian tidak dapat dihapus" in str(exc_info.value)
+
+    # 2. Deactivating student -> SUCCESS, attempt remains intact!
+    toggled = SchoolStudentService.toggle_student_active(db, school.id, str(student.public_id))
+    assert toggled.is_active is False
+
+    db.refresh(attempt)
+    assert attempt.id is not None
+    assert attempt.student_id == student.id  # Historical attempt preserved!
+
+
+# =============================================================================
+# TeacherSubject Single Source-of-Truth Regression Tests (P1-02)
+# =============================================================================
+
+def test_teacher_competency_via_teacher_subject_only(db):
+    """
+    A. Admin cannot create teacher competency through subjects_taught.
+    B. Admin cannot update teacher competency through subjects_taught.
+    C. TeacherSubject assignment creates competency.
+    D. TeacherSubject removal removes competency.
+    E. Candidate teacher lookup uses TeacherSubject only.
+    F. Modifying legacy subjects_taught cannot grant competency.
+    G. Modifying TeacherSubject changes competency correctly.
+    """
+    from app.services.school.staff_service import SchoolStaffService
+    from app.services.academic.subject_service import SubjectService
+    from app.repositories.academic.teacher_subject_repository import teacher_subject_repository
+
+    school = create_test_school(db)
+
+    # Create subject
+    subj = SubjectService.create_subject(db, school.id, "MAT", "Matematika")
+    db.flush()
+
+    # ── A. Create teacher: subjects_taught NOT accepted as competency authority ─
+    nip = f"9{uuid4().int % 10**9:09d}"
+    teacher, _ = SchoolStaffService.create_teacher(
+        db=db,
+        school_id=school.id,
+        name="Guru Satu",
+        nip=nip,
+        gender="L",
+        registered_year=2020,
+        classes_taught=[],
+        # subjects_taught intentionally NOT passed (removed from signature)
+    )
+    db.flush()
+
+    # Teacher has no competency by default
+    ts_records = teacher_subject_repository.list_by_teacher(db, teacher.id)
+    assert len(ts_records) == 0, "A: New teacher must have zero TeacherSubject records"
+
+    # ── B. Directly writing subjects_taught on AuthAccount does NOT grant competency ──
+    # (This simulates legacy/admin direct attribute write bypassing SubjectService)
+    teacher.subjects_taught = ["Matematika"]
+    db.flush()
+
+    # TeacherSubject still has zero records — subjects_taught write is NOT competency
+    ts_records = teacher_subject_repository.list_by_teacher(db, teacher.id)
+    assert len(ts_records) == 0, "B: Writing subjects_taught directly must NOT create TeacherSubject records"
+
+    # ── C. Assigning via SubjectService creates TeacherSubject ──────────────────
+    ts = SubjectService.assign_teacher_competency(db, school.id, teacher.id, subj.id)
+    db.flush()
+    assert ts is not None, "C: assign_teacher_competency must return a TeacherSubject record"
+    ts_records = teacher_subject_repository.list_by_teacher(db, teacher.id)
+    assert len(ts_records) == 1, "C: TeacherSubject must have exactly 1 record after assignment"
+    assert ts_records[0].subject_id == subj.id
+
+    # ── D. Removal via SubjectService deletes TeacherSubject ────────────────────
+    SubjectService.unassign_teacher_competency(db, teacher.id, subj.id)
+    db.flush()
+    ts_records = teacher_subject_repository.list_by_teacher(db, teacher.id)
+    assert len(ts_records) == 0, "D: TeacherSubject must be empty after unassignment"
+
+    # ── E. Candidate lookup uses TeacherSubject only (not subjects_taught) ──────
+    # teacher.subjects_taught still has ["Matematika"] from step B
+    # but TeacherSubject has zero records — candidate list must be empty
+    candidates = SubjectService.list_qualified_teachers_for_subject(db, school.id, subj.id)
+    assert teacher.id not in [c.id for c in candidates], \
+        "E: Candidate lookup must use TeacherSubject only, NOT subjects_taught field"
+
+    # ── F. Legacy subjects_taught cannot grant access via candidate lookup ────────
+    teacher.subjects_taught = ["Matematika"]
+    db.flush()
+    candidates = SubjectService.list_qualified_teachers_for_subject(db, school.id, subj.id)
+    assert teacher.id not in [c.id for c in candidates], \
+        "F: Modifying subjects_taught directly must NOT appear in candidate lookup"
+
+    # ── G. Re-assign via TeacherSubject restores candidacy ──────────────────────
+    SubjectService.assign_teacher_competency(db, school.id, teacher.id, subj.id)
+    db.flush()
+    candidates = SubjectService.list_qualified_teachers_for_subject(db, school.id, subj.id)
+    assert teacher.id in [c.id for c in candidates], \
+        "G: After TeacherSubject assignment, teacher must appear in candidate lookup"
+
+
+def test_legacy_subjects_taught_cannot_pollute_projection(db):
+    """
+    1. Create teacher.
+    2. Set legacy subjects_taught = ["Matematika"].
+    3. Ensure TeacherSubject has zero records.
+    4. Call list_teachers().
+    5. Assert projected subjects_taught does NOT contain "Matematika".
+    6. Create TeacherSubject(Math).
+    7. Call list_teachers().
+    8. Assert projected subjects_taught contains "Matematika".
+    9. Remove TeacherSubject.
+    10. Call list_teachers().
+    11. Assert projection is empty.
+    """
+    from app.services.school.staff_service import SchoolStaffService
+    from app.services.academic.subject_service import SubjectService
+    from app.repositories.academic.teacher_subject_repository import teacher_subject_repository
+
+    school = create_test_school(db)
+
+    # 1. Create teacher
+    nip = f"9{uuid4().int % 10**9:09d}"
+    teacher, _ = SchoolStaffService.create_teacher(
+        db=db,
+        school_id=school.id,
+        name="Guru Dua",
+        nip=nip,
+        gender="P",
+        registered_year=2021,
+        classes_taught=[],
+    )
+    db.flush()
+
+    # 2. Set legacy subjects_taught = ["Matematika"]
+    teacher.subjects_taught = ["Matematika"]
+    db.flush()
+
+    # 3. Ensure TeacherSubject has zero records
+    ts_records = teacher_subject_repository.list_by_teacher(db, teacher.id)
+    assert len(ts_records) == 0
+
+    # 4. Call list_teachers()
+    teachers = SchoolStaffService.list_teachers(db, school.id)
+    t_opt = next((t for t in teachers if t.id == teacher.id), None)
+    assert t_opt is not None
+
+    # 5. Assert projected subjects_taught does NOT contain "Matematika"
+    assert "Matematika" not in (t_opt.subjects_taught or [])
+
+    # 6. Create TeacherSubject (Math)
+    subj = SubjectService.create_subject(db, school.id, "MAT", "Matematika")
+    db.flush()
+    SubjectService.assign_teacher_competency(db, school.id, teacher.id, subj.id)
+    db.flush()
+
+    # 7. Call list_teachers()
+    teachers = SchoolStaffService.list_teachers(db, school.id)
+    t_opt = next((t for t in teachers if t.id == teacher.id), None)
+    assert t_opt is not None
+
+    # 8. Assert projected subjects_taught contains "Matematika"
+    assert "Matematika" in (t_opt.subjects_taught or [])
+
+    # 9. Remove TeacherSubject
+    SubjectService.unassign_teacher_competency(db, teacher.id, subj.id)
+    db.flush()
+
+    # 10. Call list_teachers()
+    teachers = SchoolStaffService.list_teachers(db, school.id)
+    t_opt = next((t for t in teachers if t.id == teacher.id), None)
+    assert t_opt is not None
+
+    # 11. Assert projection is empty
+    assert len(t_opt.subjects_taught or []) == 0
+

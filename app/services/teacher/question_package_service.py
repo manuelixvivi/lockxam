@@ -181,10 +181,7 @@ class QuestionPackageService:
                     status_code=403,
                 )
 
-            item = db.query(QuestionPackageItem).filter(
-                QuestionPackageItem.package_id == package_id,
-                QuestionPackageItem.question_id == question_id,
-            ).first()
+            item = question_package_repository.get_item(db, package_id, question_id)
 
             if not item:
                 raise BusinessException(
@@ -192,16 +189,11 @@ class QuestionPackageService:
                     status_code=404,
                 )
 
-            db.delete(item)
+            question_package_repository.delete_item(db, item)
             db.flush()
 
             # Re-index canonical order
-            remaining_items = (
-                db.query(QuestionPackageItem)
-                .filter(QuestionPackageItem.package_id == package_id)
-                .order_by(QuestionPackageItem.canonical_order.asc())
-                .all()
-            )
+            remaining_items = question_package_repository.list_items(db, package_id)
 
             # Phase 1: Set temporary negative order to prevent collision
             for idx, r_item in enumerate(remaining_items, start=1):
@@ -251,10 +243,7 @@ class QuestionPackageService:
                     status_code=403,
                 )
 
-            old_item = db.query(QuestionPackageItem).filter(
-                QuestionPackageItem.package_id == package_id,
-                QuestionPackageItem.question_id == old_question_id,
-            ).first()
+            old_item = question_package_repository.get_item(db, package_id, old_question_id)
 
             if not old_item:
                 raise BusinessException(
@@ -283,10 +272,7 @@ class QuestionPackageService:
                 )
 
             # Check if new question is already in package
-            already_in_pkg = db.query(QuestionPackageItem).filter(
-                QuestionPackageItem.package_id == package_id,
-                QuestionPackageItem.question_id == new_question_id,
-            ).first()
+            already_in_pkg = question_package_repository.get_item(db, package_id, new_question_id)
 
             if already_in_pkg:
                 raise BusinessException(

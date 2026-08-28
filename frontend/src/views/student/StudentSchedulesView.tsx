@@ -15,18 +15,36 @@ import type { StudentSchedule, ClassLeaderboardResponse } from "../../api/studen
 import { StudentCbtEngineView } from "./StudentCbtEngineView";
 import { MultilingualTypingWelcome } from "../../components/ui/MultilingualTypingWelcome";
 
-// jsQR loaded dynamically via script tag
+// jsQR loaded dynamically via script tag with multiple CDN fallbacks
 let _jsQR: any = null;
 async function loadJsQR(): Promise<any> {
   if (_jsQR) return _jsQR;
-  if ((window as any).jsQR) { _jsQR = (window as any).jsQR; return _jsQR; }
-  return new Promise<any>((resolve) => {
-    const s = document.createElement("script");
-    s.src = "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js";
-    s.onload = () => { _jsQR = (window as any).jsQR; resolve(_jsQR); };
-    s.onerror = () => resolve(null);
-    document.head.appendChild(s);
-  });
+  if (typeof window !== "undefined" && (window as any).jsQR) {
+    _jsQR = (window as any).jsQR;
+    return _jsQR;
+  }
+
+  const cdns = [
+    "https://cdn.jsdelivr.net/npm/jsqr@1.4.0/dist/jsQR.min.js",
+    "https://unpkg.com/jsqr@1.4.0/dist/jsQR.js",
+    "https://cdnjs.cloudflare.com/ajax/libs/jsQR/1.4.0/jsQR.min.js",
+  ];
+
+  for (const url of cdns) {
+    const loaded = await new Promise<any>((resolve) => {
+      const s = document.createElement("script");
+      s.src = url;
+      s.onload = () => resolve((window as any).jsQR);
+      s.onerror = () => resolve(null);
+      document.head.appendChild(s);
+    });
+    if (loaded) {
+      _jsQR = loaded;
+      return _jsQR;
+    }
+  }
+
+  return (typeof window !== "undefined" ? (window as any).jsQR : null) || null;
 }
 
 interface StudentSchedulesViewProps {
@@ -52,6 +70,7 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
   const [checkinSuccess, setCheckinSuccess] = useState(false);
   const [cameraError, setCameraError] = useState<string | null>(null);
   const [isCameraActive, setIsCameraActive] = useState(false);
+  const [manualTokenInput, setManualTokenInput] = useState("");
 
   const videoRef = useRef<HTMLVideoElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -87,16 +106,15 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     if (!clean || checkinLoadingRef.current) return;
     checkinLoadingRef.current = true;
     try {
-      const result = await studentExamApi.checkin(clean);
+      const result = await studentExamApi.checkin(clean, qrScanTarget?.schedule_id);
       setCheckinSuccess(true);
       showToast({ type: "success", title: "Absensi Berhasil!", message: `Kamu terdaftar untuk "${result.schedule_title}".` });
       const updatedData = await studentExamApi.getMySchedules();
       setSchedules(updatedData);
 
-      const target = updatedData.find((s) => s.schedule_id === result.schedule_id);
+      const target = updatedData.find((s) => String(s.schedule_id) === String(result.schedule_id)) || qrScanTarget;
       if (
         target &&
-        getTimeStatus(target.start_time, target.end_time) === "OPEN" &&
         !["SUBMITTED", "GRADED", "GRADING", "CANCELLED"].includes(target.attempt_status)
       ) {
         autoStartedRef.current[target.schedule_id] = true;
@@ -106,7 +124,7 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
           setQrScanTarget(null);
           showToast({ type: "success", title: "Membuka Ujian Otomatis!", message: `Absensi valid. Langsung masuk ke lembar ujian...` });
           handleStartExam(target);
-        }, 1200);
+        }, 800);
       } else {
         setTimeout(() => { setIsQrModalOpen(false); setCheckinSuccess(false); setQrScanTarget(null); }, 2000);
       }
@@ -117,27 +135,130 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     }
   }, [showToast, getTimeStatus, handleStartExam]);
 
-  const startCamera = useCallback(async () => {
-    setCameraError(null);
+  const processImageFileForQr = async (file: File) => {
     try {
+      showToast({ type: "info", title: "Membaca QR...", message: "Sedang memproses foto dari kamera..." });
       const lib = await loadJsQR();
-      if (!lib) throw new Error("jsQR library gagal dimuat.");
+      if (!lib) throw new Error("jsQR library gagal dimuat dari server CDN.");
 
-      // Robust camera fallback chain for Android WebView & mobile browsers
-      let stream: MediaStream | null = null;
-      try {
-        stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
-      } catch (_envErr) {
-        try {
-          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
-        } catch (_userErr) {
-          stream = await navigator.mediaDevices.getUserMedia({ video: true });
+      const img = new window.Image();
+      const url = URL.createObjectURL(file);
+
+      await new Promise<void>((resolve, reject) => {
+        img.onload = () => resolve();
+        img.onerror = () => reject(new Error("Gagal membaca data gambar dari kamera."));
+        img.src = url;
+      });
+
+      let maxDim = 1000;
+      let width = img.width;
+      let height = img.height;
+      if (width > maxDim || height > maxDim) {
+        if (width > height) {
+          height = Math.round((height * maxDim) / width);
+          width = maxDim;
+        } else {
+          width = Math.round((width * maxDim) / height);
+          height = maxDim;
         }
       }
 
-      if (!stream) throw new Error("Tidak dapat mengakses kamera HP.");
-      streamRef.current = stream;
+      const canvas = document.createElement("canvas");
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext("2d");
+      if (!ctx) throw new Error("Gagal menginisialisasi canvas.");
 
+      ctx.drawImage(img, 0, 0, width, height);
+      const imageData = ctx.getImageData(0, 0, width, height);
+      const code = lib(imageData.data, width, height);
+      URL.revokeObjectURL(url);
+
+      if (code?.data) {
+        stopCamera();
+        performCheckin(code.data);
+      } else {
+        showToast({
+          type: "warning",
+          title: "QR Tidak Terdeteksi",
+          message: "Foto QR Code tidak terbaca. Pastikan kamera diarahkan dengan jelas dan fokus pada QR Code.",
+        });
+      }
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Gagal Membaca Kamera",
+        message: err?.message || "Terjadi kesalahan saat memproses foto kamera.",
+      });
+    }
+  };
+
+  const handleCapturePhotoQR = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    await processImageFileForQr(file);
+    e.target.value = "";
+  };
+
+  const startCamera = useCallback(async () => {
+    setCameraError(null);
+    try {
+      // 1. Check if running inside Lockxam Native Android APK Bridge
+      if (typeof window !== "undefined" && (window as any).LockxamBridge?.scanQR) {
+        (window as any).onQrResult = (token: string | null, errorMsg?: string) => {
+          if (token) {
+            performCheckin(token);
+          } else if (errorMsg) {
+            setCameraError(`Kamera Native APK: ${errorMsg}`);
+          }
+        };
+        (window as any).LockxamBridge.scanQR();
+        return;
+      }
+
+      const lib = await loadJsQR();
+      if (!lib) throw new Error("jsQR library gagal dimuat.");
+
+      // Polyfill navigator.mediaDevices for legacy browsers / HTTP WebViews
+      if (typeof navigator !== "undefined" && !(navigator as any).mediaDevices) {
+        (navigator as any).mediaDevices = {};
+      }
+      if (navigator?.mediaDevices && !(navigator.mediaDevices as any).getUserMedia) {
+        const legacyGetUserMedia =
+          (navigator as any).getUserMedia ||
+          (navigator as any).webkitGetUserMedia ||
+          (navigator as any).mozGetUserMedia ||
+          (navigator as any).msGetUserMedia;
+
+        if (legacyGetUserMedia) {
+          (navigator.mediaDevices as any).getUserMedia = function (constraints: MediaStreamConstraints) {
+            return new Promise((resolve, reject) => {
+              legacyGetUserMedia.call(navigator, constraints, resolve, reject);
+            });
+          };
+        }
+      }
+
+      let stream: MediaStream | null = null;
+      if (navigator?.mediaDevices?.getUserMedia) {
+        try {
+          stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "environment" } });
+        } catch (_envErr) {
+          try {
+            stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: "user" } });
+          } catch (_userErr) {
+            stream = await navigator.mediaDevices.getUserMedia({ video: true });
+          }
+        }
+      }
+
+      if (!stream) {
+        throw new Error(
+          "Kamera live di-block browser pada koneksi HTTP. Klik tombol 'Ambil Foto QR' di bawah untuk scan via kamera HP."
+        );
+      }
+
+      streamRef.current = stream;
       setIsCameraActive(true);
 
       setTimeout(() => {
@@ -164,7 +285,7 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
         if (code?.data) { stopCamera(); performCheckin(code.data); }
       }, 200);
     } catch (err: any) {
-      setCameraError(err?.name === "NotAllowedError" ? "Izin kamera ditolak. Aktifkan izin kamera di pengaturan HP / browser." : `Kamera error: ${err?.message}`);
+      setCameraError(err?.name === "NotAllowedError" ? "Izin kamera ditolak. Aktifkan izin kamera di pengaturan HP / browser." : `${err?.message || "Tidak dapat mengakses kamera"}`);
     }
   }, [stopCamera, performCheckin]);
 
@@ -177,6 +298,39 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     if (isQrModalOpen && !checkinSuccess) { const t = setTimeout(() => startCamera(), 400); return () => clearTimeout(t); }
     else stopCamera();
   }, [isQrModalOpen, checkinSuccess]);
+
+  useEffect(() => {
+    (window as any).onNativeQrFrame = async (base64Str: string) => {
+      try {
+        const lib = await loadJsQR();
+        if (!lib) return;
+        const img = new window.Image();
+        img.onload = () => {
+          const canvas = document.createElement("canvas");
+          canvas.width = img.width;
+          canvas.height = img.height;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return;
+          ctx.drawImage(img, 0, 0);
+          const imageData = ctx.getImageData(0, 0, img.width, img.height);
+          const code = lib(imageData.data, img.width, img.height);
+          if (code?.data) {
+            if ((window as any).LockxamBridge?.onQrDecoded) {
+              (window as any).LockxamBridge.onQrDecoded(code.data);
+            }
+            performCheckin(code.data);
+          }
+        };
+        img.src = `data:image/jpeg;base64,${base64Str}`;
+      } catch (e) {
+        console.warn("Native QR frame decode error:", e);
+      }
+    };
+
+    return () => {
+      delete (window as any).onNativeQrFrame;
+    };
+  }, [performCheckin]);
 
   useEffect(() => () => stopCamera(), []);
 
@@ -295,7 +449,7 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
   const groupedHistory = useMemo(() => {
     const map: Record<string, StudentSchedule[]> = {};
     for (const sch of filteredSchedules) {
-      const groupKey = sch.title || "Paket Ujian CBT";
+      const groupKey = (sch as any).package_title || (sch as any).package_name || (sch as any).exam_package_name || "Paket Ujian Sekolah";
       if (!map[groupKey]) map[groupKey] = [];
       map[groupKey].push(sch);
     }
@@ -516,10 +670,11 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
                         {!isSubmitted && !isCancelled && (
                           <button
                             id={`qr-btn-${sch.schedule_id}`}
-                            onClick={() => openQrModal(sch)}
-                            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 border ${checked ? "bg-emerald-950/60 border-emerald-700/50 text-emerald-300 hover:bg-emerald-900/60" : "bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-500/20 animate-pulse"}`}
+                            onClick={() => !checked && openQrModal(sch)}
+                            disabled={checked}
+                            className={`w-full flex items-center justify-center gap-2 px-3 py-2 rounded-xl text-xs font-bold transition-all duration-200 border ${checked ? "bg-emerald-950/60 border-emerald-700/50 text-emerald-300 opacity-90 cursor-default" : "bg-indigo-600 border-indigo-500 text-white hover:bg-indigo-500 shadow-lg shadow-indigo-500/20 animate-pulse"}`}
                           >
-                            {checked ? <><CheckCircle className="w-3.5 h-3.5" /> Absen QR ✓</> : <><QrCode className="w-3.5 h-3.5" /> Scan QR Absensi</>}
+                            {checked ? <><CheckCircle className="w-3.5 h-3.5" /> Sudah Absen ✅</> : <><QrCode className="w-3.5 h-3.5" /> Scan QR Absensi</>}
                           </button>
                         )}
 
@@ -661,6 +816,80 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
                   </div>
                 )}
               </div>
+
+              {/* Dual Touchable Labels for Camera & File Picker */}
+              <div className="space-y-2">
+                <label
+                  htmlFor="native-qr-camera-direct"
+                  className="w-full flex items-center justify-center gap-2.5 px-4 py-3 rounded-xl bg-indigo-600 hover:bg-indigo-500 active:bg-indigo-700 text-white font-bold text-xs cursor-pointer shadow-lg shadow-indigo-600/30 transition-all text-center select-none"
+                >
+                  <Camera className="w-4 h-4 text-emerald-300 shrink-0" />
+                  <span>📸 Ambil Foto QR via Kamera HP</span>
+                  <input
+                    id="native-qr-camera-direct"
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    className="sr-only"
+                    onChange={handleCapturePhotoQR}
+                  />
+                </label>
+
+                <label
+                  htmlFor="native-qr-file-picker"
+                  className="w-full flex items-center justify-center gap-2.5 px-4 py-2.5 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 font-semibold text-xs cursor-pointer border border-slate-700/60 transition-all text-center select-none"
+                >
+                  <QrCode className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <span>📁 Pilih Foto QR (Galeri / Pengambil File)</span>
+                  <input
+                    id="native-qr-file-picker"
+                    type="file"
+                    accept="image/*"
+                    className="sr-only"
+                    onChange={handleCapturePhotoQR}
+                  />
+                </label>
+              </div>
+
+              {/* Kode Token Presensi 6-Digit Section */}
+              <div className="p-3.5 rounded-2xl bg-slate-900/90 border border-slate-800 space-y-2">
+                <div className="flex items-center justify-between">
+                  <span className="text-[11px] font-bold text-slate-200">
+                    🔑 Kode Token Presensi Pengawas
+                  </span>
+                  <span className="text-[10px] text-slate-500 font-mono">Input Manual / PIN</span>
+                </div>
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (manualTokenInput.trim()) {
+                      stopCamera();
+                      performCheckin(manualTokenInput.trim());
+                      setManualTokenInput("");
+                    }
+                  }}
+                  className="flex gap-2"
+                >
+                  <Input
+                    placeholder="Contoh: CHK-123456"
+                    value={manualTokenInput}
+                    onChange={(e) => setManualTokenInput(e.target.value)}
+                    className="text-xs flex-1 font-mono uppercase tracking-wider"
+                  />
+                  <Button
+                    type="submit"
+                    variant="primary"
+                    size="sm"
+                    disabled={!manualTokenInput.trim()}
+                  >
+                    Kirim
+                  </Button>
+                </form>
+                <p className="text-[10px] text-slate-400 italic">
+                  *Minta 6-digit Kode Token kepada Pengawas Ujian jika kamera HP terkendala HTTP/Lokal.
+                </p>
+              </div>
+
               <div className="flex justify-end gap-3 pt-2">
                 <Button variant="outline" onClick={closeQrModal}>Batal</Button>
               </div>

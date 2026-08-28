@@ -1,6 +1,7 @@
 import os
 import uuid
 from datetime import datetime
+from typing import Any, Dict, List, Optional
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, File, Header, HTTPException, UploadFile, status
@@ -119,7 +120,9 @@ def get_package_detail(
                 "canonical_order": item.canonical_order,
                 "score": item.score,
                 "subject": q.subject,
+                "class_level": q.class_level,
                 "ai_grading": q.ai_grading,
+                "created_at": q.created_at,
             }
         )
 
@@ -132,6 +135,7 @@ def get_package_detail(
         "target_counts": package.target_counts,
         "status": package.status,
         "owner_teacher_account_id": package.owner_teacher_account_id,
+        "created_at": package.created_at,
         "questions": questions_payload,
     }
 
@@ -162,7 +166,7 @@ def delete_package(
     # Check if assigned to an ACTIVE/COMPLETED session
     active_session = (
         db.query(ExamSession)
-        .join(ExamSchedule)
+        .join(ExamSchedule, ExamSession.schedule_id == ExamSchedule.id)
         .join(ExamSnapshot, ExamSnapshot.exam_schedule_id == ExamSchedule.id)
         .filter(
             ExamSnapshot.question_package_id == package.id,
@@ -189,7 +193,7 @@ def delete_package(
         for sch in linked_schedules:
             sch.status = "DRAFT"
 
-    from app.models.teacher.question_package import QuestionPackageItem
+    from app.models.teacher.package_item import QuestionPackageItem
 
     db.query(QuestionPackageItem).filter(QuestionPackageItem.package_id == package.id).delete(
         synchronize_session=False
@@ -224,7 +228,7 @@ def revert_package_to_draft(
 
     active_session = (
         db.query(ExamSession)
-        .join(ExamSchedule)
+        .join(ExamSchedule, ExamSession.schedule_id == ExamSchedule.id)
         .join(ExamSnapshot, ExamSnapshot.exam_schedule_id == ExamSchedule.id)
         .filter(
             ExamSnapshot.question_package_id == package.id,
@@ -249,6 +253,51 @@ def revert_package_to_draft(
             sch.status = "DRAFT"
 
     db.commit()
+    return get_package_detail(package_id=package_id, current_user=current_user, db=db)
+
+
+@router.post("/{package_id}/publish", response_model=QuestionPackageDetailResponse)
+def publish_package_to_ready(
+    package_id: int,
+    current_user=Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    teacher_account_id = int(current_user["sub"])
+    school_id = current_user.get("school_id")
+    if not school_id:
+        raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
+
+    package = question_package_repository.get_by_id(db, package_id)
+    if (
+        not package
+        or package.owner_teacher_account_id != teacher_account_id
+        or package.school_id != school_id
+    ):
+        raise HTTPException(status_code=404, detail="Question package not found")
+
+    actual_counts = {"PG": 0, "IS": 0, "ES": 0}
+    for item in package.items:
+        q = item.question
+        if q and q.type in actual_counts:
+            actual_counts[q.type] += 1
+
+    targets = package.target_counts or {"PG": 0, "IS": 0, "ES": 0}
+    missing = []
+    for qtype in ["PG", "IS", "ES"]:
+        target_val = targets.get(qtype, 0)
+        actual_val = actual_counts.get(qtype, 0)
+        if actual_val < target_val:
+            missing.append(f"{qtype}: {actual_val}/{target_val}")
+
+    if missing:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Paket soal belum memenuhi target kuota ({', '.join(missing)}). Harap lengkapi soal terlebih dahulu sebelum mem-post paket soal.",
+        )
+
+    package.status = "READY"
+    db.commit()
+
     return get_package_detail(package_id=package_id, current_user=current_user, db=db)
 
 
@@ -616,8 +665,11 @@ class StudentAttemptProctorResponse(BaseModel):
 class EssayGradingEvaluationResponse(BaseModel):
     evaluation_id: int
     attempt_id: int
+    schedule_id: int
     student_name: str
     exam_title: str
+    package_name: str | None = None
+    subject_name: str | None = None
     class_name: str
     question_id: int
     question_content: str
@@ -968,6 +1020,30 @@ def list_session_attempts(
             continue
 
         a = attempt_map.get(sid)
+
+        # Cek data presensi QR & Sesi Login Aktif untuk siswa ini
+        from app.models.exam.exam_checkin import ExamCheckin
+        from app.models.security.user_session import UserSession
+
+        checkin = (
+            db.query(ExamCheckin)
+            .filter(
+                ExamCheckin.schedule_id == schedule.id,
+                ExamCheckin.student_id == sid,
+            )
+            .first()
+        )
+
+        user_sess = (
+            db.query(UserSession)
+            .filter(
+                UserSession.auth_account_id == sid,
+                UserSession.revoked == False,
+            )
+            .order_by(UserSession.created_at.desc())
+            .first()
+        )
+
         if a:
             device_session = (
                 db.query(DeviceSession)
@@ -1015,8 +1091,8 @@ def list_session_attempts(
                     deadline_at=a.deadline_at,
                     remaining_seconds=a.remaining_seconds,
                     device_status=dev_status_val,
-                    device_id=device_session.device_id if device_session else None,
-                    ip_address=device_session.ip_address if device_session else None,
+                    device_id=device_session.device_id if device_session else (checkin.device_id if checkin else None),
+                    ip_address=device_session.ip_address if device_session else (checkin.ip_address if checkin else (user_sess.ip_address if user_sess else None)),
                     battery_level=bat,
                     ping_ms=ping,
                     violation_reason=reason,
@@ -1024,6 +1100,11 @@ def list_session_attempts(
                 )
             )
         else:
+            status_val = "CHECKED_IN" if checkin else ("LOGGED_IN" if user_sess else "NOT_STARTED")
+            card_state = "GREEN" if checkin else ("YELLOW" if user_sess else "YELLOW")
+            dev_id = checkin.device_id if checkin else (user_sess.user_agent[:40] if user_sess and user_sess.user_agent else None)
+            ip_addr = checkin.ip_address if checkin else (user_sess.ip_address if user_sess else None)
+
             res.append(
                 StudentAttemptProctorResponse(
                     attempt_id=0,
@@ -1032,13 +1113,14 @@ def list_session_attempts(
                     student_username=student.username,
                     nisn=student.nisn,
                     nis=student.nis,
-                    status="NOT_STARTED",
-                    started_at=None,
+                    status=status_val,
+                    started_at=checkin.checked_in_at if checkin else (user_sess.created_at if user_sess else None),
                     deadline_at=None,
                     remaining_seconds=None,
-                    device_status=None,
-                    device_id=None,
-                    ip_address=None,
+                    device_status="CHECKED_IN" if checkin else ("LOGGED_IN" if user_sess else None),
+                    device_id=dev_id,
+                    ip_address=ip_addr,
+                    monitoring_card_state=card_state,
                 )
             )
 
@@ -1129,35 +1211,151 @@ def get_student_answers_for_schedule(
 ):
     """
     Mendapatkan rincian jawaban seluruh siswa untuk suatu jadwal ujian selesai.
-    Guru dapat melihat jawaban pilihan ganda, esai, dan BAP insiden.
+    Guru dapat melihat breakdown skor per jenis soal (PG, IS, ES), jawaban siswa, dan nilai akhir.
     """
     from app.models.exam.exam_attempt import ExamAttempt
     from app.models.exam.exam_session import ExamSession
     from app.models.exam.student_answer import StudentAnswer
+    from app.models.exam.answer_evaluation import ExamAnswerEvaluation
+    from app.models.teacher.question import Question
     from app.models.security.auth_account import AuthAccount
 
-    sess = db.query(ExamSession).filter(ExamSession.schedule_id == schedule_id).first()
-    if not sess:
+    def get_q_type(q):
+        if not q:
+            return "PG"
+        if isinstance(q.type, str):
+            return q.type
+        if hasattr(q.type, "value"):
+            return q.type.value
+        return str(q.type)
+
+    sessions = db.query(ExamSession).filter(ExamSession.schedule_id == schedule_id).all()
+    if not sessions:
+        # Fallback 1: check if schedule_id was passed as attempt_id
+        att_fallback = db.query(ExamAttempt).filter(ExamAttempt.id == schedule_id).first()
+        if att_fallback:
+            sessions = db.query(ExamSession).filter(ExamSession.id == att_fallback.exam_session_id).all()
+    if not sessions:
+        # Fallback 2: check if schedule_id is ExamSession id
+        sessions = db.query(ExamSession).filter(ExamSession.id == schedule_id).all()
+    if not sessions:
+        # Fallback 3: check if schedule_id is ExamSchedulePackage id
+        from app.models.academic.exam_schedule import ExamSchedule
+        schedules_in_pkg = db.query(ExamSchedule).filter(ExamSchedule.package_id == schedule_id).all()
+        sch_ids = [s.id for s in schedules_in_pkg]
+        if sch_ids:
+            sessions = db.query(ExamSession).filter(ExamSession.schedule_id.in_(sch_ids)).all()
+
+    if not sessions:
         return {"students": []}
 
-    attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id == sess.id).all()
+    session_ids = [s.id for s in sessions]
+    attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id.in_(session_ids)).all()
     results = []
 
     for a in attempts:
         student = db.query(AuthAccount).filter(AuthAccount.id == a.student_id).first()
         answers = db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id == a.id).all()
+        evaluations = db.query(ExamAnswerEvaluation).filter(ExamAnswerEvaluation.exam_attempt_id == a.id).all()
+        eval_map = {ev.question_id: ev for ev in evaluations}
+
+        score_pg = 0.0
+        max_pg = 0.0
+        score_is = 0.0
+        max_is = 0.0
+        score_es = 0.0
+        max_es = 0.0
 
         ans_data = []
         for ans in answers:
+            q = db.query(Question).filter(Question.id == ans.question_id).first()
+            q_type = get_q_type(q)
+            
+            ev = eval_map.get(ans.question_id)
+            if not ev:
+                # Create evaluation record on the fly so teacher can edit/override scores for PG/IS/ES alike
+                max_q_val = 1.0
+                earned_val = 0.0
+                from app.models.exam.answer_evaluation import GradingStatus, GradingSource
+                ev = ExamAnswerEvaluation(
+                    exam_attempt_id=a.id,
+                    question_id=ans.question_id,
+                    score=earned_val,
+                    max_score=max_q_val,
+                    grading_status=GradingStatus.AUTOMATED,
+                    grading_source=GradingSource.SYSTEM,
+                )
+                db.add(ev)
+                db.commit()
+                db.refresh(ev)
+                eval_map[ans.question_id] = ev
+
+            earned = float(ev.score) if (ev and ev.score is not None) else 0.0
+            max_q = float(ev.max_score) if (ev and ev.max_score is not None) else 1.0
+
+            if q_type == "PG":
+                score_pg += earned
+                max_pg += max_q
+            elif q_type == "IS":
+                score_is += earned
+                max_is += max_q
+            elif q_type == "ES":
+                score_es += earned
+                max_es += max_q
+
             ans_data.append(
                 {
                     "question_id": ans.question_id,
+                    "question_type": q_type,
+                    "question_content": q.content if (q and q.content) else f"Soal #{ans.question_id}",
                     "selected_option": ans.selected_option,
                     "text_answer": ans.text_answer,
-                    "score_earned": ans.score_earned,
-                    "is_correct": ans.is_correct,
+                    "score_earned": round(earned, 1),
+                    "max_score": round(max_q, 1),
+                    "is_correct": ans.is_correct if hasattr(ans, "is_correct") else (earned > 0),
+                    "evaluation_id": ev.id if ev else None,
+                    "ai_feedback": ev.feedback if ev else None,
                 }
             )
+
+        for ev in evaluations:
+            if not any(a["question_id"] == ev.question_id for a in ans_data):
+                q = db.query(Question).filter(Question.id == ev.question_id).first()
+                q_type = get_q_type(q)
+                earned = float(ev.score)
+                max_q = float(ev.max_score) if ev.max_score else 1.0
+
+                if q_type == "PG":
+                    score_pg += earned
+                    max_pg += max_q
+                elif q_type == "IS":
+                    score_is += earned
+                    max_is += max_q
+                elif q_type == "ES":
+                    score_es += earned
+                    max_es += max_q
+
+                ans_data.append(
+                    {
+                        "question_id": ev.question_id,
+                        "question_type": q_type,
+                        "question_content": q.content if (q and q.content) else f"Soal #{ev.question_id}",
+                        "selected_option": None,
+                        "text_answer": "(Tidak diisi)",
+                        "score_earned": round(earned, 1),
+                        "max_score": round(max_q, 1),
+                        "is_correct": False,
+                        "evaluation_id": ev.id,
+                        "ai_feedback": ev.feedback,
+                    }
+                )
+
+        total_max = max_pg + max_is + max_es
+        total_earned = score_pg + score_is + score_es
+        if total_max > 0 and total_max != 100.0:
+            final_calc = round((total_earned / total_max) * 100, 1)
+        else:
+            final_calc = round(total_earned, 1)
 
         results.append(
             {
@@ -1169,7 +1367,13 @@ def get_student_answers_for_schedule(
                 "student_username": student.username if student else "-",
                 "nisn": student.nisn if student else "-",
                 "status": a.status.value if hasattr(a.status, "value") else str(a.status),
-                "final_score": a.final_score,
+                "final_score": float(a.final_score) if a.final_score is not None else final_calc,
+                "score_pg": round(score_pg, 1),
+                "max_pg": round(max_pg, 1),
+                "score_is": round(score_is, 1),
+                "max_is": round(max_is, 1),
+                "score_es": round(score_es, 1),
+                "max_es": round(max_es, 1),
                 "answers_count": len(ans_data),
                 "answers": ans_data,
             }
@@ -1189,6 +1393,9 @@ def list_grading_evaluations(
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
     from app.models.academic.exam_schedule import ExamSchedule
+    from app.models.academic.class_subject_teacher import ClassSubjectTeacher
+    from app.models.academic.exam_schedule_package import ExamSchedulePackage
+    from app.models.academic.subject import Subject
     from app.models.exam.answer_evaluation import ExamAnswerEvaluation
     from app.models.exam.exam_attempt import ExamAttempt
     from app.models.exam.exam_session import ExamSession
@@ -1197,38 +1404,66 @@ def list_grading_evaluations(
     from app.repositories.academic.class_repository import class_repository
     from app.repositories.security.auth_repository import auth_repository
 
-    # Get all schedules where this teacher is the subject teacher
-    schedules = (
-        db.query(ExamSchedule)
-        .filter(ExamSchedule.school_id == school_id, ExamSchedule.teacher_id == teacher_id)
+    # 1. Fetch teacher's assigned subjects and classes from ClassSubjectTeacher
+    teacher_csts = (
+        db.query(ClassSubjectTeacher)
+        .filter(ClassSubjectTeacher.school_id == school_id, ClassSubjectTeacher.teacher_id == teacher_id)
         .all()
     )
+    teacher_subject_ids = set(cst.subject_id for cst in teacher_csts)
+    teacher_class_ids = set(cst.class_id for cst in teacher_csts)
+
+    all_schedules = (
+        db.query(ExamSchedule)
+        .filter(ExamSchedule.school_id == school_id)
+        .all()
+    )
+
+    user_role = current_user.get("role")
+    if user_role in ["SCHOOL_ADMIN", "SUPERADMIN"]:
+        schedules = all_schedules
+    else:
+        schedules = []
+        for s in all_schedules:
+            if s.teacher_id == teacher_id:
+                schedules.append(s)
+            elif s.subject_id and s.subject_id in teacher_subject_ids:
+                if not s.class_id or s.class_id in teacher_class_ids:
+                    schedules.append(s)
 
     schedule_ids = [s.id for s in schedules]
     if not schedule_ids:
         return []
 
-    # Get sessions for these schedules
+    schedule_map = {s.id: s for s in schedules}
+
+    # Fetch packages map for package_title
+    packages = db.query(ExamSchedulePackage).filter(ExamSchedulePackage.school_id == school_id).all()
+    package_map = {p.id: p.title for p in packages}
+
+    # Fetch subjects map for subject_name
+    subjects = db.query(Subject).filter(Subject.school_id == school_id).all()
+    subject_map = {sub.id: sub.name for sub in subjects}
+
+    # 2. Get sessions for these schedules
     sessions = db.query(ExamSession).filter(ExamSession.schedule_id.in_(schedule_ids)).all()
     session_ids = [se.id for se in sessions]
     if not session_ids:
         return []
 
-    # Map session_id to schedule
     session_schedule_map = {
-        se.id: next(s for s in schedules if s.id == se.schedule_id) for se in sessions
+        se.id: schedule_map.get(se.schedule_id) for se in sessions
     }
 
-    # Get attempts for these sessions
+    # 3. Get attempts for these sessions
     attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id.in_(session_ids)).all()
     attempt_ids = [a.id for a in attempts]
     if not attempt_ids:
         return []
 
-    # Map attempt to session & schedule
     attempt_map = {a.id: a for a in attempts}
 
-    # Get all essay evaluations for these attempts
+    # 4. Get all answer evaluations for these attempts
     evaluations = (
         db.query(ExamAnswerEvaluation)
         .filter(ExamAnswerEvaluation.exam_attempt_id.in_(attempt_ids))
@@ -1238,19 +1473,29 @@ def list_grading_evaluations(
     res = []
     for ev in evaluations:
         q = db.query(Question).filter(Question.id == ev.question_id).first()
-        if not q or q.type.value != "ES":  # Only essay evaluations
+        if not q:
             continue
 
         attempt = attempt_map[ev.exam_attempt_id]
-        session = session_schedule_map[attempt.exam_session_id]
+        schedule = session_schedule_map.get(attempt.exam_session_id)
+
+        pkg_name = "Paket Ujian Sekolah"
+        subj_name = "Mata Pelajaran"
+        if schedule:
+            if schedule.package_id and schedule.package_id in package_map:
+                pkg_name = package_map[schedule.package_id]
+            else:
+                pkg_name = schedule.title
+            if schedule.subject_id and schedule.subject_id in subject_map:
+                subj_name = subject_map[schedule.subject_id]
+
         student = auth_repository.get_by_id(db, attempt.student_id)
         cls = (
             class_repository.get_by_id(db, attempt.class_id)
-            if hasattr(attempt, "class_id")
-            else class_repository.get_by_id(db, session.class_id)
+            if hasattr(attempt, "class_id") and attempt.class_id
+            else (class_repository.get_by_id(db, schedule.class_id) if schedule else None)
         )
 
-        # Get student answer text
         ans = (
             db.query(StudentAnswer)
             .filter(StudentAnswer.exam_attempt_id == attempt.id, StudentAnswer.question_id == q.id)
@@ -1261,18 +1506,22 @@ def list_grading_evaluations(
             EssayGradingEvaluationResponse(
                 evaluation_id=ev.id,
                 attempt_id=attempt.id,
+                schedule_id=schedule.id if schedule else 0,
                 student_name=student.name or student.username if student else "Siswa",
-                exam_title=session.title,
+                exam_title=schedule.title if schedule else "Ujian",
+                package_name=pkg_name,
+                subject_name=subj_name,
                 class_name=cls.name if cls else "Kelas",
                 question_id=q.id,
                 question_content=q.content,
-                student_answer=ans.text_answer if ans else None,
+                student_answer=ans.text_answer if (ans and ans.text_answer) else "(Tidak diisi / Pilihan ganda)",
                 ai_score=float(ev.score),
                 ai_feedback=ev.feedback,
                 grading_status=ev.grading_status.value,
                 final_score=float(ev.score) if ev.grading_status.value == "FINALIZED" else None,
             )
         )
+
     return res
 
 
@@ -1299,3 +1548,72 @@ def finalize_evaluation_score(
     )
     db.commit()
     return {"status": "success", "score": float(eval_res.score)}
+
+
+# ─── Teacher AI Integration Endpoints (equigradeAI Microservice Bridge) ───
+
+class AiRubricRequest(BaseModel):
+    question_text: str
+    answer_key: str
+    education_level: str = "SMA"
+    education_class: str = "Kelas 11"
+    api_key: Optional[str] = None
+
+class AiEssayGradeRequest(BaseModel):
+    question_text: str
+    answer_key: str
+    student_answer: str
+    rubrics: Optional[List[Dict[str, Any]]] = None
+    concepts: Optional[List[str]] = None
+    education_level: str = "SMA"
+    education_class: str = "Kelas 11"
+    api_key: Optional[str] = None
+
+
+@dashboard_router.get("/ai/status")
+def get_ai_service_status(
+    current_user=Depends(require_role(UserRole.TEACHER))
+):
+    from app.services.ai.ai_grading_service import AiGradingService
+    return AiGradingService.check_ai_health()
+
+
+@dashboard_router.post("/ai/generate-rubric")
+def generate_ai_rubric(
+    payload: AiRubricRequest,
+    current_user=Depends(require_role(UserRole.TEACHER))
+):
+    from app.services.ai.ai_grading_service import AiGradingService
+    try:
+        res = AiGradingService.generate_rubric(
+            question_text=payload.question_text,
+            answer_key=payload.answer_key,
+            education_level=payload.education_level,
+            education_class=payload.education_class,
+            api_key=payload.api_key
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@dashboard_router.post("/ai/grade-essay")
+def grade_ai_essay(
+    payload: AiEssayGradeRequest,
+    current_user=Depends(require_role(UserRole.TEACHER))
+):
+    from app.services.ai.ai_grading_service import AiGradingService
+    try:
+        res = AiGradingService.grade_essay(
+            question_text=payload.question_text,
+            answer_key=payload.answer_key,
+            student_answer=payload.student_answer,
+            rubrics=payload.rubrics,
+            concepts=payload.concepts,
+            education_level=payload.education_level,
+            education_class=payload.education_class,
+            api_key=payload.api_key
+        )
+        return res
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=str(e))

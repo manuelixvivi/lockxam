@@ -34,6 +34,11 @@ class BaseRepository(Generic[ModelType]):
             return db.scalar(select(self.model).where(self.model.public_id == public_id))  # type: ignore[attr-defined]
         return None
 
+    def get_by_ids(self, db: Session, ids: list[Any]) -> list[ModelType]:
+        if not ids:
+            return []
+        return list(db.scalars(select(self.model).where(self.model.id.in_(ids))).all())  # type: ignore[attr-defined]
+
     def get_all(self, db: Session) -> list[ModelType]:
         return list(db.scalars(select(self.model)).all())
 

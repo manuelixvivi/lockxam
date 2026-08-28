@@ -8,7 +8,12 @@ export const UserRole = {
   STUDENT: "STUDENT",
 } as const;
 
-export type UserRole = (typeof UserRole)[keyof typeof UserRole] | "SUPER_ADMIN" | "SUPERADMIN";
+export type UserRole =
+  | (typeof UserRole)[keyof typeof UserRole]
+  | "SUPER_ADMIN"
+  | "SUPERADMIN"
+  | "ADMIN"
+  | "SCHOOL_ADMIN";
 
 export interface UserProfile {
   id: number;
@@ -49,15 +54,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<UserProfile | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  // Normalize role string (SUPER_ADMIN <-> SUPERADMIN)
+  // Normalize role string (SUPER_ADMIN <-> SUPERADMIN, ADMIN <-> SCHOOL_ADMIN)
   const rawRole = user?.role || null;
   const role: UserRole | null =
-    rawRole === "SUPER_ADMIN" || rawRole === "SUPERADMIN" ? UserRole.SUPER_ADMIN : rawRole;
+    rawRole === "SUPER_ADMIN" || rawRole === "SUPERADMIN"
+      ? UserRole.SUPER_ADMIN
+      : rawRole === "ADMIN" || rawRole === "SCHOOL_ADMIN"
+      ? UserRole.SCHOOL_ADMIN
+      : rawRole;
 
   const isAuthenticated = !!user;
 
-  const login = (token: string, refreshToken: string | null, userProfile: any) => {
-    apiClient.setAccessToken(token, refreshToken);
+  const login = (token: string, _refreshToken: string | null, userProfile: any) => {
+    apiClient.setAccessToken(token);
     const normalizedUser: UserProfile = {
       ...userProfile,
       id: userProfile.user_id || userProfile.id,
@@ -80,11 +89,20 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const refreshProfile = async () => {
-    const token = apiClient.getAccessToken();
-    if (!token && !apiClient.getRefreshToken()) {
-      setUser(null);
-      setIsLoading(false);
-      return;
+    let token = apiClient.getAccessToken();
+    if (!token) {
+      try {
+        const refreshRes = await apiClient.post<{ access_token: string }>("/api/v1/auth/refresh");
+        if (refreshRes && refreshRes.access_token) {
+          apiClient.setAccessToken(refreshRes.access_token);
+          token = refreshRes.access_token;
+        }
+      } catch {
+        apiClient.clearTokens();
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
     }
 
     try {

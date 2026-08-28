@@ -101,3 +101,28 @@ app.include_router(admin_subject_router)
 app.include_router(admin_class_router)
 app.include_router(admin_exam_schedule_router)
 
+# Mount Built Frontend Dist static files for Single-Port Production Serving
+from fastapi.responses import FileResponse
+
+dist_path = os.path.join(os.path.dirname(__file__), "frontend", "dist")
+if os.path.exists(dist_path):
+    assets_path = os.path.join(dist_path, "assets")
+    if os.path.exists(assets_path):
+        app.mount("/assets", StaticFiles(directory=assets_path), name="dist_assets")
+
+    @app.get("/{full_path:path}")
+    async def serve_spa(full_path: str):
+        if full_path.startswith("api") or full_path.startswith("uploads") or full_path.startswith("health"):
+            from fastapi import HTTPException
+            raise HTTPException(status_code=404, detail="Not Found")
+        target_file = os.path.join(dist_path, full_path)
+        if full_path and os.path.isfile(target_file):
+            return FileResponse(target_file)
+        return FileResponse(os.path.join(dist_path, "index.html"))
+
+
+if __name__ == "__main__":
+    import uvicorn
+    uvicorn.run("main:app", host="0.0.0.0", port=1409, reload=True)
+
+

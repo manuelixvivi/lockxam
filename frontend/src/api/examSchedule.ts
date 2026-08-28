@@ -39,6 +39,7 @@ export interface ExamSchedulePackage {
   school_id: number;
   academic_year_id: number;
   title: string;
+  is_closed?: boolean;
   created_at: string;
   updated_at: string;
   academic_year_name?: string | null;
@@ -117,6 +118,9 @@ export const examScheduleApi = {
 
   deletePackage: (publicId: string): Promise<void> =>
     apiClient.delete<void>(`/api/v1/admin/exam-schedules/packages/${publicId}`),
+
+  closePackage: (publicId: string): Promise<ExamSchedulePackage> =>
+    apiClient.post<ExamSchedulePackage>(`/api/v1/admin/exam-schedules/packages/${publicId}/close`),
 
   importSchedulesXlsx: (publicId: string, rows: any[]): Promise<ExamSchedule[]> =>
     apiClient.post<ExamSchedule[]>(`/api/v1/admin/exam-schedules/packages/${publicId}/import`, rows),

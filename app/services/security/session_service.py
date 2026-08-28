@@ -11,15 +11,16 @@ from app.repositories.security.session_repository import session_repository
 class SessionService:
 
     @staticmethod
-    def create_session() -> dict:
+    def create_session(expires_delta: timedelta | None = None) -> dict:
         now = datetime.now(timezone.utc)
+        delta = expires_delta if expires_delta is not None else timedelta(days=30)
         return {
             "session_id": create_uuid(),
             "access_jti": create_uuid(),
             "refresh_jti": create_uuid(),
             "created_at": now,
             "last_activity_at": now,
-            "expires_at": now + timedelta(days=30),
+            "expires_at": now + delta,
         }
 
     @staticmethod

@@ -1,3 +1,4 @@
+from datetime import datetime
 from uuid import UUID
 from pydantic import BaseModel, Field, field_validator
 from app.models.teacher.enums import PackageStatus, QuestionType
@@ -37,6 +38,7 @@ class QuestionPackageResponse(BaseModel):
     target_counts: dict[str, int]
     status: PackageStatus
     owner_teacher_account_id: int
+    created_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -74,6 +76,7 @@ class TeacherQuestionResponse(BaseModel):
     subject: str | None = None
     class_level: str | None = None
     ai_grading: bool = False
+    created_at: datetime | None = None
 
     class Config:
         from_attributes = True
@@ -91,6 +94,7 @@ class PackageQuestionResponse(BaseModel):
     subject: str | None = None
     class_level: str | None = None
     ai_grading: bool = False
+    created_at: datetime | None = None
 
 
 class QuestionPackageDetailResponse(BaseModel):
@@ -102,6 +106,7 @@ class QuestionPackageDetailResponse(BaseModel):
     target_counts: dict[str, int]
     status: PackageStatus
     owner_teacher_account_id: int
+    created_at: datetime | None = None
     questions: list[PackageQuestionResponse]
 
 

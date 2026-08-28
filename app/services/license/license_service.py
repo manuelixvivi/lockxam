@@ -19,6 +19,7 @@ from app.repositories.license.renewal_request_repository import renewal_request_
 from app.repositories.license.school_license_repository import school_license_repository
 from app.repositories.master.license_type_repository import license_type_repository
 from app.repositories.school.school_repository import school_repository
+from app.repositories.security.auth_repository import auth_repository
 
 
 class LicenseService:
@@ -266,29 +267,12 @@ class LicenseService:
     @staticmethod
     def get_my_license(db: Session, school_id: int) -> SchoolLicense | None:
         # Prioritize ACTIVE permanent license or current ACTIVE license
-        lic = (
-            db.query(SchoolLicense)
-            .filter(SchoolLicense.school_id == school_id, SchoolLicense.status == "ACTIVE")
-            .order_by(SchoolLicense.end_date.desc())
-            .first()
-        )
+        lic = school_license_repository.get_active_license(db, school_id)
         if not lic:
             # Fallback to latest license if none active
-            lic = (
-                db.query(SchoolLicense)
-                .filter(SchoolLicense.school_id == school_id)
-                .order_by(SchoolLicense.created_at.desc())
-                .first()
-            )
+            lic = school_license_repository.get_latest_license(db, school_id)
         if lic:
-            total_students = (
-                db.query(AuthAccount)
-                .filter(
-                    AuthAccount.school_id == school_id,
-                    AuthAccount.role.in_([UserRole.STUDENT, "STUDENT"]),
-                )
-                .count()
-            )
+            total_students = auth_repository.count_students_by_school(db, school_id)
             setattr(lic, "registered_students_count", total_students)
         return lic
 

@@ -12,6 +12,7 @@ import {
   Award,
   ShieldCheck,
   HelpCircle,
+  X,
 } from "lucide-react";
 import { useAuth, UserRole } from "../../context/AuthContext";
 
@@ -63,7 +64,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { label: "Paket Soal", href: "/teacher/packages", icon: <BookOpen className="w-4 h-4" /> },
           { label: "Penugasan Ujian", href: "/teacher/assignments", icon: <FileCheck className="w-4 h-4" /> },
           { label: "Pengawas & BAP", href: "/teacher/proctor", icon: <ShieldCheck className="w-4 h-4" /> },
-          { label: "Penilaian Essay", href: "/teacher/grading", icon: <Award className="w-4 h-4" /> },
+          { label: "Penilaian Ujian", href: "/teacher/grading", icon: <Award className="w-4 h-4" /> },
         ];
       case UserRole.STUDENT:
         return [
@@ -80,29 +81,40 @@ export const Sidebar: React.FC<SidebarProps> = ({
 
   return (
     <>
-      {/* Mobile Sidebar Backdrop Overlay */}
+      {/* Sidebar Backdrop Overlay for all screen sizes */}
       {isOpen && (
         <div
-          className="fixed inset-0 bg-black/60 z-40 md:hidden backdrop-blur-sm transition-opacity duration-300"
+          className="fixed inset-0 bg-black/60 z-50 backdrop-blur-sm transition-opacity duration-300"
           onClick={onClose}
         />
       )}
 
-      {/* Sidebar Panel Container */}
+      {/* Collapsible Drawer Sidebar Panel */}
       <aside
-        className={`fixed top-0 bottom-0 left-0 z-50 w-64 bg-slate-900 border-r border-slate-800 flex flex-col h-screen transition-transform duration-300 ease-in-out md:sticky md:translate-x-0 md:z-0 md:flex ${
+        className={`fixed top-0 bottom-0 left-0 z-50 w-72 bg-slate-900 border-r border-slate-800 flex flex-col h-screen transition-transform duration-300 ease-in-out shadow-2xl ${
           isOpen ? "translate-x-0" : "-translate-x-full"
         }`}
       >
-        {/* Brand Header */}
-        <div className="p-5 border-b border-slate-800 flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-400 font-black text-lg shadow-lg shadow-indigo-600/20">
-            E
+        {/* Brand Header with Close Button */}
+        <div className="p-5 border-b border-slate-800 flex items-center justify-between">
+          <div className="flex items-center gap-3">
+            <div className="w-9 h-9 rounded-xl bg-indigo-600/30 border border-indigo-500/50 flex items-center justify-center text-indigo-400 font-black text-lg shadow-lg shadow-indigo-600/20">
+              E
+            </div>
+            <div>
+              <h1 className="font-extrabold text-base tracking-wide text-slate-100">Equigrade</h1>
+              <p className="text-[10px] uppercase font-bold tracking-widest text-indigo-400">Lockxam v3.0</p>
+            </div>
           </div>
-          <div>
-            <h1 className="font-extrabold text-base tracking-wide text-slate-100">Equigrade</h1>
-            <p className="text-[10px] uppercase font-bold tracking-widest text-indigo-400">Lockxam v3.0</p>
-          </div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="p-2 rounded-xl text-slate-400 hover:text-slate-200 hover:bg-slate-800/60 transition-colors"
+              title="Tutup Menu"
+            >
+              <X className="w-5 h-5" />
+            </button>
+          )}
         </div>
 
         {/* Nav List */}

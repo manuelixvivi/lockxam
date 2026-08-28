@@ -15,9 +15,19 @@ class SchoolRepository(BaseRepository[School]):
     def get_by_npsn(self, db: Session, npsn: str) -> School | None:
         return db.scalar(select(School).where(School.npsn == npsn, School.deleted_at.is_(None)))
 
+    def get_by_domain(self, db: Session, domain: str) -> School | None:
+        return db.scalar(
+            select(School).where(School.domain == domain.strip(), School.deleted_at.is_(None))
+        )
+
     def get_by_public_id(self, db: Session, public_id: UUID) -> School | None:
         return db.scalar(
             select(School).where(School.public_id == public_id, School.deleted_at.is_(None))
+        )
+
+    def get_by_code(self, db: Session, code: str) -> School | None:
+        return db.scalar(
+            select(School).where(School.code == code.strip(), School.deleted_at.is_(None))
         )
 
     def get_all_active(self, db: Session) -> list[School]:

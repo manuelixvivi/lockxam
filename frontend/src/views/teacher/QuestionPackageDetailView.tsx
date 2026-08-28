@@ -18,6 +18,8 @@ import {
   Trash2,
   RefreshCw,
   FileSpreadsheet,
+  Sparkles,
+  Image,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -31,7 +33,7 @@ import { teacherContentApi } from "../../api/teacherContent";
 import type { QuestionPackageDetail, Question, QuestionType, PackageQuestion } from "../../api/teacherContent";
 import { downloadMultiSheetXlsxTemplate, readMultiSheetXlsxFile } from "../../utils/xlsx";
 import { LaTeXText } from "../../components/ui/LaTeXText";
-import { getGradeOptionsForSchool } from "../../utils/gradeLevels";
+import { getGradeOptionsForSchool, normalizeRubricWeights } from "../../utils/gradeLevels";
 
 interface QuestionPackageDetailViewProps {
   packageId: number;
@@ -67,9 +69,113 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
   const [newAiGrading, setNewAiGrading] = useState(false);
   const [newOptions, setNewOptions] = useState<string[]>(["", "", "", ""]);
   const [newRubrics, setNewRubrics] = useState<{ criteria: string; max_score: number }[]>([
-    { criteria: "Kriteria Utama", max_score: 10 },
+    { criteria: "Pemahaman Masalah", max_score: 50 },
+    { criteria: "Langkah Penyelesaian", max_score: 50 },
   ]);
   const [isCreatingQuestion, setIsCreatingQuestion] = useState(false);
+  const [isGeneratingInlineAiRubric, setIsGeneratingInlineAiRubric] = useState(false);
+
+  const handleGenerateInlineAiRubric = async () => {
+    if (!newContent.trim() || !newAnswerKey.trim()) {
+      showToast({
+        type: "error",
+        title: "Pertanyaan & Kunci Jawaban Wajib Diisi",
+        message: "Silakan isi pertanyaan dan kunci jawaban terlebih dahulu sebelum menggenerasi rubrik AI.",
+      });
+      return;
+    }
+
+    setIsGeneratingInlineAiRubric(true);
+    try {
+      const res = await teacherContentApi.generateAiRubric({
+        question_text: newContent,
+        answer_key: newAnswerKey,
+        education_level: user?.school_level_code || "SMA",
+        education_class: detail?.class_level || "Kelas 11",
+      });
+
+      if (res.status === "success" && res.rubrics && Array.isArray(res.rubrics) && res.rubrics.length > 0) {
+        const generated = normalizeRubricWeights(res.rubrics, newAnswerKey);
+        setNewRubrics(generated);
+        setNewAiGrading(true);
+        showToast({
+          type: "success",
+          title: "Rubrik AI Berhasil Digenerate",
+          message: `${generated.length} kriteria rubrik & persentase bobot telah dibuat oleh AI. Anda tetap dapat mengeditnya.`,
+        });
+      } else {
+        throw new Error(res.error || "Gagal menghasilkan rubrik dari AI.");
+      }
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Gagal Generate Rubrik AI",
+        message: err?.message || "Terjadi kesalahan saat menghubungi service AI.",
+      });
+    } finally {
+      setIsGeneratingInlineAiRubric(false);
+    }
+  };
+
+  // Image Upload State & Handlers
+  const [isUploadingImage, setIsUploadingImage] = useState(false);
+  const questionImgInputRef = useRef<HTMLInputElement>(null);
+
+  const handleUploadImageToContent = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    try {
+      const res = await teacherContentApi.uploadQuestionImage(file);
+      const imgMarkdown = `\n![Gambar Soal](${res.url})\n`;
+      setNewContent((prev) => prev + imgMarkdown);
+      showToast({
+        type: "success",
+        title: "Gambar Berhasil Diunggah",
+        message: "Tag gambar telah disisipkan ke dalam teks soal.",
+      });
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Gagal Upload Gambar",
+        message: err?.message || "Terjadi kesalahan saat mengunggah gambar.",
+      });
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = "";
+    }
+  };
+
+  const handleUploadImageToOption = async (index: number, e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    setIsUploadingImage(true);
+    try {
+      const res = await teacherContentApi.uploadQuestionImage(file);
+      const imgMarkdown = ` ![Opsi](${res.url})`;
+      setNewOptions((prev) => {
+        const copy = [...prev];
+        copy[index] = (copy[index] || "").trim() + imgMarkdown;
+        return copy;
+      });
+      showToast({
+        type: "success",
+        title: "Gambar Opsi Berhasil Diunggah",
+        message: `Gambar disisipkan ke Opsi ${String.fromCharCode(65 + index)}.`,
+      });
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Gagal Upload Gambar",
+        message: err?.message || "Terjadi kesalahan saat mengunggah gambar.",
+      });
+    } finally {
+      setIsUploadingImage(false);
+      e.target.value = "";
+    }
+  };
 
   // Edit Rubrics for Essay Questions Inline
   const [editingQuestion, setEditingQuestion] = useState<PackageQuestion | null>(null);
@@ -470,6 +576,30 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
       });
     } finally {
       setIsRevertingDraft(false);
+    }
+  };
+
+  const [isPublishingPackage, setIsPublishingPackage] = useState(false);
+
+  const handlePublishPackage = async () => {
+    if (!detail) return;
+    setIsPublishingPackage(true);
+    try {
+      const updated = await teacherContentApi.publishPackage(detail.id);
+      setDetail(updated);
+      showToast({
+        type: "success",
+        title: "Paket Soal Berhasil Dipost",
+        message: "Status paket soal kini READY (Siap Ujian) dan dapat dijadwalkan oleh admin.",
+      });
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Gagal Mem-Post Paket Soal",
+        message: err?.message || "Terjadi kesalahan saat mem-post paket soal.",
+      });
+    } finally {
+      setIsPublishingPackage(false);
     }
   };
 
@@ -961,7 +1091,7 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
         </div>
 
         <div className="flex gap-2 w-full sm:w-auto flex-wrap">
-          {detail.status === "READY" && (
+          {detail.status === "READY" ? (
             <Button
               variant="ghost"
               size="md"
@@ -969,6 +1099,16 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
               onClick={() => setIsRevertDraftConfirmOpen(true)}
             >
               Ubah ke Draft (Edit Soal)
+            </Button>
+          ) : (
+            <Button
+              variant="primary"
+              size="md"
+              isLoading={isPublishingPackage}
+              leftIcon={<CheckCircle2 className="w-4 h-4 text-emerald-300" />}
+              onClick={handlePublishPackage}
+            >
+              Post / Simpan Paket (Siap Ujian)
             </Button>
           )}
           <Button
@@ -1554,27 +1694,32 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
             />
           </div>
 
-          {newType === "ES" && (
-            <div className="p-3 bg-slate-950/40 rounded-xl border border-slate-900 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-slate-200 block">AI Grading System</span>
-                <p className="text-[10px] text-slate-500">Gunakan AI untuk mengoreksi otomatis.</p>
-              </div>
-              <input
-                type="checkbox"
-                checked={newAiGrading}
-                onChange={(e) => setNewAiGrading(e.target.checked)}
-              />
-            </div>
-          )}
-
           <div className="space-y-1">
-            <label className="text-xs font-semibold text-slate-300 block mb-1">
-              Pertanyaan / Soal (Wajib)
-            </label>
+            <div className="flex justify-between items-center mb-1">
+              <label className="text-xs font-semibold text-slate-300 block">
+                Pertanyaan / Soal (Wajib)
+              </label>
+              <input
+                type="file"
+                ref={questionImgInputRef}
+                className="hidden"
+                accept="image/*"
+                onChange={handleUploadImageToContent}
+              />
+              <Button
+                type="button"
+                variant="secondary"
+                size="sm"
+                leftIcon={<Image className="w-3.5 h-3.5 text-indigo-400" />}
+                onClick={() => questionImgInputRef.current?.click()}
+                isLoading={isUploadingImage}
+              >
+                🖼️ Sisipkan Gambar Soal
+              </Button>
+            </div>
             <textarea
               className="w-full bg-slate-900 border border-slate-700 rounded-xl p-3 text-xs text-slate-100 focus:outline-none focus:border-indigo-500 min-h-[80px]"
-              placeholder="Ketikkan pertanyaan..."
+              placeholder="Ketikkan pertanyaan di sini..."
               value={newContent}
               onChange={(e) => setNewContent(e.target.value)}
               required
@@ -1621,6 +1766,21 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
                         required={i < 2}
                       />
                     </div>
+                    <input
+                      type="file"
+                      id={`inline-opt-img-input-${i}`}
+                      className="hidden"
+                      accept="image/*"
+                      onChange={(e) => handleUploadImageToOption(i, e)}
+                    />
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      leftIcon={<Image className="w-3.5 h-3.5 text-indigo-400" />}
+                      onClick={() => document.getElementById(`inline-opt-img-input-${i}`)?.click()}
+                      title={`Sisipkan gambar ke Opsi ${String.fromCharCode(65 + i)}`}
+                    />
                     {newOptions.length > 2 && (
                       <Button
                         type="button"
@@ -1636,6 +1796,7 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
             </div>
           )}
 
+          {/* Official Answer Key */}
           {newType === "PG" ? (
             <Select
               label="Kunci Jawaban Benar (Wajib)"
@@ -1657,36 +1818,99 @@ export function QuestionPackageDetailView({ packageId, onBack }: QuestionPackage
             />
           )}
 
-          {/* Rubrics for Essay */}
-          {newType === "ES" && !newAiGrading && (
-            <div className="space-y-2 bg-slate-950/40 p-3 rounded-lg border border-slate-900">
-              <span className="text-xs font-bold text-slate-300 block">Kriteria Rubrik Penilaian (Manual)</span>
-              {newRubrics.map((r, i) => (
-                <div key={i} className="flex gap-2 items-center">
-                  <Input
-                    placeholder="Kriteria"
-                    value={r.criteria}
-                    onChange={(e) => {
-                      const copy = [...newRubrics];
-                      copy[i].criteria = e.target.value;
-                      setNewRubrics(copy);
-                    }}
-                    required
-                  />
-                  <div className="w-20">
-                    <Input
-                      type="number"
-                      value={r.max_score.toString()}
-                      onChange={(e) => {
-                        const copy = [...newRubrics];
-                        copy[i].max_score = parseInt(e.target.value, 10) || 5;
-                        setNewRubrics(copy);
-                      }}
-                      required
-                    />
-                  </div>
+          {/* Essay AI Rubric Generator & Rubric Editor */}
+          {newType === "ES" && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
+                <div>
+                  <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    Generate Rubrik Penilaian dengan AI
+                  </span>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    Otomatis buatkan kriteria rubrik & persentase bobot dari Kunci Jawaban. Hasil generat AI tetap dapat Anda edit secara bebas di bawah.
+                  </p>
                 </div>
-              ))}
+                <Button
+                  type="button"
+                  variant="secondary"
+                  size="sm"
+                  isLoading={isGeneratingInlineAiRubric}
+                  disabled={!newContent.trim() || !newAnswerKey.trim()}
+                  onClick={handleGenerateInlineAiRubric}
+                  leftIcon={<Sparkles className="w-3.5 h-3.5 text-amber-400" />}
+                  className="shrink-0"
+                >
+                  {newRubrics.length > 0 && newAiGrading ? "Re-Generate Rubrik AI" : "Generate Rubrik AI"}
+                </Button>
+              </div>
+
+              <div className="space-y-3 bg-slate-950/40 p-4 rounded-xl border border-slate-900">
+                <div className="flex justify-between items-center mb-1">
+                  <div>
+                    <span className="text-xs font-bold text-slate-200 block">Rubrik & Bobot Penilaian Essay</span>
+                    <p className="text-[10px] text-slate-400">
+                      Tentukan kriteria dan bobot (%) penilaian. AI akan menggunakan rubrik ini untuk mengoreksi jawaban siswa pada semua jadwal ujian.
+                    </p>
+                  </div>
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    leftIcon={<Plus className="w-3.5 h-3.5" />}
+                    onClick={() => {
+                      if (newRubrics.length >= 5) return;
+                      setNewRubrics((prev) => [...prev, { criteria: "", max_score: 20 }]);
+                    }}
+                    disabled={newRubrics.length >= 5}
+                  >
+                    Tambah Rubrik
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  {newRubrics.map((r, idx) => (
+                    <div key={idx} className="flex gap-2 items-center">
+                      <div className="flex-1">
+                        <Input
+                          placeholder={`Kriteria Rubrik #${idx + 1}`}
+                          value={r.criteria}
+                          onChange={(e) => {
+                            const copy = [...newRubrics];
+                            copy[idx].criteria = e.target.value;
+                            setNewRubrics(copy);
+                          }}
+                          required
+                        />
+                      </div>
+                      <div className="w-32">
+                        <Input
+                          type="number"
+                          min="1"
+                          max="100"
+                          placeholder="Bobot (%)"
+                          value={r.max_score}
+                          onChange={(e) => {
+                            const copy = [...newRubrics];
+                            copy[idx].max_score = parseInt(e.target.value, 10) || 0;
+                            setNewRubrics(copy);
+                          }}
+                          required
+                        />
+                      </div>
+                      {newRubrics.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          leftIcon={<Trash2 className="w-3.5 h-3.5 text-red-400" />}
+                          onClick={() => setNewRubrics((prev) => prev.filter((_, i) => i !== idx))}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
             </div>
           )}
 

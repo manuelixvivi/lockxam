@@ -16,6 +16,7 @@ import {
   AlertCircle,
   RefreshCw,
   Image,
+  Sparkles,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -31,7 +32,7 @@ import type { Question, QuestionType } from "../../api/teacherContent";
 import { downloadMultiSheetXlsxTemplate, readMultiSheetXlsxFile, extractEmbeddedImagesFromXlsx } from "../../utils/xlsx";
 import { AddDataChoiceModal } from "../../components/ui/AddDataChoiceModal";
 import { getTeacherAssignedSubjectOptions } from "../../utils/subjects";
-import { getGradeOptionsForSchool } from "../../utils/gradeLevels";
+import { getGradeOptionsForSchool, normalizeRubricWeights } from "../../utils/gradeLevels";
 
 interface QuestionBankViewProps {
   onNavigate?: (href: string) => void;
@@ -52,18 +53,66 @@ export function QuestionBankView({}: QuestionBankViewProps) {
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [editingQuestion, setEditingQuestion] = useState<Question | null>(null);
 
+  const gradeOptions = React.useMemo(() => {
+    return getGradeOptionsForSchool(user?.school_level_code);
+  }, [user?.school_level_code]);
+  const defaultGrade = gradeOptions[0]?.value || "VII";
+
   // Form states
   const [type, setType] = useState<QuestionType>("PG");
   const [content, setContent] = useState("");
   const [answerKey, setAnswerKey] = useState("");
   const [subject, setSubject] = useState("");
-  const [classLevel, setClassLevel] = useState("X");
+  const [classLevel, setClassLevel] = useState("");
   const [aiGrading, setAiGrading] = useState(false);
   const [options, setOptions] = useState<string[]>(["", "", "", ""]);
   const [rubrics, setRubrics] = useState<{ criteria: string; max_score: number }[]>([
-    { criteria: "Pemahaman Masalah", max_score: 5 },
-    { criteria: "Langkah Penyelesaian", max_score: 5 },
+    { criteria: "Pemahaman Masalah", max_score: 50 },
+    { criteria: "Langkah Penyelesaian", max_score: 50 },
   ]);
+  const [isGeneratingAiRubric, setIsGeneratingAiRubric] = useState(false);
+
+  const handleGenerateAiRubric = async () => {
+    if (!content.trim() || !answerKey.trim()) {
+      showToast({
+        type: "error",
+        title: "Pertanyaan & Kunci Jawaban Wajib Diisi",
+        message: "Silakan isi pertanyaan dan kunci jawaban terlebih dahulu sebelum menggenerasi rubrik AI.",
+      });
+      return;
+    }
+
+    setIsGeneratingAiRubric(true);
+    try {
+      const res = await teacherContentApi.generateAiRubric({
+        question_text: content,
+        answer_key: answerKey,
+        education_level: user?.school_level_code || "SMA",
+        education_class: classLevel || "Kelas 11",
+      });
+
+      if (res.status === "success" && res.rubrics && Array.isArray(res.rubrics) && res.rubrics.length > 0) {
+        const generated = normalizeRubricWeights(res.rubrics, answerKey);
+        setRubrics(generated);
+        setAiGrading(true);
+        showToast({
+          type: "success",
+          title: "Rubrik AI Berhasil Digenerate",
+          message: `${generated.length} kriteria rubrik & persentase bobot telah dibuat oleh AI. Anda tetap dapat mengeditnya.`,
+        });
+      } else {
+        throw new Error(res.error || "Gagal menghasilkan rubrik dari AI.");
+      }
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Gagal Generate Rubrik AI",
+        message: err?.message || "Terjadi kesalahan saat menghubungi service AI.",
+      });
+    } finally {
+      setIsGeneratingAiRubric(false);
+    }
+  };
 
   // Image Upload States
   const [isUploadingImage, setIsUploadingImage] = useState(false);
@@ -121,7 +170,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
   const subjectsTaught = user?.subjects_taught || [];
   const assignedSubjectOptions = getTeacherAssignedSubjectOptions(subjectsTaught);
 
-  // Set default subject if not set
+  // Set default subject and grade level if not set
   useEffect(() => {
     if (!subject && subjectsTaught.length > 0) {
       setSubject(subjectsTaught[0]);
@@ -129,7 +178,10 @@ export function QuestionBankView({}: QuestionBankViewProps) {
     if (!importSubject && subjectsTaught.length > 0) {
       setImportSubject(subjectsTaught[0]);
     }
-  }, [subjectsTaught]);
+    if (!classLevel || classLevel === "X") {
+      setClassLevel(defaultGrade);
+    }
+  }, [subjectsTaught, defaultGrade]);
 
   // UI States
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -162,7 +214,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
     setAnswerKey("");
     setAiGrading(false);
     setSubject(subjectsTaught.length > 0 ? subjectsTaught[0] : "");
-    setClassLevel("X");
+    setClassLevel(defaultGrade);
     setOptions(["", "", "", ""]);
     setRubrics([{ criteria: "Kriteria Utama", max_score: 10 }]);
     setIsAddModalOpen(true);
@@ -796,7 +848,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
                             </Badge>
                           )}
                           <span className="text-[10px] text-slate-500 font-mono">
-                            Dibuat: {new Date(q.created_at || "").toLocaleDateString("id-ID")}
+                            Dibuat: {q.created_at ? new Date(q.created_at).toLocaleDateString("id-ID") : "—"}
                           </span>
                         </div>
                         <LaTeXText
@@ -879,26 +931,25 @@ export function QuestionBankView({}: QuestionBankViewProps) {
 
                       {/* Rubrics (For Essay Questions) */}
                       {q.type === "ES" && (
-                        <div className="space-y-1.5 bg-slate-950/40 p-3 rounded-lg border border-slate-900">
-                          <span className="font-semibold text-slate-400 block mb-1">Rubrik Penilaian AI & Guru:</span>
-                          {q.ai_grading ? (
-                            <p className="text-slate-400 italic">
-                              ⚡ Rubrik di-generate otomatis oleh AI saat pengerjaan/koreksi ujian berlangsung.
-                            </p>
-                          ) : q.rubrics && q.rubrics.length > 0 ? (
-                            <div className="space-y-1.5">
-                              {q.rubrics.map((r, i) => (
+                        <div className="space-y-2 bg-slate-950/40 p-3 rounded-lg border border-slate-900">
+                          <div className="flex items-center justify-between">
+                            <span className="font-semibold text-slate-400 block">Rubrik Penilaian & Bobot Persentase:</span>
+                            {q.ai_grading && <Badge variant="indigo">⚡ AI Grading Active</Badge>}
+                          </div>
+                          {q.rubrics && q.rubrics.length > 0 ? (
+                            <div className="space-y-1.5 mt-1">
+                              {q.rubrics.map((r: any, i: number) => (
                                 <div
                                   key={i}
                                   className="flex justify-between items-center p-2 rounded-lg bg-slate-900 border border-slate-800"
                                 >
-                                  <span className="text-slate-300 font-medium">{r.criteria}</span>
-                                  <Badge variant="indigo">Max Skor: {r.max_score}</Badge>
+                                  <span className="text-slate-300 font-medium">{r.criteria || r.text || "Kriteria"}</span>
+                                  <Badge variant="indigo">Bobot: {r.max_score || r.weight || 0}%</Badge>
                                 </div>
                               ))}
                             </div>
                           ) : (
-                            <p className="text-red-400">Tidak ada rubrik terdaftar.</p>
+                            <p className="text-slate-400 text-xs italic">Belum ada kriteria rubrik terdaftar.</p>
                           )}
                         </div>
                       )}
@@ -983,23 +1034,6 @@ export function QuestionBankView({}: QuestionBankViewProps) {
             </div>
           </div>
 
-          {type === "ES" && (
-            <div className="p-3.5 rounded-xl bg-indigo-950/20 border border-indigo-500/30 flex items-center justify-between">
-              <div>
-                <span className="text-xs font-bold text-slate-200 block">Generate AI Grading</span>
-                <p className="text-[10px] text-slate-400">
-                  Aktifkan agar AI mengoreksi otomatis dengan rubrik dinamis (Rubrik manual di bawah bisa dikosongkan).
-                </p>
-              </div>
-              <input
-                type="checkbox"
-                className="w-4.5 h-4.5 rounded text-indigo-600 focus:ring-indigo-500"
-                checked={aiGrading}
-                onChange={(e) => setAiGrading(e.target.checked)}
-              />
-            </div>
-          )}
-
           <div className="space-y-1">
             <div className="flex justify-between items-center mb-1">
               <label className="text-xs font-semibold text-slate-300 block">
@@ -1014,13 +1048,13 @@ export function QuestionBankView({}: QuestionBankViewProps) {
               />
               <Button
                 type="button"
-                variant="ghost"
+                variant="secondary"
                 size="sm"
                 leftIcon={<Image className="w-3.5 h-3.5 text-indigo-400" />}
                 onClick={() => questionImgInputRef.current?.click()}
                 isLoading={isUploadingImage}
               >
-                Sisipkan Gambar Soal
+                🖼️ Sisipkan Gambar Soal
               </Button>
             </div>
             <textarea
@@ -1117,58 +1151,87 @@ export function QuestionBankView({}: QuestionBankViewProps) {
             </div>
           )}
 
-          {/* Essay Rubrics (Manual mode) */}
-          {type === "ES" && !aiGrading && (
-            <div className="space-y-2 bg-slate-950/40 p-4 rounded-xl border border-slate-900">
-              <div className="flex justify-between items-center mb-2">
+          {/* Essay AI Rubric Generator & Rubric Editor */}
+          {type === "ES" && (
+            <div className="space-y-4">
+              <div className="p-4 rounded-xl bg-indigo-950/40 border border-indigo-500/30 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
                 <div>
-                  <span className="text-xs font-bold text-slate-300 block">Rubrik Penilaian Manual (Min 1, Max 5)</span>
-                  <p className="text-[10px] text-slate-500">Tentukan kriteria dan skor maksimum untuk setiap kriteria.</p>
+                  <span className="text-xs font-bold text-slate-100 flex items-center gap-1.5">
+                    <Sparkles className="w-4 h-4 text-amber-400" />
+                    Generate Rubrik Penilaian dengan AI
+                  </span>
+                  <p className="text-[11px] text-slate-300 mt-0.5">
+                    Otomatis buatkan kriteria rubrik & persentase bobot dari Kunci Jawaban. Hasil generat AI tetap dapat Anda edit secara bebas di bawah.
+                  </p>
                 </div>
                 <Button
                   type="button"
-                  variant="ghost"
+                  variant="secondary"
                   size="sm"
-                  leftIcon={<Plus className="w-3.5 h-3.5" />}
-                  onClick={handleAddRubricField}
-                  disabled={rubrics.length >= 5}
+                  isLoading={isGeneratingAiRubric}
+                  disabled={!content.trim() || !answerKey.trim()}
+                  onClick={handleGenerateAiRubric}
+                  leftIcon={<Sparkles className="w-3.5 h-3.5 text-amber-400" />}
+                  className="shrink-0"
                 >
-                  Tambah Rubrik
+                  {rubrics.length > 0 && aiGrading ? "Re-Generate Rubrik AI" : "Generate Rubrik AI"}
                 </Button>
               </div>
 
-              <div className="space-y-2">
-                {rubrics.map((r, idx) => (
-                  <div key={idx} className="flex gap-2 items-center">
-                    <div className="flex-1">
-                      <Input
-                        placeholder={`Kriteria Rubrik #${idx + 1} (Contoh: Langkah Perhitungan)`}
-                        value={r.criteria}
-                        onChange={(e) => handleRubricChange(idx, "criteria", e.target.value)}
-                        required
-                      />
-                    </div>
-                    <div className="w-28">
-                      <Input
-                        type="number"
-                        min="1"
-                        placeholder="Skor Maks"
-                        value={r.max_score}
-                        onChange={(e) => handleRubricChange(idx, "max_score", parseInt(e.target.value, 10) || 0)}
-                        required
-                      />
-                    </div>
-                    {rubrics.length > 1 && (
-                      <Button
-                        type="button"
-                        variant="ghost"
-                        size="sm"
-                        leftIcon={<Trash2 className="w-3.5 h-3.5 text-red-400" />}
-                        onClick={() => handleRemoveRubricField(idx)}
-                      />
-                    )}
+              <div className="space-y-3 bg-slate-950/40 p-4 rounded-xl border border-slate-900">
+                <div className="flex justify-between items-center mb-1">
+                  <div>
+                    <span className="text-xs font-bold text-slate-200 block">Rubrik & Bobot Penilaian Essay</span>
+                    <p className="text-[10px] text-slate-400">
+                      Tentukan kriteria dan bobot (%) penilaian. AI akan menggunakan rubrik ini untuk mengoreksi jawaban siswa pada semua jadwal ujian.
+                    </p>
                   </div>
-                ))}
+                  <Button
+                    type="button"
+                    variant="ghost"
+                    size="sm"
+                    leftIcon={<Plus className="w-3.5 h-3.5" />}
+                    onClick={handleAddRubricField}
+                    disabled={rubrics.length >= 5}
+                  >
+                    Tambah Rubrik
+                  </Button>
+                </div>
+
+                <div className="space-y-2">
+                  {rubrics.map((r, idx) => (
+                    <div key={idx} className="flex gap-2 items-center">
+                      <div className="flex-1">
+                        <Input
+                          placeholder={`Kriteria Rubrik #${idx + 1}`}
+                          value={r.criteria}
+                          onChange={(e) => handleRubricChange(idx, "criteria", e.target.value)}
+                          required
+                        />
+                      </div>
+                      <div className="w-32">
+                        <Input
+                          type="number"
+                          min="1"
+                          max="100"
+                          placeholder="Bobot (%)"
+                          value={r.max_score}
+                          onChange={(e) => handleRubricChange(idx, "max_score", parseInt(e.target.value, 10) || 0)}
+                          required
+                        />
+                      </div>
+                      {rubrics.length > 1 && (
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          leftIcon={<Trash2 className="w-3.5 h-3.5 text-red-400" />}
+                          onClick={() => handleRemoveRubricField(idx)}
+                        />
+                      )}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           )}

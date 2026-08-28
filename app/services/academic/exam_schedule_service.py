@@ -56,6 +56,14 @@ class ExamScheduleService:
         start_time = ensure_wib(start_time)
         end_time = ensure_wib(end_time)
 
+        if package_id:
+            pkg = exam_schedule_package_repository.get_by_id(db, package_id)
+            if pkg and getattr(pkg, "is_closed", False):
+                raise BusinessException(
+                    f"Paket jadwal ujian '{pkg.title}' telah ditutup permanen. Tidak dapat menambahkan jadwal baru.",
+                    status_code=400,
+                )
+
         title_clean = title.strip()
         if not title_clean:
             raise BusinessException("Judul jadwal ujian wajib diisi.", status_code=400)
@@ -71,17 +79,8 @@ class ExamScheduleService:
             )
 
         # Validate overlapping schedules for the same class (excluding CANCELLED/deleted schedules)
-        overlap = (
-            db.query(ExamSchedule)
-            .filter(
-                ExamSchedule.school_id == school_id,
-                ExamSchedule.class_id == class_id,
-                ExamSchedule.status != ExamScheduleStatus.CANCELLED.value,
-                ExamSchedule.status != "CANCELLED",
-                ExamSchedule.start_time < end_time,
-                ExamSchedule.end_time > start_time,
-            )
-            .first()
+        overlap = exam_schedule_repository.find_class_schedule_overlap(
+            db, school_id, class_id, start_time, end_time
         )
         if overlap:
             raise BusinessException(
@@ -189,18 +188,8 @@ class ExamScheduleService:
             )
 
         # Validate overlapping schedules for the same class (excluding current and CANCELLED/deleted schedules)
-        overlap = (
-            db.query(ExamSchedule)
-            .filter(
-                ExamSchedule.school_id == school_id,
-                ExamSchedule.class_id == target_class_id,
-                ExamSchedule.id != schedule.id,
-                ExamSchedule.status != ExamScheduleStatus.CANCELLED.value,
-                ExamSchedule.status != "CANCELLED",
-                ExamSchedule.start_time < target_end,
-                ExamSchedule.end_time > target_start,
-            )
-            .first()
+        overlap = exam_schedule_repository.find_class_schedule_overlap(
+            db, school_id, target_class_id, target_start, target_end, exclude_id=schedule.id
         )
         if overlap:
             raise BusinessException(
@@ -304,17 +293,47 @@ class ExamScheduleService:
         return exam_schedule_package_repository.create(db, package)
 
     @staticmethod
+    def evaluate_auto_close_package(db: Session, package: ExamSchedulePackage) -> bool:
+        """Auto-closes package if current time is >= 2 weeks (14 days) after the latest schedule's end_time."""
+        if getattr(package, "is_closed", False):
+            return True
+
+        schedules = exam_schedule_repository.list_by_package(db, package.id)
+        if not schedules:
+            return False
+
+        from app.utils.timezone import ensure_wib
+        latest_end_time = max(ensure_wib(s.end_time) for s in schedules)
+        now = datetime.now(timezone.utc)
+
+        # Auto close 2 weeks (14 days) after the last schedule's end_time
+        if now >= latest_end_time + timedelta(days=14):
+            if hasattr(package, "is_closed"):
+                package.is_closed = True
+            for sch in schedules:
+                if sch.status != "CANCELLED":
+                    sch.status = "COMPLETED"
+            db.commit()
+            return True
+
+        return False
+
+    @staticmethod
     def get_schedule_package(db: Session, school_id: int, public_id: UUID) -> ExamSchedulePackage:
         package = exam_schedule_package_repository.get_by_public_id(db, public_id)
         if not package or package.school_id != school_id:
             raise BusinessException("Paket jadwal ujian tidak ditemukan.", status_code=404)
+        ExamScheduleService.evaluate_auto_close_package(db, package)
         return package
 
     @staticmethod
     def list_schedule_packages(
         db: Session, school_id: int, academic_year_id: int | None = None
     ) -> list[ExamSchedulePackage]:
-        return exam_schedule_package_repository.list_by_school(db, school_id, academic_year_id)
+        packages = exam_schedule_package_repository.list_by_school(db, school_id, academic_year_id)
+        for p in packages:
+            ExamScheduleService.evaluate_auto_close_package(db, p)
+        return packages
 
     @staticmethod
     def delete_exam_schedule(db: Session, school_id: int, public_id: UUID) -> None:
@@ -322,18 +341,15 @@ class ExamScheduleService:
         if not schedule or schedule.school_id != school_id:
             raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
 
-        from app.models.exam.exam_attempt import ExamAttempt
-        from app.models.exam.exam_checkin import ExamCheckin
-        from app.models.exam.exam_session import ExamSession
+        from app.repositories.exam.exam_session_repository import exam_session_repository
+        from app.repositories.exam.attempt_repository import attempt_repository
+        from app.repositories.exam.checkin_repository import checkin_repository
+        from app.repositories.academic.exam_snapshot_repository import exam_snapshot_repository
 
-        sessions = db.query(ExamSession).filter(ExamSession.schedule_id == schedule.id).all()
+        sessions = exam_session_repository.list_by_schedule_id(db, schedule.id)
         session_ids = [s.id for s in sessions]
-        has_attempts = (
-            db.query(ExamAttempt).filter(ExamAttempt.exam_session_id.in_(session_ids)).first()
-            if session_ids
-            else None
-        )
-        has_checkins = db.query(ExamCheckin).filter(ExamCheckin.schedule_id == schedule.id).first()
+        has_attempts = attempt_repository.get_by_session_id(db, session_ids[0]) if session_ids else []
+        has_checkins = checkin_repository.get_by_schedule(db, schedule.id)
 
         # Academic Trace Integrity: If sessions, attempts, or check-ins exist, NEVER hard delete! Soft cancel to preserve student history!
         if sessions or has_attempts or has_checkins:
@@ -343,12 +359,8 @@ class ExamScheduleService:
             return
 
         try:
-            from app.models.academic.exam_snapshot import ExamSnapshot
-
-            db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == schedule.id).delete(
-                synchronize_session=False
-            )
-            db.delete(schedule)
+            exam_snapshot_repository.delete_by_schedule(db, schedule.id)
+            exam_schedule_repository.delete(db, schedule)
             db.flush()
         except Exception:
             schedule.status = "CANCELLED"
@@ -361,40 +373,36 @@ class ExamScheduleService:
         if not package or package.school_id != school_id:
             raise BusinessException("Paket jadwal ujian tidak ditemukan.", status_code=404)
 
-        from app.models.academic.exam_snapshot import ExamSnapshot
-        from app.models.exam.exam_session import ExamSession
-        from app.models.exam.package_snapshot import ExamPackageSnapshot
+        from app.repositories.exam.exam_session_repository import exam_session_repository
+        from app.repositories.exam.snapshot_repository import snapshot_repository
+        from app.repositories.academic.exam_snapshot_repository import exam_snapshot_repository
 
         # 1. Unlink or delete child schedules
-        schedules = db.query(ExamSchedule).filter(ExamSchedule.package_id == package.id).all()
+        schedules = exam_schedule_repository.list_by_package(db, package.id)
         for sch in schedules:
             sch.package_id = None
-            sessions = db.query(ExamSession).filter(ExamSession.schedule_id == sch.id).all()
+            sessions = exam_session_repository.list_by_schedule_id(db, sch.id)
             has_historical = any(sess.status in ["ACTIVE", "COMPLETED"] for sess in sessions)
 
             if has_historical:
                 sch.status = "CANCELLED"
             else:
-                db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == sch.id).delete(
-                    synchronize_session=False
-                )
+                exam_snapshot_repository.delete_by_schedule(db, sch.id)
                 for sess in sessions:
-                    db.query(ExamPackageSnapshot).filter(
-                        ExamPackageSnapshot.exam_session_id == sess.id
-                    ).delete(synchronize_session=False)
+                    snapshot_repository.delete_by_session(db, sess.id)
                     try:
-                        db.delete(sess)
+                        exam_session_repository.delete(db, sess)
                     except Exception:
                         pass
                 try:
-                    db.delete(sch)
+                    exam_schedule_repository.delete(db, sch)
                 except Exception:
                     sch.status = "CANCELLED"
                     sch.package_id = None
 
         db.flush()
         # 2. Hard delete the package row
-        db.delete(package)
+        exam_schedule_package_repository.delete(db, package)
 
     @staticmethod
     def import_schedules_xlsx(
@@ -403,6 +411,12 @@ class ExamScheduleService:
         package = exam_schedule_package_repository.get_by_id(db, package_id)
         if not package or package.school_id != school_id:
             raise BusinessException("Paket jadwal ujian tidak ditemukan.", status_code=404)
+
+        if getattr(package, "is_closed", False):
+            raise BusinessException(
+                f"Paket jadwal ujian '{package.title}' telah ditutup permanen. Tidak dapat mengimpor jadwal ke dalamnya.",
+                status_code=400,
+            )
 
         # Get active or first semester for the year
         semesters = academic_semester_repository.get_semesters_by_year(db, package.academic_year_id)
@@ -453,32 +467,16 @@ class ExamScheduleService:
                     status_code=400,
                 )
 
-            # 1. Resolve Class
-            cls = (
-                db.query(class_repository.model)
-                .filter(
-                    class_repository.model.school_id == school_id,
-                    class_repository.model.academic_year_id == package.academic_year_id,
-                    class_repository.model.name.ilike(raw_class),
-                )
-                .first()
-            )
+            # 1. Resolve Class via repository
+            cls = class_repository.get_by_name(db, school_id, package.academic_year_id, raw_class)
             if not cls:
                 raise BusinessException(
                     f"Baris #{row_num}: Rombel Kelas '{raw_class}' tidak ditemukan pada tahun ajaran paket ini.",
                     status_code=400,
                 )
 
-            # 2. Resolve Subject (by code or name)
-            subj = (
-                db.query(subject_repository.model)
-                .filter(
-                    subject_repository.model.school_id == school_id,
-                    (subject_repository.model.code.ilike(raw_mapel))
-                    | (subject_repository.model.name.ilike(raw_mapel)),
-                )
-                .first()
-            )
+            # 2. Resolve Subject (by code or name) via repository
+            subj = subject_repository.get_by_code_or_name(db, school_id, raw_mapel)
             if not subj:
                 raise BusinessException(
                     f"Baris #{row_num}: Mata Pelajaran '{raw_mapel}' tidak ditemukan di Master Data.",
@@ -493,21 +491,10 @@ class ExamScheduleService:
                     status_code=400,
                 )
 
-            # 4. Resolve Proctor by teacher_code
+            # 4. Resolve Proctor by teacher_code via repository
             proctor_id = None
             if raw_proctor_code:
-                from app.models.security.auth_account import AuthAccount
-                from app.models.security.enums import UserRole
-
-                proctor = (
-                    db.query(AuthAccount)
-                    .filter(
-                        AuthAccount.school_id == school_id,
-                        AuthAccount.role.in_([UserRole.TEACHER, "TEACHER"]),
-                        AuthAccount.teacher_code.ilike(raw_proctor_code),
-                    )
-                    .first()
-                )
+                proctor = auth_repository.get_teacher_by_code(db, school_id, raw_proctor_code)
                 if not proctor:
                     raise BusinessException(
                         f"Baris #{row_num}: Guru Pengawas dengan Kode Guru '{raw_proctor_code}' tidak ditemukan.",
@@ -518,12 +505,9 @@ class ExamScheduleService:
             # 5. Parse Times
             try:
                 # Combine Date and Start/End times
-                # Expected format raw_date: YYYY-MM-DD
-                # Expected format raw_start: HH:MM
                 start_dt_str = f"{raw_date} {raw_start}"
                 end_dt_str = f"{raw_date} {raw_end}"
 
-                # Check for HH:MM:SS or HH:MM formats
                 fmt_start = (
                     "%Y-%m-%d %H:%M:%S" if len(raw_start.split(":")) == 3 else "%Y-%m-%d %H:%M"
                 )
@@ -545,19 +529,8 @@ class ExamScheduleService:
 
             duration_minutes = int((end_time - start_time).total_seconds() / 60)
 
-            # Validate overlapping schedules for the same class in DB (excluding CANCELLED/deleted schedules)
-            overlap = (
-                db.query(ExamSchedule)
-                .filter(
-                    ExamSchedule.school_id == school_id,
-                    ExamSchedule.class_id == cls.id,
-                    ExamSchedule.status != ExamScheduleStatus.CANCELLED.value,
-                    ExamSchedule.status != "CANCELLED",
-                    ExamSchedule.start_time < end_time,
-                    ExamSchedule.end_time > start_time,
-                )
-                .first()
-            )
+            # Validate overlapping schedules for the same class in DB via repository
+            overlap = exam_schedule_repository.find_class_schedule_overlap(db, school_id, cls.id, start_time, end_time)
             if overlap:
                 raise BusinessException(
                     f"Baris #{row_num}: Kelas '{cls.name}' sudah memiliki jadwal ujian lain pada waktu tersebut di database: '{overlap.title}' ({overlap.start_time.strftime('%Y-%m-%d %H:%M')} - {overlap.end_time.strftime('%Y-%m-%d %H:%M')}).",

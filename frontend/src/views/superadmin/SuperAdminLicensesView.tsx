@@ -36,6 +36,7 @@ import type {
 import type { SchoolProfile } from "../../api/school";
 import type { LicenseTypeOption } from "../../api/license";
 import type { AppApiError } from "../../api/client";
+import { copyToClipboard } from "../../utils/clipboard";
 
 export const SuperAdminLicensesView: React.FC<{ onNavigate?: (href: string) => void }> = ({
   onNavigate,
@@ -206,12 +207,17 @@ export const SuperAdminLicensesView: React.FC<{ onNavigate?: (href: string) => v
     }
   };
 
-  const handleCopyKey = () => {
+
+  const handleCopyKey = async () => {
     if (generatedKey?.key_plain) {
-      navigator.clipboard.writeText(generatedKey.key_plain);
-      setIsCopied(true);
-      toast.success("Disalin!", "Activation Key telah disalin ke clipboard.");
-      setTimeout(() => setIsCopied(false), 2000);
+      const success = await copyToClipboard(generatedKey.key_plain);
+      if (success) {
+        setIsCopied(true);
+        toast.success("Disalin!", "Activation Key telah disalin.");
+        setTimeout(() => setIsCopied(false), 2000);
+      } else {
+        toast.error("Gagal Menyalin", "Gagal menyalin Activation Key secara otomatis.");
+      }
     }
   };
 

@@ -10,11 +10,12 @@ class LoginRequest(BaseModel):
 
 class LoginResponse(BaseModel):
     access_token: str
-    refresh_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
     role: str
     school_id: int | None
     must_change_password: bool
+    session_expires_in: int | None = None
 
 
 class CurrentUserResponse(BaseModel):
@@ -39,13 +40,14 @@ class CurrentUserResponse(BaseModel):
 
 
 class RefreshRequest(BaseModel):
-    refresh_token: str
+    refresh_token: str | None = None
 
 
 class TokenResponse(BaseModel):
     access_token: str
-    refresh_token: str
+    refresh_token: str | None = None
     token_type: str = "bearer"
+    session_expires_in: int | None = None
 
 
 class ChangePasswordRequest(BaseModel):

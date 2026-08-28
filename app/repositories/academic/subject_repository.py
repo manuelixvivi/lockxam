@@ -31,5 +31,28 @@ class SubjectRepository(BaseRepository[Subject]):
         query = query.order_by(Subject.name.asc())
         return list(db.scalars(query).all())
 
+    def is_subject_in_use(self, db: Session, subject_id: int) -> bool:
+        from app.models.academic.class_subject import ClassSubject
+        from app.models.academic.exam_schedule import ExamSchedule
+        from app.models.academic.teacher_subject import TeacherSubject
+
+        has_teacher = db.scalar(select(TeacherSubject).where(TeacherSubject.subject_id == subject_id))
+        has_class = db.scalar(select(ClassSubject).where(ClassSubject.subject_id == subject_id))
+        has_schedule = db.scalar(select(ExamSchedule).where(ExamSchedule.subject_id == subject_id))
+        return bool(has_teacher or has_class or has_schedule)
+
+
+    def get_by_code_or_name(self, db: Session, school_id: int, raw_str: str) -> Subject | None:
+        from sqlalchemy import func, or_
+        s = raw_str.strip()
+        stmt = select(Subject).where(
+            Subject.school_id == school_id,
+            or_(
+                func.lower(Subject.code) == s.lower(),
+                func.lower(Subject.name) == s.lower()
+            )
+        )
+        return db.scalar(stmt)
+
 
 subject_repository = SubjectRepository()

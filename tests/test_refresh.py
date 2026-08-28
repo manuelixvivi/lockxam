@@ -9,19 +9,19 @@ def test_refresh_token_rotation(client, test_superadmin):
     )
     assert login_res.status_code == 200
     access_token = login_res.json()["access_token"]
-    refresh_token = login_res.json()["refresh_token"]
+    refresh_cookie = login_res.cookies.get("refresh_token")
+    assert refresh_cookie is not None
 
-    # 2. Refresh tokens
-    refresh_res = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    # 2. Refresh tokens via HttpOnly cookie
+    refresh_res = client.post("/api/v1/auth/refresh", cookies={"refresh_token": refresh_cookie})
     assert refresh_res.status_code == 200
     data = refresh_res.json()
     assert "access_token" in data
-    assert "refresh_token" in data
 
     new_access = data["access_token"]
-    new_refresh = data["refresh_token"]
+    new_refresh_cookie = refresh_res.cookies.get("refresh_token")
     assert new_access != access_token
-    assert new_refresh != refresh_token
+    assert new_refresh_cookie != refresh_cookie
 
 
 def test_refresh_token_reuse_detection(client, test_superadmin, db):
@@ -30,15 +30,15 @@ def test_refresh_token_reuse_detection(client, test_superadmin, db):
         "/api/v1/auth/login",
         json={"username": test_superadmin["username"], "password": test_superadmin["password"]},
     )
-    refresh_token = login_res.json()["refresh_token"]
+    refresh_cookie = login_res.cookies.get("refresh_token")
 
     # 2. Refresh first time (rotates token)
-    first_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    first_refresh = client.post("/api/v1/auth/refresh", cookies={"refresh_token": refresh_cookie})
     assert first_refresh.status_code == 200
     new_access = first_refresh.json()["access_token"]
 
     # 3. Refresh second time with same OLD refresh token (replay attack!)
-    second_refresh = client.post("/api/v1/auth/refresh", json={"refresh_token": refresh_token})
+    second_refresh = client.post("/api/v1/auth/refresh", cookies={"refresh_token": refresh_cookie})
     assert second_refresh.status_code == 401
     assert "reuse" in second_refresh.json()["detail"].lower()
 

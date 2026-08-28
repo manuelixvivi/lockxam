@@ -20,6 +20,7 @@ import { ImportExportBar } from "../../components/ui/ImportExportBar";
 import { AddDataChoiceModal } from "../../components/ui/AddDataChoiceModal";
 import { readXlsxFile } from "../../utils/xlsx";
 import { downloadTeacherTemplate } from "../../utils/excelTemplates";
+import { copyToClipboard } from "../../utils/clipboard";
 import {
   Users,
   UserPlus,
@@ -374,9 +375,13 @@ export function TeachersView({ onNavigate }: TeachersViewProps) {
     }
   };
 
-  const handleCopy = (text: string) => {
-    navigator.clipboard.writeText(text);
-    showToast({ type: "success", title: "Disalin ke clipboard!" });
+  const handleCopy = async (text: string) => {
+    const success = await copyToClipboard(text);
+    if (success) {
+      showToast({ type: "success", title: "Disalin ke clipboard!" });
+    } else {
+      showToast({ type: "error", title: "Gagal menyalin secara otomatis." });
+    }
   };
 
   const closeResetModal = () => {
@@ -841,46 +846,37 @@ export function TeachersView({ onNavigate }: TeachersViewProps) {
               return;
             }
 
-            let success = 0;
-            let failed = 0;
-
-            for (const row of rows) {
+            const payloadTeachers = rows.map((row, idx) => {
               const name = String(row["Nama Lengkap"] || "").trim();
               const rawNip = String(row["NIP"] || "").trim().replace(/\D/g, "");
               const nip = rawNip || undefined;
-              const rawTeacherCode = String(row["Kode Guru"] || "").trim().toUpperCase();
+              const rawTeacherCode = String(row["Kode Guru"] || "").trim();
               const teacherCode = rawTeacherCode || undefined;
               const rawGender = String(row["Jenis Kelamin (L/P)"] || "").trim().toUpperCase();
               const gender = rawGender === "L" || rawGender === "LAKI-LAKI" ? "L" : rawGender === "P" || rawGender === "PEREMPUAN" ? "P" : "";
-              const registeredYear = String(row["Tahun Terdaftar"] || "").trim() || new Date().getFullYear().toString();
+              const registeredYearRaw = String(row["Tahun Terdaftar"] || "").trim();
+              const registeredYear = registeredYearRaw ? parseInt(registeredYearRaw, 10) : undefined;
 
-              if (!name || !gender) {
-                failed++;
-                continue;
-              }
+              return {
+                name,
+                nip,
+                teacher_code: teacherCode,
+                gender,
+                registered_year: registeredYear,
+                row_num: idx + 2,
+              };
+            }).filter(t => t.name || t.nip);
 
-              try {
-                await teacherApi.createTeacher({
-                  name,
-                  nip,
-                  teacher_code: teacherCode,
-                  gender,
-                  registered_year: registeredYear,
-                });
-                success++;
-              } catch {
-                failed++;
-              }
-            }
-
+            const result = await teacherApi.importTeachers({ teachers: payloadTeachers });
             showToast({
-              type: success > 0 ? "success" : "error",
+              type: "success",
               title: "Impor Berhasil",
-              message: `Berhasil mengimpor ${success} guru.${failed > 0 ? ` ${failed} baris gagal/diabaikan.` : ""}`,
+              message: `Berhasil mengimpor ${result.imported_count} guru.`,
             });
             await loadTeachers();
           } catch (err: any) {
-            showToast({ type: "error", title: "Gagal Membaca File", message: err?.message || "Format file salah." });
+            const errMsg = err?.response?.data?.message || err?.message || "Format file salah.";
+            showToast({ type: "error", title: "Gagal Memproses Impor", message: errMsg });
           } finally {
             setIsImportingXlsx(false);
           }

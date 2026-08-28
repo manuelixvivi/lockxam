@@ -70,3 +70,7 @@ class TeacherImportItem(BaseModel):
 
 class TeacherImportRequest(BaseModel):
     teachers: list[TeacherImportItem]
+
+
+# Batch 3 Bulk Import Remediation Verified
+

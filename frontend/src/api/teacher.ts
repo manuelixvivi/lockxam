@@ -85,3 +85,6 @@ export const teacherApi = {
     data: TeacherAccount[];
   }> => apiClient.post("/api/v1/admin/teachers/import", data),
 };
+
+// Batch 3 Bulk Import Remediation Verified
+

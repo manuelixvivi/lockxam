@@ -1,0 +1,20 @@
+Flask==3.0.3
+Flask-SQLAlchemy==3.1.1
+Flask-Migrate==4.0.7
+Flask-CORS==4.0.1
+
+# Database (new — sandbox_app.py now persists to Postgres instead of
+# an in-memory global variable + a token_usage.json file)
+psycopg2-binary>=2.9.10
+python-dotenv==1.0.1
+
+# LLM client — sandbox_app.py does `from openai import OpenAI` but this
+# was never actually listed in this file; adding it here for real.
+openai>=1.40.0,<2.0.0
+
+redis==5.0.7
+celery==5.4.0
+sentence-transformers==3.0.1
+--extra-index-url https://download.pytorch.org/whl/cpu
+torch==2.9.0+cpu
+numpy

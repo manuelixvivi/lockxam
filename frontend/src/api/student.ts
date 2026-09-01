@@ -70,4 +70,35 @@ export const studentApi = {
 
   clearSessions: (publicId: string): Promise<{ message: string; username: string }> =>
     apiClient.post<{ message: string; username: string }>(`/api/v1/admin/students/${publicId}/clear-sessions`),
+
+  importStudents: (data: {
+    academic_year_id: number;
+    rows: Array<{
+      name?: string;
+      nisn?: string;
+      nis?: string;
+      gender?: string;
+      birth_date?: string;
+      class_name?: string;
+      registered_year?: number;
+    }>;
+  }): Promise<{
+    status: "success" | "error";
+    message: string;
+    imported_count: number;
+    errors?: Array<{
+      row: number;
+      field: string;
+      value?: string;
+      code: string;
+      message: string;
+    }>;
+    data?: StudentAccount[];
+    skipped?: Array<{
+      row: number;
+      sheet?: string;
+      content?: string;
+      reason?: string;
+    }>;
+  }> => apiClient.post("/api/v1/admin/students/import", data),
 };

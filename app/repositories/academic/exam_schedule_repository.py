@@ -45,6 +45,29 @@ class ExamScheduleRepository(BaseRepository[ExamSchedule]):
         )
         return list(db.scalars(stmt).all())
 
+    def list_eligible_for_classes(
+        self, db: Session, school_id: int, class_ids: list[int]
+    ) -> list[ExamSchedule]:
+        """
+        Mengambil semua jadwal ujian yang relevan untuk siswa:
+        - READY/ACTIVE   : Ujian akan datang atau sedang berlangsung
+        - CLOSED/FINISHED/EXPIRED : Ujian sudah berakhir — perlu untuk mendeteksi
+          ujian yang dilewatkan (MISSED) jika siswa tidak pernah berpartisipasi.
+        CANCELLED dikecualikan.
+        """
+        if not class_ids:
+            return []
+        stmt = (
+            select(ExamSchedule)
+            .where(
+                ExamSchedule.school_id == school_id,
+                ExamSchedule.class_id.in_(class_ids),
+                ExamSchedule.status.notin_(["CANCELLED"]),
+            )
+            .order_by(ExamSchedule.start_time.desc())
+        )
+        return list(db.scalars(stmt).all())
+
     def get_by_ids(self, db: Session, schedule_ids: list[int]) -> list[ExamSchedule]:
         if not schedule_ids:
             return []

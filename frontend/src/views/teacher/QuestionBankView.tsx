@@ -480,6 +480,8 @@ export function QuestionBankView({}: QuestionBankViewProps) {
     try {
       const sheetsData = await readMultiSheetXlsxFile(file);
 
+      // NOTE: Embedded image upload is currently outside Question database atomicity
+      // and may require orphan cleanup if Question Import fails.
       // Method 2: Extract embedded drawings pasted directly into cells of XLSX
       let embeddedImages: any[] = [];
       try {
@@ -499,13 +501,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
         }
       }
 
-      const skipped: { row: number; sheet: string; identifier: string; reason: string }[] = [];
-      const failed: { row: number; sheet: string; identifier: string; reason: string }[] = [];
-      let successCount = 0;
-
-      // 1. Gather all rows from PG, IS, Essay sheets
-      const jobs: { type: QuestionType; row: Record<string, string>; rowIndex: number; sheet: string }[] = [];
-
+      const jobs: any[] = [];
       if (sheetsData["Pilihan Ganda"]) {
         sheetsData["Pilihan Ganda"].forEach((r, idx) => {
           jobs.push({ type: "PG", row: r, rowIndex: idx + 2, sheet: "Pilihan Ganda" });
@@ -522,7 +518,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
         });
       }
 
-      setImportProgress({ current: 0, total: jobs.length });
+      const payloadRows: any[] = [];
 
       for (let i = 0; i < jobs.length; i++) {
         const job = jobs[i];
@@ -536,139 +532,100 @@ export function QuestionBankView({}: QuestionBankViewProps) {
           if (gUrl) qContent += `\n![Gambar Soal](${gUrl})`;
         }
         const qAnswer = (row["Kunci Jawaban"] || "").trim();
-        const rowSubject = (row["Mata Pelajaran"] || importSubject || "").trim();
-        const rowClassLevel = (row["Tingkat Kelas (X/XI/XII)"] || row["Tingkat Kelas"] || row["Tingkat"] || row["Grade Level"] || "X").trim();
+        const rowClassLevel = (row["Tingkat Kelas (X/XI/XII)"] || row["Tingkat Kelas"] || row["Tingkat"] || row["Grade Level"] || "").trim();
 
-        if (!qContent) {
-          failed.push({ row: rowIndex, sheet, identifier: `Baris ${rowIndex}`, reason: "Kolom Pertanyaan kosong." });
-          continue;
-        }
-        if (!qAnswer) {
-          failed.push({ row: rowIndex, sheet, identifier: qContent, reason: "Kolom Kunci Jawaban kosong." });
-          continue;
-        }
-
-        // Verification: check if question already exists in database
-        const existing = questions.find(
-          (q) => q.content.trim().toLowerCase() === qContent.toLowerCase() && q.type === type
-        );
-
-        if (existing) {
-          skipped.push({
-            row: rowIndex,
-            sheet,
-            identifier: qContent,
-            reason: `Soal sudah ada di bank soal dengan ID #${existing.id}.`
-          });
-          continue;
-        }
-
-        // Build type specific fields
         let finalOptions: string[] | null = null;
         let finalRubrics: any[] = [];
         let isAi = false;
 
         if (type === "PG") {
-          const optA = (row["Opsi A"] || "").trim();
-          const optB = (row["Opsi B"] || "").trim();
-          const optC = (row["Opsi C"] || "").trim();
-          const optD = (row["Opsi D"] || "").trim();
-          const optE = (row["Opsi E"] || "").trim();
-          const optF = (row["Opsi F"] || "").trim();
-
-          // Validation: min 2 options, max 6 options
-          if (!optA || !optB) {
-            failed.push({
-              row: rowIndex,
-              sheet,
-              identifier: qContent,
-              reason: "Soal PG wajib mencantumkan Opsi A dan Opsi B (minimal 2 opsi)."
-            });
-            continue;
-          }
-
-          finalOptions = [optA, optB, optC, optD, optE, optF].filter(Boolean);
-          if (!finalOptions.includes(qAnswer)) {
-            failed.push({
-              row: rowIndex,
-              sheet,
-              identifier: qContent,
-              reason: `Kunci Jawaban "${qAnswer}" tidak cocok dengan opsi mana pun.`
-            });
-            continue;
-          }
+          const optA = String(row["Opsi A"] || "").trim();
+          const optB = String(row["Opsi B"] || "").trim();
+          const optC = String(row["Opsi C"] || "").trim();
+          const optD = String(row["Opsi D"] || "").trim();
+          const optE = String(row["Opsi E"] || "").trim();
+          const optF = String(row["Opsi F"] || "").trim();
+          finalOptions = [optA, optB, optC, optD, optE, optF];
         } else if (type === "ES") {
           const aiGradingText = (row["AI Grading (YA/TIDAK)"] || "").trim().toUpperCase();
           isAi = aiGradingText === "YA" || aiGradingText === "YES";
-
-          if (isAi) {
-            finalRubrics = [];
-          } else {
-            // Rubrics validation
+          if (!isAi) {
             for (let rIdx = 1; rIdx <= 5; rIdx++) {
               const crit = (row[`Rubrik ${rIdx} Kriteria`] || "").trim();
               const scoreText = (row[`Rubrik ${rIdx} Skor Maks`] || "").trim();
               if (crit) {
                 const maxS = parseInt(scoreText, 10) || 0;
-                if (maxS <= 0) {
-                  failed.push({
-                    row: rowIndex,
-                    sheet,
-                    identifier: qContent,
-                    reason: `Rubrik ${rIdx} Skor Maks harus angka positif.`
-                  });
-                  break;
-                }
                 finalRubrics.push({ criteria: crit, max_score: maxS });
               }
-            }
-
-            if (finalRubrics.length === 0) {
-              failed.push({
-                row: rowIndex,
-                sheet,
-                identifier: qContent,
-                reason: "Untuk AI Grading = TIDAK, rubrik manual wajib diisi minimal 1 kriteria."
-              });
-              continue;
             }
           }
         }
 
-        // Upload to backend
-        try {
-          await teacherContentApi.createQuestion({
-            type,
-            content: qContent,
-            options: finalOptions,
-            answer_key: qAnswer,
-            rubrics: finalRubrics,
-            subject: rowSubject,
-            class_level: rowClassLevel,
-            ai_grading: isAi,
-          });
-          successCount++;
-        } catch (err: any) {
-          failed.push({
-            row: rowIndex,
-            sheet,
-            identifier: qContent,
-            reason: err?.message || "Gagal menyimpan ke server."
-          });
-        }
-
-        setImportProgress({ current: i + 1, total: jobs.length });
+        payloadRows.push({
+          type,
+          content: qContent,
+          options: finalOptions,
+          answer_key: qAnswer,
+          rubrics: finalRubrics,
+          class_level: rowClassLevel || undefined,
+          ai_grading: isAi,
+          row_num: rowIndex,
+          sheet,
+        });
       }
 
-      setImportReport({ success: successCount, skipped, failed });
+      // Call API bulk import
+      const result = await teacherContentApi.importQuestions({
+        subject: importSubject,
+        rows: payloadRows,
+      });
+
+      // Process success
+      const skippedRows = result.skipped?.map((s: any) => ({
+        row: s.row,
+        sheet: s.sheet,
+        identifier: s.content,
+        reason: s.reason,
+      })) || [];
+
+      setImportReport({
+        success: result.imported_count,
+        skipped: skippedRows,
+        failed: [],
+      });
+
       fetchQuestions();
+
       showToast({
         type: "success",
-        title: "Impor Selesai",
-        message: `Berhasil mengimpor ${successCount} soal baru.`,
+        title: "Impor Berhasil",
+        message: result.message,
       });
     } catch (err: any) {
-      showToast({ type: "error", title: "Impor Gagal", message: err?.message || "Format file tidak valid." });
+      const serverMsg = err.response?.data?.message;
+      const serverErrors = err.response?.data?.errors;
+
+      if (serverErrors && Array.isArray(serverErrors)) {
+        const failedRows = serverErrors.map((e: any) => ({
+          row: e.row,
+          sheet: e.sheet || "",
+          identifier: e.value || `Baris {e.row}`,
+          reason: e.message,
+        }));
+        setImportReport({
+          success: 0,
+          skipped: [],
+          failed: failedRows,
+        });
+        showToast({
+          type: "error",
+          title: "Impor Dibatalkan",
+          message: serverMsg || "Terdapat kesalahan validasi pada data impor.",
+        });
+      } else {
+        const errMsg = serverMsg || err.message || "Format file tidak valid.";
+        showToast({ type: "error", title: "Impor Gagal", message: errMsg });
+      }
     } finally {
       setIsImporting(false);
       setImportProgress(null);

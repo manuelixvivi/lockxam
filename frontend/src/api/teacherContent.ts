@@ -127,4 +127,30 @@ export const teacherContentApi = {
     education_class?: string;
   }): Promise<{ status: string; rubrics: any[]; concepts: string[]; error?: string }> =>
     apiClient.post<{ status: string; rubrics: any[]; concepts: string[]; error?: string }>("/api/v1/teacher/ai/generate-rubric", data),
+
+  importQuestions: (data: {
+    subject: string;
+    rows: Array<{
+      type: string;
+      content: string;
+      options: string[] | null;
+      answer_key: string;
+      rubrics: any[];
+      class_level?: string;
+      ai_grading?: boolean;
+      row_num?: number;
+      sheet?: string;
+    }>;
+  }): Promise<{
+    status: string;
+    message: string;
+    imported_count: number;
+    errors?: any[];
+    skipped?: Array<{
+      row: number;
+      sheet?: string;
+      content?: string;
+      reason?: string;
+    }>;
+  }> => apiClient.post("/api/v1/teacher/questions/import", data),
 };

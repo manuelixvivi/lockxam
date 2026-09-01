@@ -20,8 +20,10 @@ from app.repositories.teacher.question_package_repository import (
 from app.repositories.teacher.question_repository import (
     question_repository,
 )
+from app.schemas.common.import_validation import ImportResponse
 from app.schemas.teacher import (
     QuestionCreateRequest,
+    QuestionImportRequest,
     QuestionPackageCreate,
     QuestionPackageDetailResponse,
     QuestionPackageResponse,
@@ -29,6 +31,7 @@ from app.schemas.teacher import (
     QuestionUpdateRequest,
     TeacherQuestionResponse,
 )
+from app.services.teacher.question_bank_import_service import QuestionBankImportService
 from app.services.teacher.question_package_service import QuestionPackageService
 
 router = APIRouter(prefix="/api/v1/teacher/packages", tags=["Teacher Content — Packages"])
@@ -489,6 +492,58 @@ def create_question(
     db.commit()
     db.refresh(new_q)
     return new_q
+
+
+@questions_router.post("/import", response_model=ImportResponse[TeacherQuestionResponse])
+def import_questions(
+    payload: QuestionImportRequest,
+    current_user=Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    from fastapi.responses import JSONResponse
+
+    from app.schemas.common.import_validation import ImportResponse, ImportRowError
+
+    teacher_account_id = int(current_user["sub"])
+    school_id = current_user.get("school_id")
+    if not school_id:
+        raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
+
+    rows_list = [row.model_dump(mode="json") for row in payload.rows]
+
+    success, created_questions, errors, skipped = QuestionBankImportService.import_questions_batch(
+        db=db,
+        teacher_account_id=teacher_account_id,
+        school_id=school_id,
+        subject=payload.subject,
+        rows_data=rows_list,
+    )
+
+    if not success:
+        row_errors = [ImportRowError(**err) for err in errors]
+        return JSONResponse(
+            status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            content=ImportResponse(
+                status="error",
+                message="Impor bank soal gagal karena terdapat kesalahan validasi.",
+                imported_count=0,
+                errors=row_errors,
+            ).model_dump(),
+        )
+
+    db.commit()
+
+    msg = f"Berhasil mengimpor {len(created_questions)} soal baru."
+    if skipped:
+        msg = f"Berhasil mengimpor {len(created_questions)} soal baru, {len(skipped)} soal dilewati karena sudah ada."
+
+    return ImportResponse[TeacherQuestionResponse](
+        status="success",
+        message=msg,
+        imported_count=len(created_questions),
+        data=created_questions,
+        skipped=skipped,
+    )
 
 
 @questions_router.put("/{question_id}", response_model=TeacherQuestionResponse)
@@ -1314,7 +1369,7 @@ def get_student_answers_for_schedule(
                     question_id=ans.question_id,
                     score=earned_val,
                     max_score=max_q_val,
-                    grading_status=GradingStatus.AUTOMATED,
+                    grading_status=GradingStatus.AUTO_GRADED,
                     grading_source=GradingSource.SYSTEM,
                 )
                 db.add(ev)
@@ -1504,13 +1559,39 @@ def list_grading_evaluations(
         .all()
     )
 
+    if not evaluations:
+        return []
+
+    # Bulk prefetch related entities to completely eliminate N+1 queries
+    q_ids = list({ev.question_id for ev in evaluations})
+    questions = db.query(Question).filter(Question.id.in_(q_ids)).all() if q_ids else []
+    question_map = {q.id: q for q in questions}
+
+    student_ids = list({attempt_map[ev.exam_attempt_id].student_id for ev in evaluations if ev.exam_attempt_id in attempt_map})
+    students = db.query(AuthAccount).filter(AuthAccount.id.in_(student_ids)).all() if student_ids else []
+    student_map = {s.id: s for s in students}
+
+    student_answers = (
+        db.query(StudentAnswer)
+        .filter(StudentAnswer.exam_attempt_id.in_(attempt_ids))
+        .all()
+    )
+    answer_map = {(a.exam_attempt_id, a.question_id): a for a in student_answers}
+
+    class_ids = list({s.class_id for s in session_schedule_map.values() if s and s.class_id})
+    classes = db.query(ClassEntity).filter(ClassEntity.id.in_(class_ids)).all() if class_ids else []
+    class_map = {c.id: c for c in classes}
+
     res = []
     for ev in evaluations:
-        q = db.query(Question).filter(Question.id == ev.question_id).first()
+        q = question_map.get(ev.question_id)
         if not q:
             continue
 
-        attempt = attempt_map[ev.exam_attempt_id]
+        attempt = attempt_map.get(ev.exam_attempt_id)
+        if not attempt:
+            continue
+
         schedule = session_schedule_map.get(attempt.exam_session_id)
 
         pkg_name = "Paket Ujian Sekolah"
@@ -1523,18 +1604,11 @@ def list_grading_evaluations(
             if schedule.subject_id and schedule.subject_id in subject_map:
                 subj_name = subject_map[schedule.subject_id]
 
-        student = auth_repository.get_by_id(db, attempt.student_id)
-        cls = (
-            class_repository.get_by_id(db, attempt.class_id)
-            if hasattr(attempt, "class_id") and attempt.class_id
-            else (class_repository.get_by_id(db, schedule.class_id) if schedule else None)
-        )
+        student = student_map.get(attempt.student_id)
+        cls_id = getattr(attempt, "class_id", None) or (schedule.class_id if schedule else None)
+        cls = class_map.get(cls_id) if cls_id else None
 
-        ans = (
-            db.query(StudentAnswer)
-            .filter(StudentAnswer.exam_attempt_id == attempt.id, StudentAnswer.question_id == q.id)
-            .first()
-        )
+        ans = answer_map.get((attempt.id, q.id))
 
         res.append(
             EssayGradingEvaluationResponse(

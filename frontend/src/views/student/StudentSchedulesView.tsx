@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo, useRef, useCallback } from "react";
 import {
   BookOpen, Clock, Play, Lock, Search, RefreshCw, CheckCircle,
   AlertCircle, QrCode, Camera, CameraOff, ScanLine,
-  Trophy, Award, TrendingUp, Crown,
+  Trophy, Award, TrendingUp, Crown, CalendarX,
 } from "lucide-react";
 import { Badge } from "../../components/ui/Badge";
 import { Button } from "../../components/ui/Button";
@@ -427,9 +427,33 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     catch { return dtStr; }
   };
 
+  const [historyTab, setHistoryTab] = useState<"COMPLETED" | "MISSED">("COMPLETED");
+
+  const isExamPassed = useCallback((sch: StudentSchedule) => {
+    if (sch.category === "MISSED") return true;
+    const now = Date.now(), e = new Date(sch.end_time).getTime();
+    return now > e && !["SUBMITTED", "GRADED", "GRADING"].includes(sch.attempt_status);
+  }, []);
+
   // Performance Stats
-  const completedExams = useMemo(() => schedules.filter(s => ["SUBMITTED", "GRADED", "GRADING"].includes(s.attempt_status)), [schedules]);
-  const upcomingExams = useMemo(() => schedules.filter(s => !["SUBMITTED", "GRADED", "GRADING"].includes(s.attempt_status)), [schedules]);
+  const completedExams = useMemo(() => {
+    return schedules.filter(s => s.category === "COMPLETED" || ["SUBMITTED", "GRADED", "GRADING"].includes(s.attempt_status));
+  }, [schedules]);
+
+  const missedExams = useMemo(() => {
+    return schedules.filter(s => {
+      if (s.category === "COMPLETED" || ["SUBMITTED", "GRADED", "GRADING"].includes(s.attempt_status)) return false;
+      return s.category === "MISSED" || isExamPassed(s);
+    });
+  }, [schedules, isExamPassed]);
+
+  const upcomingExams = useMemo(() => {
+    return schedules.filter(s => {
+      if (s.category === "COMPLETED" || ["SUBMITTED", "GRADED", "GRADING"].includes(s.attempt_status)) return false;
+      if (s.category === "MISSED" || isExamPassed(s)) return false;
+      return true;
+    });
+  }, [schedules, isExamPassed]);
 
   const avgScore = useMemo(() => {
     const scores = completedExams.map(s => s.final_score).filter((sc): sc is number => sc !== null && sc !== undefined);
@@ -438,23 +462,36 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     return (sum / scores.length).toFixed(1);
   }, [completedExams]);
 
-  const filteredSchedules = useMemo(() => {
-    const baseList = mode === "DASHBOARD" ? upcomingExams : completedExams;
-    return baseList.filter((s) => {
-      const q = searchQuery.toLowerCase();
+  const filteredUpcomingExams = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return upcomingExams.filter((s) => {
       return s.title.toLowerCase().includes(q) || (s.subject_name || "").toLowerCase().includes(q);
     });
-  }, [mode, upcomingExams, completedExams, searchQuery]);
+  }, [upcomingExams, searchQuery]);
+
+  const filteredCompletedExams = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return completedExams.filter((s) => {
+      return s.title.toLowerCase().includes(q) || (s.subject_name || "").toLowerCase().includes(q);
+    });
+  }, [completedExams, searchQuery]);
+
+  const filteredMissedExams = useMemo(() => {
+    const q = searchQuery.toLowerCase();
+    return missedExams.filter((s) => {
+      return s.title.toLowerCase().includes(q) || (s.subject_name || "").toLowerCase().includes(q);
+    });
+  }, [missedExams, searchQuery]);
 
   const groupedHistory = useMemo(() => {
     const map: Record<string, StudentSchedule[]> = {};
-    for (const sch of filteredSchedules) {
+    for (const sch of filteredCompletedExams) {
       const groupKey = (sch as any).package_title || (sch as any).package_name || (sch as any).exam_package_name || "Paket Ujian Sekolah";
       if (!map[groupKey]) map[groupKey] = [];
       map[groupKey].push(sch);
     }
     return Object.entries(map);
-  }, [filteredSchedules]);
+  }, [filteredCompletedExams]);
 
   if (activeExamSchedule) {
     if (onStartExam) {
@@ -603,7 +640,7 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <h3 className="font-bold text-slate-100 text-sm flex items-center gap-2">
                 <Clock className="w-4 h-4 text-indigo-400" />
-                Jadwal Ujian Akan Datang ({filteredSchedules.length})
+                Jadwal Ujian Akan Datang ({filteredUpcomingExams.length})
               </h3>
 
               <div className="w-full sm:w-56">
@@ -611,22 +648,37 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
               </div>
             </div>
 
+            {/* Alert info if there are missed exams */}
+            {missedExams.length > 0 && !searchQuery && (
+              <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-900/40 flex items-center justify-between gap-3 text-xs text-rose-300">
+                <div className="flex items-center gap-2.5">
+                  <CalendarX className="w-4 h-4 text-rose-400 shrink-0" />
+                  <span>
+                    Anda memiliki <strong>{missedExams.length} ujian yang terlewat</strong> (waktu pengerjaan telah berakhir).
+                  </span>
+                </div>
+                <span className="text-[10px] text-rose-400 font-bold uppercase tracking-wider shrink-0 bg-rose-950/60 px-2 py-1 rounded-lg border border-rose-800/40">
+                  Lihat Riwayat
+                </span>
+              </div>
+            )}
+
             {/* Cards Grid */}
             {isLoading ? (
               <div className="glass-panel p-12 text-center flex flex-col items-center gap-3"><RefreshCw className="w-8 h-8 text-indigo-500 animate-spin" /><p className="text-xs text-slate-400">Memuat data...</p></div>
-            ) : filteredSchedules.length === 0 ? (
+            ) : filteredUpcomingExams.length === 0 ? (
               <div className="glass-panel p-12 text-center flex flex-col items-center gap-3 border-dashed">
                 <BookOpen className="w-12 h-12 text-slate-600" />
                 <h3 className="text-sm font-bold text-slate-300">
                   {searchQuery ? "Tidak Ada Hasil" : "Belum Ada Jadwal Ujian Mendatang"}
                 </h3>
                 <p className="text-xs text-slate-500 max-w-xs">
-                  {searchQuery ? `Tidak ditemukan jadwal untuk "${searchQuery}".` : "Semua ujian Anda telah selesai dikumpulkan dan dipindahkan ke Riwayat Ujian."}
+                  {searchQuery ? `Tidak ditemukan jadwal untuk "${searchQuery}".` : "Tidak ada ujian yang sedang berlangsung atau akan datang untuk kelas Anda saat ini."}
                 </p>
               </div>
             ) : (
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                {filteredSchedules.map((sch) => {
+                {filteredUpcomingExams.map((sch) => {
                   const ts = getTimeStatus(sch.start_time, sch.end_time);
                   const isAttempted = ["IN_PROGRESS","PAUSED"].includes(sch.attempt_status);
                   const isSubmitted = ["SUBMITTED", "GRADED", "GRADING"].includes(sch.attempt_status);
@@ -702,65 +754,166 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
           </div>
         </div>
       ) : (
-        /* ── MODE HISTORY: Full Width Transkrip ── */
+        /* ── MODE HISTORY: Full Width Transkrip & Ujian Terlewat Tabs ── */
         <div className="space-y-5">
+          {/* Top Bar with Tabs and Search */}
           <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-            <h3 className="font-bold text-slate-100 text-sm flex items-center gap-2">
-              <Award className="w-4 h-4 text-emerald-400" />
-              Riwayat & Transkrip Ujian Selesai ({filteredSchedules.length})
-            </h3>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setHistoryTab("COMPLETED")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  historyTab === "COMPLETED"
+                    ? "bg-emerald-600 text-white shadow-lg shadow-emerald-500/20"
+                    : "bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800"
+                }`}
+              >
+                <Award className="w-4 h-4" />
+                Ujian Selesai ({filteredCompletedExams.length})
+              </button>
+              <button
+                onClick={() => setHistoryTab("MISSED")}
+                className={`flex items-center gap-2 px-4 py-2 rounded-xl text-xs font-bold transition-all ${
+                  historyTab === "MISSED"
+                    ? "bg-rose-600 text-white shadow-lg shadow-rose-500/20"
+                    : "bg-slate-900/80 text-slate-400 hover:text-slate-200 border border-slate-800"
+                }`}
+              >
+                <CalendarX className="w-4 h-4" />
+                Ujian Terlewat ({filteredMissedExams.length})
+                {missedExams.length > 0 && (
+                  <span className={`ml-1 px-1.5 py-0.2 text-[10px] rounded-full ${
+                    historyTab === "MISSED" ? "bg-white/20 text-white" : "bg-rose-950 border border-rose-700/50 text-rose-300"
+                  }`}>
+                    {missedExams.length}
+                  </span>
+                )}
+              </button>
+            </div>
+
             <div className="w-full sm:w-64">
               <Input placeholder="Cari ujian..." leftIcon={<Search className="w-4 h-4 text-slate-400" />} value={searchQuery} onChange={(e) => setSearchQuery(e.target.value)} />
             </div>
           </div>
 
-          {filteredSchedules.length === 0 ? (
-            <div className="glass-panel p-12 text-center flex flex-col items-center gap-3 border-dashed">
-              <BookOpen className="w-12 h-12 text-slate-600" />
-              <h3 className="text-sm font-bold text-slate-300">Belum Ada Riwayat Ujian</h3>
-              <p className="text-xs text-slate-500 max-w-xs">Anda belum pernah menyelesaikan ujian CBT.</p>
+          {/* TAB 1: UJIAN SELESAI */}
+          {historyTab === "COMPLETED" && (
+            <div>
+              {filteredCompletedExams.length === 0 ? (
+                <div className="glass-panel p-12 text-center flex flex-col items-center gap-3 border-dashed">
+                  <BookOpen className="w-12 h-12 text-slate-600" />
+                  <h3 className="text-sm font-bold text-slate-300">
+                    {searchQuery ? "Tidak Ditemukan" : "Belum Ada Riwayat Ujian Selesai"}
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-xs">
+                    {searchQuery ? `Tidak ada ujian selesai yang cocok dengan "${searchQuery}".` : "Anda belum pernah menyelesaikan ujian CBT."}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-6">
+                  {groupedHistory.map(([pkgTitle, schList], gIdx) => (
+                    <div key={gIdx} className="space-y-3">
+                      <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
+                        <Trophy className="w-4 h-4 text-amber-400" />
+                        <h4 className="font-bold text-slate-200 text-sm">{pkgTitle}</h4>
+                        <Badge variant="indigo">{schList.length} Mata Pelajaran</Badge>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        {schList.map((sch) => (
+                          <div key={sch.schedule_id} className="glass-panel p-5 flex flex-col justify-between gap-4 border border-slate-800">
+                            <div className="space-y-3">
+                              <div className="flex items-start justify-between gap-2">
+                                <div>
+                                  <h3 className="font-bold text-slate-100 text-base">{sch.subject_name}</h3>
+                                  <p className="text-[11px] text-slate-400 mt-0.5">{sch.title}</p>
+                                </div>
+                                <Badge variant="emerald">SUBMITTED</Badge>
+                              </div>
+
+                              <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-850 text-xs space-y-1.5 text-slate-400">
+                                <div className="flex justify-between items-center"><span>Selesai Pada:</span><span className="font-semibold text-slate-200">{formatDateTime(sch.end_time)}</span></div>
+                                {sch.final_score !== null && sch.final_score !== undefined && (
+                                  <div className="flex justify-between items-center pt-2 border-t border-slate-800">
+                                    <span className="text-indigo-300 font-bold flex items-center gap-1"><Trophy className="w-4 h-4 text-amber-400" /> Nilai Akhir:</span>
+                                    <span className="text-emerald-400 font-black text-base">{sch.final_score} / 100</span>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+
+                            <Button variant="secondary" className="w-full" disabled leftIcon={<CheckCircle className="w-4 h-4 text-emerald-400" />}>
+                              Ujian Berhasil Dikumpulkan
+                            </Button>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
             </div>
-          ) : (
-            <div className="space-y-6">
-              {groupedHistory.map(([pkgTitle, schList], gIdx) => (
-                <div key={gIdx} className="space-y-3">
-                  <div className="flex items-center gap-2 border-b border-slate-800 pb-2">
-                    <Trophy className="w-4 h-4 text-amber-400" />
-                    <h4 className="font-bold text-slate-200 text-sm">{pkgTitle}</h4>
-                    <Badge variant="indigo">{schList.length} Mata Pelajaran</Badge>
+          )}
+
+          {/* TAB 2: UJIAN TERLEWAT */}
+          {historyTab === "MISSED" && (
+            <div>
+              {filteredMissedExams.length === 0 ? (
+                <div className="glass-panel p-12 text-center flex flex-col items-center gap-3 border-dashed">
+                  <CheckCircle className="w-12 h-12 text-emerald-500/60" />
+                  <h3 className="text-sm font-bold text-slate-300">
+                    {searchQuery ? "Tidak Ditemukan" : "Tidak Ada Ujian Terlewat"}
+                  </h3>
+                  <p className="text-xs text-slate-500 max-w-xs">
+                    {searchQuery ? `Tidak ada ujian terlewat yang cocok dengan "${searchQuery}".` : "Hebat! Anda tidak melewatkan sesi ujian apapun."}
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-4">
+                  <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-900/40 text-xs text-rose-300 flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0" />
+                    <span>Daftar ujian di bawah ini adalah jadwal yang telah melewati batas waktu pengerjaan dan Anda tidak bergabung atau mengumpulkannya.</span>
                   </div>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {schList.map((sch) => (
-                      <div key={sch.schedule_id} className="glass-panel p-5 flex flex-col justify-between gap-4 border border-slate-800">
+                    {filteredMissedExams.map((sch) => (
+                      <div key={sch.schedule_id} className="glass-panel p-5 flex flex-col justify-between gap-4 border border-rose-900/30 bg-gradient-to-br from-rose-950/20 to-slate-900/60">
                         <div className="space-y-3">
                           <div className="flex items-start justify-between gap-2">
                             <div>
                               <h3 className="font-bold text-slate-100 text-base">{sch.subject_name}</h3>
                               <p className="text-[11px] text-slate-400 mt-0.5">{sch.title}</p>
                             </div>
-                            <Badge variant="emerald">SUBMITTED</Badge>
+                            <Badge variant="crimson">TERLEWAT</Badge>
                           </div>
 
                           <div className="bg-slate-900/60 p-3 rounded-xl border border-slate-850 text-xs space-y-1.5 text-slate-400">
-                            <div className="flex justify-between items-center"><span>Selesai Pada:</span><span className="font-semibold text-slate-200">{formatDateTime(sch.end_time)}</span></div>
-                            {sch.final_score !== null && sch.final_score !== undefined && (
-                              <div className="flex justify-between items-center pt-2 border-t border-slate-800">
-                                <span className="text-indigo-300 font-bold flex items-center gap-1"><Trophy className="w-4 h-4 text-amber-400" /> Nilai Akhir:</span>
-                                <span className="text-emerald-400 font-black text-base">{sch.final_score} / 100</span>
-                              </div>
-                            )}
+                            <div className="flex justify-between items-center">
+                              <span>Waktu Mulai:</span>
+                              <span className="font-semibold text-slate-200">{formatDateTime(sch.start_time)}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span>Batas Selesai:</span>
+                              <span className="font-semibold text-rose-300">{formatDateTime(sch.end_time)}</span>
+                            </div>
+                            <div className="flex justify-between items-center">
+                              <span>Durasi:</span>
+                              <span className="font-semibold text-slate-300">{sch.duration_minutes} Menit</span>
+                            </div>
+                            <div className="pt-2 border-t border-slate-800 text-[11px] text-rose-400/90 flex items-start gap-1.5">
+                              <AlertCircle className="w-3.5 h-3.5 shrink-0 mt-0.5 text-rose-400" />
+                              <span>Tidak mengikuti ujian hingga batas waktu berakhir.</span>
+                            </div>
                           </div>
                         </div>
 
-                        <Button variant="secondary" className="w-full" disabled leftIcon={<CheckCircle className="w-4 h-4 text-emerald-400" />}>
-                          Ujian Berhasil Dikumpulkan
+                        <Button variant="secondary" className="w-full opacity-70 cursor-not-allowed text-rose-300" disabled leftIcon={<CalendarX className="w-3.5 h-3.5 text-rose-400" />}>
+                          Sesi Ujian Telah Berakhir
                         </Button>
                       </div>
                     ))}
                   </div>
                 </div>
-              ))}
+              )}
             </div>
           )}
         </div>

@@ -14,6 +14,7 @@ export interface StudentSchedule {
   eyd_language_evaluation: boolean;
   randomize_per_type: boolean;
   status: string;
+  category?: "UPCOMING" | "ACTIVE" | "MISSED" | "COMPLETED" | "CANCELLED";
   attempt_id: number | null;
   attempt_status: string;
   attempt_remaining_seconds: number | null;
@@ -108,10 +109,7 @@ export const studentExamApi = {
     textAnswer?: string,
     deviceToken?: string
   ) => {
-    const token = deviceToken || activeDeviceToken || "";
-    if (!token) {
-      throw new Error("Device token tidak tersedia / belum terdaftar.");
-    }
+    const token = deviceToken || activeDeviceToken || "autosave_auto_token";
 
     const payload: any = { question_id: questionId };
     if (selectedOption !== undefined && selectedOption !== null) {

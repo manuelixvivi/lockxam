@@ -6,6 +6,8 @@ from app.core.security import hash_password
 from app.exceptions.base import BusinessException
 from app.models.security.auth_account import AuthAccount
 from app.models.security.enums import UserRole
+from app.repositories.academic.academic_year_repository import academic_year_repository
+from app.repositories.academic.class_repository import class_repository
 from app.repositories.exam.attempt_repository import attempt_repository
 from app.repositories.exam.checkin_repository import checkin_repository
 from app.repositories.school.school_repository import school_repository
@@ -43,9 +45,36 @@ class SchoolStudentService:
         Buat akun siswa baru dengan format:
           Username : {NIS atau NISN}@siswa.{domain}
           Password : eQu!6r4d3{NIS atau NISN}  (wajib ganti setelah login pertama)
-        """
-        domain = SchoolStudentService._get_school_domain(db, school_id)
 
+        Jika class_name diberikan:
+          - Kelas wajib ada di sekolah dan tahun ajaran aktif sekolah.
+          - Pembuatan akun + enrollment adalah SATU transaksi atomik.
+            Jika kelas tidak ditemukan, seluruh operasi ditolak (tidak ada akun yang terbuat).
+        """
+        # ── 1. Resolve class BEFORE creating account (fail-fast) ─────────────────
+        class_entity = None
+        if class_name and class_name.strip():
+            # Resolve active academic year for this school
+            active_year = academic_year_repository.get_active_year(db, school_id)
+            if not active_year:
+                raise BusinessException(
+                    "Tidak ada tahun ajaran aktif untuk sekolah ini. "
+                    "Atur tahun ajaran aktif sebelum mendaftarkan siswa ke kelas.",
+                    status_code=400,
+                )
+            class_entity = class_repository.get_by_name(
+                db, school_id, active_year.id, class_name.strip()
+            )
+            if not class_entity:
+                raise BusinessException(
+                    f"Kelas '{class_name.strip()}' tidak ditemukan pada tahun ajaran aktif "
+                    f"'{active_year.name}'. Pastikan nama kelas sesuai dan kelas sudah dibuat "
+                    f"untuk tahun ajaran yang sedang berjalan.",
+                    status_code=400,
+                )
+
+        # ── 2. Build credentials ──────────────────────────────────────────────────
+        domain = SchoolStudentService._get_school_domain(db, school_id)
         identifier = nis.strip() if (nis and nis.strip()) else nisn.strip()
         username = f"{identifier}@siswa.{domain}"
         default_password = f"eQu!6r4d3{identifier}"
@@ -58,6 +87,7 @@ class SchoolStudentService:
                 status_code=409,
             )
 
+        # ── 3. Create AuthAccount ─────────────────────────────────────────────────
         account = AuthAccount(
             school_id=school_id,
             username=username,
@@ -70,11 +100,24 @@ class SchoolStudentService:
             nisn=nisn,
             birth_date=birth_date,
             gender=gender,
-            class_name=class_name,
+            class_name=class_name.strip() if class_name else None,
             registered_year=registered_year,
         )
         auth_repository.create(db, account)
-        db.flush()
+        db.flush()  # Assign account.id without committing
+
+        # ── 4. Create ACTIVE enrollment (atomic with account creation) ────────────
+        if class_entity:
+            # enroll_student_to_class also updates student.class_name to the canonical class name
+            from app.services.academic.class_structure_service import ClassStructureService
+
+            ClassStructureService.enroll_student_to_class(
+                db=db,
+                school_id=school_id,
+                student_id=account.id,
+                class_id=class_entity.id,
+            )
+
         return account, default_password
 
     @staticmethod
@@ -92,12 +135,56 @@ class SchoolStudentService:
         is_active: bool | None = None,
         update_fields: set[str] | None = None,
     ) -> AuthAccount:
+        """
+        Update profil siswa.
+
+        Jika class_name berubah (ada di update_fields dan berbeda dari nilai saat ini):
+          - Kelas target wajib ada di sekolah dan tahun ajaran aktif.
+          - Enrollment lama menjadi TRANSFERRED.
+          - Enrollment baru menjadi ACTIVE.
+          - Seluruh operasi adalah atomik — jika kelas tidak valid, profil tidak berubah.
+
+        AuthAccount.class_name adalah projection saja; sumber kebenaran enrollment ada di
+        tabel student_class_enrollments yang dikelola oleh ClassStructureService.
+        """
         student = auth_repository.get_by_public_id_and_school(
             db, school_id, student_public_id, role="STUDENT"
         )
         if not student:
             raise BusinessException("Akun siswa tidak ditemukan.", status_code=404)
 
+        # ── Resolve enrollment transfer BEFORE mutating profile (fail-fast) ──────
+        new_class_entity = None
+        should_transfer = False
+        if update_fields is None or "class_name" in update_fields:
+            new_name = class_name.strip() if (class_name and class_name.strip()) else None
+            current_name = student.class_name.strip() if student.class_name else None
+            if new_name != current_name:
+                if new_name:
+                    # Must resolve against active academic year — never accept by name alone
+                    active_year = academic_year_repository.get_active_year(db, school_id)
+                    if not active_year:
+                        raise BusinessException(
+                            "Tidak ada tahun ajaran aktif untuk sekolah ini. "
+                            "Tidak dapat memindahkan siswa ke kelas yang berbeda.",
+                            status_code=400,
+                        )
+                    new_class_entity = class_repository.get_by_name(
+                        db, school_id, active_year.id, new_name
+                    )
+                    if not new_class_entity:
+                        raise BusinessException(
+                            f"Kelas '{new_name}' tidak ditemukan pada tahun ajaran aktif "
+                            f"'{active_year.name}'. Pastikan nama kelas sesuai dan kelas sudah "
+                            f"dibuat untuk tahun ajaran yang sedang berjalan.",
+                            status_code=400,
+                        )
+                    should_transfer = True
+                else:
+                    # class_name cleared — just clear the field, no enrollment mutation
+                    student.class_name = None
+
+        # ── Mutate non-enrollment profile fields ──────────────────────────────────
         if update_fields is None or "name" in update_fields:
             if name is not None:
                 student.name = name
@@ -111,8 +198,6 @@ class SchoolStudentService:
         if update_fields is None or "gender" in update_fields:
             if gender is not None:
                 student.gender = gender
-        if update_fields is None or "class_name" in update_fields:
-            student.class_name = class_name.strip() if (class_name and class_name.strip()) else None
         if update_fields is None or "registered_year" in update_fields:
             student.registered_year = registered_year
         if update_fields is None or "is_active" in update_fields:
@@ -121,6 +206,20 @@ class SchoolStudentService:
 
         auth_repository.update(db, student)
         db.flush()
+
+        # ── Perform enrollment transfer AFTER profile flush ───────────────────────
+        if should_transfer and new_class_entity:
+            # enroll_student_to_class marks old enrollment TRANSFERRED and creates new ACTIVE row.
+            # It also sets student.class_name = new_class_entity.name (canonical sync).
+            from app.services.academic.class_structure_service import ClassStructureService
+
+            ClassStructureService.enroll_student_to_class(
+                db=db,
+                school_id=school_id,
+                student_id=student.id,
+                class_id=new_class_entity.id,
+            )
+
         return student
 
     @staticmethod

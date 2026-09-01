@@ -24,5 +24,24 @@ class QuestionRepository(BaseRepository[Question]):
         )
         return db.scalars(stmt).first()
 
+    def find_by_owner_content_type(
+        self,
+        db: Session,
+        teacher_account_id: int,
+        content_normalized: str,
+        q_type: str,
+    ) -> Question | None:
+        """Best-effort duplicate check for import: owner + normalized content + type.
+        No DB UNIQUE constraint is added or required — this is application-level dedup only."""
+        from sqlalchemy import func
+
+        stmt = (
+            select(Question)
+            .where(Question.owner_teacher_account_id == teacher_account_id)
+            .where(Question.type == q_type)
+            .where(func.lower(func.trim(Question.content)) == content_normalized.lower().strip())
+        )
+        return db.scalars(stmt).first()
+
 
 question_repository = QuestionRepository()

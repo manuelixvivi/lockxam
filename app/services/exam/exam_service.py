@@ -17,12 +17,15 @@ All DB access goes through the repository interfaces defined in app/repositories
 """
 
 import hashlib
+import logging
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
+
+logger = logging.getLogger(__name__)
 
 from app.exceptions.base import BusinessException
 from app.models.exam.ai_event_log import AiGradingEventLog
@@ -159,10 +162,35 @@ class ExamService:
         existing = snapshot_repository.get_by_session(db, session.id)
         if existing:
             return existing
-        raise BusinessException(
-            "Snapshot paket ujian belum tersedia. Harap pastikan guru pengampu telah memfinalisasi dan mengunci paket soal untuk jadwal ini.",
-            status_code=400,
+
+        # Load academic ExamSnapshot using session.schedule_id
+        from sqlalchemy import select
+
+        from app.models.academic.exam_snapshot import ExamSnapshot
+
+        stmt = select(ExamSnapshot).where(ExamSnapshot.exam_schedule_id == session.schedule_id)
+        academic_snapshot = db.scalar(stmt)
+
+        if not academic_snapshot:
+            raise BusinessException(
+                "Snapshot paket ujian belum tersedia. Harap pastikan guru pengampu telah memfinalisasi dan mengunci paket soal untuk jadwal ini.",
+                status_code=400,
+            )
+
+        # Create new ExamPackageSnapshot from academic_snapshot
+        questions = academic_snapshot.snapshot_data.get("questions", [])
+
+        new_snapshot = ExamPackageSnapshot(
+            exam_session_id=session.id,
+            source_package_id=academic_snapshot.question_package_id,
+            school_id=academic_snapshot.school_id,
+            owner_teacher_account_id=academic_snapshot.teacher_id,
+            snapshot_version=1,
+            questions_json=questions,
         )
+        snapshot_repository.create(db, new_snapshot)
+        db.flush()
+        return new_snapshot
 
     # ──────────────────────────────────────────────────
     # UC-2: Mulai / Resume Pengerjaan Siswa
@@ -569,8 +597,10 @@ class ExamService:
             total_max_score = 0.0
 
             for q in questions:
-                q_id = q["id"]
-                max_score = float(q["max_score"])
+                q_id = q.get("id") or q.get("question_id")
+                if q_id is None:
+                    continue
+                max_score = float(q.get("max_score", q.get("score", 0.0)))
                 total_max_score += max_score
                 ans = answers.get(q_id)
 
@@ -681,6 +711,117 @@ class ExamService:
                     evaluation.last_evaluated_at = datetime.now(timezone.utc)
 
             db.commit()
+        except Exception:
+            db.rollback()
+            raise
+
+    # ──────────────────────────────────────────────────
+    # UC-5b: AI Essay Grading Background Job Execution
+    # ──────────────────────────────────────────────────
+
+    @staticmethod
+    def execute_ai_essay_grading_job(db: Session, attempt_id: int) -> None:
+        """Evaluates pending essay questions using equigradeAI microservice."""
+        try:
+            attempt = attempt_repository.get_with_lock(db, attempt_id)
+            if not attempt or attempt.status != ExamAttemptStatus.GRADING:
+                return
+
+            sess = exam_session_repository.get_by_id(db, attempt.exam_session_id)
+            if not sess:
+                return
+
+            snapshot = snapshot_repository.get_by_session(db, sess.id)
+            if not snapshot:
+                return
+
+            questions = {q.get("id") or q.get("question_id"): q for q in snapshot.questions_json}
+            answers = {
+                sa.question_id: sa
+                for sa in student_answer_repository.get_all_by_attempt(db, attempt_id)
+            }
+            evaluations = {
+                ev.question_id: ev
+                for ev in evaluation_repository.get_all_by_attempt(db, attempt_id)
+            }
+
+            from app.models.academic.class_entity import ClassEntity
+            from app.models.academic.exam_schedule import ExamSchedule
+            from app.models.master.school_level import SchoolLevel
+            from app.models.school.school import School
+            from app.services.ai.ai_grading_service import AiGradingService
+
+            schedule = db.query(ExamSchedule).filter(ExamSchedule.id == sess.schedule_id).first()
+            class_entity = (
+                db.query(ClassEntity).filter(ClassEntity.id == schedule.class_id).first()
+                if schedule
+                else None
+            )
+            school = (
+                db.query(School).filter(School.id == schedule.school_id).first()
+                if schedule
+                else None
+            )
+            school_level = (
+                db.query(SchoolLevel).filter(SchoolLevel.id == school.school_level_id).first()
+                if school
+                else None
+            )
+
+            education_level = school_level.code if school_level else "SMA"
+            education_class = class_entity.name if class_entity else "Kelas 11"
+
+            for q_id, eval_item in evaluations.items():
+                if eval_item.grading_status != GradingStatus.AI_PENDING:
+                    continue
+
+                q = questions.get(q_id)
+                if not q or q.get("type") != "ES":
+                    continue
+
+                ans = answers.get(q_id)
+                student_answer_text = ans.text_answer if ans else ""
+
+                if not student_answer_text or not student_answer_text.strip():
+                    eval_item.score = 0.0
+                    eval_item.feedback = "Jawaban kosong."
+                    eval_item.grading_status = GradingStatus.AI_DRAFT
+                    eval_item.grading_source = GradingSource.AI
+                    eval_item.grading_version = 1
+                    eval_item.last_evaluated_at = datetime.now(timezone.utc)
+                    db.commit()
+                    continue
+
+                try:
+                    rubrics_list = q.get("rubrics", [])
+                    ai_res = AiGradingService.grade_essay(
+                        question_text=q.get("content", ""),
+                        answer_key=q.get("answer_key", ""),
+                        student_answer=student_answer_text,
+                        rubrics=rubrics_list,
+                        concepts=q.get("concepts", []),
+                        education_level=education_level,
+                        education_class=education_class,
+                    )
+
+                    if ai_res and ai_res.get("status") == "success":
+                        final_pct = float(ai_res.get("final_score", 0.0))
+                        feedback = ai_res.get("feedback", "")
+                        max_score = float(
+                            q.get("max_score", q.get("score", eval_item.max_score or 10.0))
+                        )
+                        actual_score = round((final_pct / 100.0) * max_score, 2)
+
+                        eval_item.score = actual_score
+                        eval_item.feedback = feedback
+                        eval_item.grading_status = GradingStatus.AI_DRAFT
+                        eval_item.grading_source = GradingSource.AI
+                        eval_item.grading_version = 1
+                        eval_item.last_evaluated_at = datetime.now(timezone.utc)
+                        db.commit()
+                except Exception as e:
+                    logger.warning(f"AI essay grading error for question {q_id}: {e}")
+                    pass
         except Exception:
             db.rollback()
             raise

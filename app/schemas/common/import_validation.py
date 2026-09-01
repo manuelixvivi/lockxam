@@ -32,3 +32,4 @@ class ImportResponse(BaseModel, Generic[T]):
     imported_count: int
     errors: list[ImportRowError] | None = None
     data: list[T] | None = None
+    skipped: list[dict] | None = None

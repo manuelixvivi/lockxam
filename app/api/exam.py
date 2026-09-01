@@ -8,13 +8,15 @@ import os
 import random
 from datetime import datetime, timezone
 
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi import APIRouter, BackgroundTasks, Depends, Header, HTTPException, Request
 from pydantic import BaseModel
 from sqlalchemy.orm import Session
 from starlette import status
 
 from app.core.database import get_db
 from app.core.rbac import require_role
+from app.models.exam.enums import ExamSessionStatus
+from app.models.exam.exam_session import ExamSession
 from app.models.security.enums import UserRole
 from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
 from app.repositories.academic.student_enrollment_repository import student_enrollment_repository
@@ -22,6 +24,7 @@ from app.repositories.academic.subject_repository import subject_repository
 from app.repositories.exam.attempt_repository import attempt_repository
 from app.repositories.exam.checkin_repository import checkin_repository
 from app.repositories.exam.exam_session_repository import exam_session_repository
+from app.repositories.exam.snapshot_repository import snapshot_repository
 from app.repositories.exam.student_answer_repository import student_answer_repository
 from app.repositories.security.auth_repository import auth_repository
 from app.repositories.teacher.proctor_event_repository import proctor_event_repository
@@ -31,6 +34,7 @@ from app.schemas.exam.exam import (
     StudentAnswerResponse,
 )
 from app.services.exam.exam_service import ExamService
+from app.utils.timezone import ensure_wib
 
 router = APIRouter(prefix="/api/v1/exam", tags=["Exam — Student"])
 
@@ -128,8 +132,8 @@ def list_my_schedules(
 
     class_ids = [e.class_id for e in enrollments]
 
-    # 1. Active class schedules
-    active_schedules = exam_schedule_repository.list_active_for_classes(db, school_id, class_ids)
+    # Fetch all eligible schedules (READY, ACTIVE, CLOSED, FINISHED, EXPIRED) for missed-exam detection
+    active_schedules = exam_schedule_repository.list_eligible_for_classes(db, school_id, class_ids)
 
     # 2. Preserve historical schedules where student has attempt or check-in
     my_attempts = attempt_repository.get_by_student(db, student_id)
@@ -168,8 +172,6 @@ def list_my_schedules(
 
         if not session and s.status != "CANCELLED":
             start_wib = ensure_wib(s.start_time)
-            from app.models.exam.enums import ExamSessionStatus
-            from app.models.exam.exam_session import ExamSession
 
             sess_status = (
                 ExamSessionStatus.ACTIVE if now_wib >= start_wib else ExamSessionStatus.PLANNED
@@ -188,8 +190,6 @@ def list_my_schedules(
         elif session and session.status != ExamSessionStatus.ACTIVE:
             start_wib = ensure_wib(s.start_time)
             if now_wib >= start_wib:
-                from app.models.exam.enums import ExamSessionStatus
-
                 session.status = ExamSessionStatus.ACTIVE
                 db.commit()
 
@@ -199,6 +199,31 @@ def list_my_schedules(
 
         # Cek apakah siswa sudah checkin QR untuk jadwal ini
         checkin = checkin_repository.get_by_schedule_and_student(db, s.id, student_id)
+
+        # ── Classify exam into one of 4 categories ────────────────────────────
+        # COMPLETED : student has a submitted/graded attempt
+        # ACTIVE    : exam window is currently open (start <= now <= end)
+        # MISSED    : exam window has passed AND student has no attempt AND no checkin
+        # UPCOMING  : exam has not started yet
+        end_wib = ensure_wib(s.end_time)
+        start_wib = ensure_wib(s.start_time)
+
+        is_submitted = attempt and attempt.status.value in ("SUBMITTED", "GRADED", "GRADING")
+        has_participation = attempt is not None or checkin is not None
+
+        if s.status == "CANCELLED":
+            category = "CANCELLED"
+        elif is_submitted:
+            category = "COMPLETED"
+        elif now_wib > end_wib and not has_participation:
+            category = "MISSED"
+        elif now_wib >= start_wib and now_wib <= end_wib:
+            category = "ACTIVE"
+        elif now_wib > end_wib and has_participation:
+            # Has checkin or in-progress attempt but exam window closed
+            category = "COMPLETED"
+        else:
+            category = "UPCOMING"
 
         res.append(
             {
@@ -215,6 +240,7 @@ def list_my_schedules(
                 "eyd_language_evaluation": s.eyd_language_evaluation,
                 "randomize_per_type": s.randomize_per_type,
                 "status": s.status,
+                "category": category,
                 "attempt_id": attempt.id if attempt else None,
                 "attempt_status": attempt.status.value if attempt else "NOT_STARTED",
                 "attempt_remaining_seconds": attempt.remaining_seconds if attempt else None,
@@ -237,8 +263,6 @@ def get_class_leaderboard(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-
-
 
     enrollment = student_enrollment_repository.get_active_by_student(db, student_id)
 
@@ -703,11 +727,19 @@ async def flush_all_answers(
 )
 def submit_attempt(
     attempt_id: int,
+    background_tasks: BackgroundTasks,
+    request: Request,
     current_user=Depends(require_role(UserRole.STUDENT)),
     db: Session = Depends(get_db),
 ):
     attempt = ExamService.submit_attempt(db=db, attempt_id=attempt_id)
     status_str = attempt.status.value if hasattr(attempt.status, "value") else str(attempt.status)
+
+    if status_str == "GRADING":
+        base_url = str(request.base_url)
+        background_tasks.add_task(
+            run_ai_grading_background, attempt_id=attempt.id, base_url=base_url
+        )
 
     return ExamAttemptResponse(
         id=attempt.id,
@@ -733,7 +765,7 @@ async def _verify_ai_hmac(request: Request) -> None:
     import hashlib
     import hmac
 
-    secret = os.getenv("AI_WEBHOOK_SECRET", "")
+    secret = os.getenv("AI_WEBHOOK_SECRET", "equigrade-ai-webhook-secret-default")
     if not secret:
         raise HTTPException(status_code=500, detail="AI_WEBHOOK_SECRET not configured")
 
@@ -776,3 +808,44 @@ async def ai_grading_callback(
         version=payload.grading_version,
     )
     return {"status": "accepted"}
+
+
+def run_ai_grading_background(attempt_id: int, base_url: str = "", _db=None):
+    from app.core.database import SessionLocal
+    from app.models.exam.enums import ExamAttemptStatus, GradingStatus
+    from app.models.exam.exam_attempt import ExamAttempt
+    from app.repositories.exam.evaluation_repository import evaluation_repository
+    from app.services.exam.exam_service import ExamService, calculate_final_score
+
+    test_mode = _db is not None
+    db = _db if test_mode else SessionLocal()
+
+    try:
+        # Delegate essay evaluation to domain service layer
+        ExamService.execute_ai_essay_grading_job(db, attempt_id)
+
+        # Check if all essay evaluations are graded to advance overall attempt status to GRADED
+        db.expire_all()
+        evals = evaluation_repository.get_all_by_attempt(db, attempt_id)
+        if evals:
+            all_graded = True
+            total_score = 0.0
+            total_max = 0.0
+            for ev in evals:
+                total_score += float(ev.score)
+                total_max += float(ev.max_score)
+                if ev.grading_status == GradingStatus.AI_PENDING:
+                    all_graded = False
+
+            if all_graded:
+                attempt = db.query(ExamAttempt).filter(ExamAttempt.id == attempt_id).first()
+                if attempt:
+                    attempt.status = ExamAttemptStatus.GRADED
+                    attempt.final_score = calculate_final_score(total_score, total_max)
+                    if not test_mode:
+                        db.commit()
+                    else:
+                        db.flush()
+    finally:
+        if not test_mode:
+            db.close()

@@ -146,3 +146,29 @@ class QuestionPackageSnapshotPayload(BaseModel):
     name: str
     class_level: str
     questions: list[QuestionSnapshotPayload]
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Batch 4A — Question Bank Import Schemas
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+class QuestionImportRow(BaseModel):
+    """Satu baris soal dari XLSX yang dikirim sebagai bagian dari batch import."""
+
+    type: str
+    content: str = ""
+    options: list[str] | None = None
+    answer_key: str = ""
+    rubrics: list[dict] = Field(default_factory=list)
+    class_level: str | None = None
+    ai_grading: bool = False
+    row_num: int = Field(default=0, description="Nomor baris di XLSX (untuk error reporting)")
+    sheet: str = Field(default="", description="Nama sheet XLSX (untuk error reporting)")
+
+
+class QuestionImportRequest(BaseModel):
+    """Request payload untuk POST /api/v1/teacher/questions/import."""
+
+    subject: str = Field(..., min_length=1, description="Mata pelajaran yang dipilih oleh guru")
+    rows: list[QuestionImportRow] = Field(..., min_length=1)

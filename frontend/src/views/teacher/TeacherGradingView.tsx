@@ -67,6 +67,82 @@ export function TeacherGradingView() {
     );
   }, [selectedStudentAttempt, level3QuestionTab]);
 
+  const attemptStats = useMemo(() => {
+    if (!selectedStudentAttempt || !selectedStudentAttempt.answers) {
+      return {
+        score_pg: 0, max_pg: 0, count_pg: 0,
+        score_is: 0, max_is: 0, count_is: 0,
+        score_es: 0, max_es: 0, count_es: 0,
+        total_earned: 0, total_max: 0, final_score: 0
+      };
+    }
+    let score_pg = 0, max_pg = 0, count_pg = 0;
+    let score_is = 0, max_is = 0, count_is = 0;
+    let score_es = 0, max_es = 0, count_es = 0;
+
+    selectedStudentAttempt.answers.forEach((a: any) => {
+      const qType = a.question_type || "PG";
+      const earned = parseFloat(a.score_earned !== undefined && a.score_earned !== null ? a.score_earned : 0) || 0;
+      const maxQ = parseFloat(a.max_score !== undefined && a.max_score !== null ? a.max_score : 10) || 0;
+
+      if (qType === "PG") {
+        score_pg += earned;
+        max_pg += maxQ;
+        count_pg++;
+      } else if (qType === "IS") {
+        score_is += earned;
+        max_is += maxQ;
+        count_is++;
+      } else if (qType === "ES") {
+        score_es += earned;
+        max_es += maxQ;
+        count_es++;
+      }
+    });
+
+    const total_earned = score_pg + score_is + score_es;
+    const total_max = max_pg + max_is + max_es;
+    const final_score = total_max > 0 ? Math.round((total_earned / total_max) * 100 * 10) / 10 : 0;
+
+    return {
+      score_pg: Math.round(score_pg * 10) / 10,
+      max_pg: Math.round(max_pg * 10) / 10,
+      count_pg,
+      score_is: Math.round(score_is * 10) / 10,
+      max_is: Math.round(max_is * 10) / 10,
+      count_is,
+      score_es: Math.round(score_es * 10) / 10,
+      max_es: Math.round(max_es * 10) / 10,
+      count_es,
+      total_earned: Math.round(total_earned * 10) / 10,
+      total_max: Math.round(total_max * 10) / 10,
+      final_score
+    };
+  }, [selectedStudentAttempt]);
+
+  const scheduleQuestionTypes = useMemo(() => {
+    let hasPg = false;
+    let hasIs = false;
+    let hasEs = false;
+
+    studentAnswersList.forEach((st) => {
+      if ((st.max_pg && st.max_pg > 0) || (st.answers && st.answers.some((a: any) => (a.question_type || "PG") === "PG"))) {
+        hasPg = true;
+      }
+      if ((st.max_is && st.max_is > 0) || (st.answers && st.answers.some((a: any) => a.question_type === "IS"))) {
+        hasIs = true;
+      }
+      if ((st.max_es && st.max_es > 0) || (st.answers && st.answers.some((a: any) => a.question_type === "ES" || a.evaluation_id))) {
+        hasEs = true;
+      }
+    });
+
+    if (studentAnswersList.length === 0) {
+      return { hasPg: false, hasIs: false, hasEs: false };
+    }
+    return { hasPg, hasIs, hasEs };
+  }, [studentAnswersList]);
+
 
 
   // BAP Viewer Modal State
@@ -231,11 +307,11 @@ export function TeacherGradingView() {
             status: ev.grading_status || "SUBMITTED",
             final_score: ev.final_score !== null && ev.final_score !== undefined ? ev.final_score : ev.ai_score,
             score_pg: ev.score_pg || 0,
-            max_pg: ev.max_pg || 40,
+            max_pg: ev.max_pg || 0,
             score_is: ev.score_is || 0,
-            max_is: ev.max_is || 30,
+            max_is: ev.max_is || 0,
             score_es: ev.score_es || ev.ai_score || 0,
-            max_es: ev.max_es || 30,
+            max_es: ev.max_es || 0,
             answers: [],
           };
         }
@@ -686,7 +762,7 @@ export function TeacherGradingView() {
           </h2>
           <p className="text-xs text-slate-400 mt-1">
             {selectedScheduleInfo
-              ? `Melihat rincian perolehan skor per jenis soal (PG, IS, ES) untuk kelas ${selectedScheduleInfo.class_name}.`
+              ? `Melihat rincian perolehan skor ujian untuk kelas ${selectedScheduleInfo.class_name}.`
               : "Pilih salah satu jadwal ujian di bawah untuk melihat rincian siswa dan skor per jenis soal."}
           </p>
         </div>
@@ -929,10 +1005,10 @@ export function TeacherGradingView() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-800 pb-3">
                   <div>
                     <h3 className="font-bold text-slate-100 text-sm">
-                      Daftar Hasil &amp; Rincian Skor Per Jenis Soal Siswa
+                      Daftar Hasil &amp; Rincian Skor Siswa
                     </h3>
                     <p className="text-xs text-slate-400 mt-0.5">
-                      Rincian skor jawaban Pilihan Ganda (PG), Isian Singkat (IS), dan Essay (ES) per siswa.
+                      Rincian perolehan skor jawaban siswa pada jadwal ujian ini.
                     </p>
                   </div>
                   <div className="flex items-center gap-2">
@@ -964,9 +1040,15 @@ export function TeacherGradingView() {
                         <tr className="border-b border-slate-800 text-slate-400 bg-slate-950/40">
                           <th className="py-3 px-4 font-bold">No</th>
                           <th className="py-3 px-4 font-bold">Nama Siswa &amp; NISN</th>
-                          <th className="py-3 px-4 font-bold text-center">Skor PG</th>
-                          <th className="py-3 px-4 font-bold text-center">Skor Isian (IS)</th>
-                          <th className="py-3 px-4 font-bold text-center">Skor Essay (ES)</th>
+                          {scheduleQuestionTypes.hasPg && (
+                            <th className="py-3 px-4 font-bold text-center">Skor PG</th>
+                          )}
+                          {scheduleQuestionTypes.hasIs && (
+                            <th className="py-3 px-4 font-bold text-center">Skor Isian (IS)</th>
+                          )}
+                          {scheduleQuestionTypes.hasEs && (
+                            <th className="py-3 px-4 font-bold text-center">Skor Essay (ES)</th>
+                          )}
                           <th className="py-3 px-4 font-bold text-center">Nilai Akhir</th>
                           <th className="py-3 px-4 font-bold text-center">Status</th>
                           <th className="py-3 px-4 font-bold text-right">Aksi Koreksi</th>
@@ -986,15 +1068,21 @@ export function TeacherGradingView() {
                                 NISN: {st.nisn || "-"}
                               </span>
                             </td>
-                            <td className="py-3.5 px-4 text-center font-bold text-emerald-400">
-                              {st.score_pg !== undefined ? st.score_pg : 40} / {st.max_pg || 40}
-                            </td>
-                            <td className="py-3.5 px-4 text-center font-bold text-indigo-400">
-                              {st.score_is !== undefined ? st.score_is : 30} / {st.max_is || 30}
-                            </td>
-                            <td className="py-3.5 px-4 text-center font-bold text-purple-400">
-                              {st.score_es !== undefined ? st.score_es : 30} / {st.max_es || 30}
-                            </td>
+                            {scheduleQuestionTypes.hasPg && (
+                              <td className="py-3.5 px-4 text-center font-bold text-emerald-400">
+                                {st.max_pg > 0 ? `${st.score_pg !== undefined ? st.score_pg : 0} / ${st.max_pg}` : "-"}
+                              </td>
+                            )}
+                            {scheduleQuestionTypes.hasIs && (
+                              <td className="py-3.5 px-4 text-center font-bold text-indigo-400">
+                                {st.max_is > 0 ? `${st.score_is !== undefined ? st.score_is : 0} / ${st.max_is}` : "-"}
+                              </td>
+                            )}
+                            {scheduleQuestionTypes.hasEs && (
+                              <td className="py-3.5 px-4 text-center font-bold text-purple-400">
+                                {st.max_es > 0 ? `${st.score_es !== undefined ? st.score_es : 0} / ${st.max_es}` : "-"}
+                              </td>
+                            )}
                             <td className="py-3.5 px-4 text-center">
                               <span className="text-sm font-black text-amber-300 bg-amber-950/40 border border-amber-500/30 px-2.5 py-1 rounded-lg">
                                 {st.final_score !== undefined ? st.final_score : 100}
@@ -1067,29 +1155,62 @@ export function TeacherGradingView() {
                 <div className="glass-panel p-4 rounded-xl border border-slate-800 bg-slate-900/60">
                   <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">Nilai Akhir Ujian</span>
                   <p className="text-2xl font-black text-amber-300 mt-1">
-                    {selectedStudentAttempt.final_score !== undefined ? selectedStudentAttempt.final_score : 100} <span className="text-xs font-normal text-slate-500">/ 100</span>
+                    {attemptStats.final_score} <span className="text-xs font-normal text-slate-500">/ 100</span>
                   </p>
+                  <span className="text-[10px] text-slate-500 block mt-0.5">
+                    Total Poin: {attemptStats.total_earned} / {attemptStats.total_max}
+                  </span>
                 </div>
 
                 <div className="glass-panel p-4 rounded-xl border border-slate-800 bg-slate-900/60">
                   <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">Skor Pilihan Ganda (PG)</span>
-                  <p className="text-2xl font-black text-emerald-400 mt-1">
-                    {selectedStudentAttempt.score_pg !== undefined ? selectedStudentAttempt.score_pg : 40} <span className="text-xs font-normal text-slate-500">/ {selectedStudentAttempt.max_pg || 40}</span>
-                  </p>
+                  {attemptStats.count_pg > 0 ? (
+                    <>
+                      <p className="text-2xl font-black text-emerald-400 mt-1">
+                        {attemptStats.score_pg} <span className="text-xs font-normal text-slate-500">/ {attemptStats.max_pg}</span>
+                      </p>
+                      <span className="text-[10px] text-emerald-400/80 block mt-0.5">{attemptStats.count_pg} Butir Soal</span>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-2xl font-black text-slate-600 mt-1">-</p>
+                      <span className="text-[10px] text-slate-500 block mt-0.5">Tidak ada soal PG</span>
+                    </>
+                  )}
                 </div>
 
                 <div className="glass-panel p-4 rounded-xl border border-slate-800 bg-slate-900/60">
                   <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">Skor Isian Singkat (IS)</span>
-                  <p className="text-2xl font-black text-indigo-400 mt-1">
-                    {selectedStudentAttempt.score_is !== undefined ? selectedStudentAttempt.score_is : 30} <span className="text-xs font-normal text-slate-500">/ {selectedStudentAttempt.max_is || 30}</span>
-                  </p>
+                  {attemptStats.count_is > 0 ? (
+                    <>
+                      <p className="text-2xl font-black text-indigo-400 mt-1">
+                        {attemptStats.score_is} <span className="text-xs font-normal text-slate-500">/ {attemptStats.max_is}</span>
+                      </p>
+                      <span className="text-[10px] text-indigo-400/80 block mt-0.5">{attemptStats.count_is} Butir Soal</span>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-2xl font-black text-slate-600 mt-1">-</p>
+                      <span className="text-[10px] text-slate-500 block mt-0.5">Tidak ada soal IS</span>
+                    </>
+                  )}
                 </div>
 
                 <div className="glass-panel p-4 rounded-xl border border-slate-800 bg-slate-900/60">
                   <span className="text-[11px] font-semibold text-slate-400 block uppercase tracking-wider">Skor Essay (ES)</span>
-                  <p className="text-2xl font-black text-purple-400 mt-1">
-                    {selectedStudentAttempt.score_es !== undefined ? selectedStudentAttempt.score_es : 30} <span className="text-xs font-normal text-slate-500">/ {selectedStudentAttempt.max_es || 30}</span>
-                  </p>
+                  {attemptStats.count_es > 0 ? (
+                    <>
+                      <p className="text-2xl font-black text-purple-400 mt-1">
+                        {attemptStats.score_es} <span className="text-xs font-normal text-slate-500">/ {attemptStats.max_es}</span>
+                      </p>
+                      <span className="text-[10px] text-purple-400/80 block mt-0.5">{attemptStats.count_es} Butir Soal</span>
+                    </>
+                  ) : (
+                    <>
+                      <p className="text-2xl font-black text-slate-600 mt-1">-</p>
+                      <span className="text-[10px] text-slate-500 block mt-0.5">Tidak ada soal Essay</span>
+                    </>
+                  )}
                 </div>
               </div>
 

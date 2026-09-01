@@ -14,6 +14,7 @@ import { studentApi } from "../../api/student";
 import type { StudentAccount } from "../../api/student";
 import { classApi } from "../../api/class";
 import type { ClassEntity } from "../../api/class";
+import { academicApi } from "../../api/academic";
 import { ImportExportBar } from "../../components/ui/ImportExportBar";
 import { readXlsxFile } from "../../utils/xlsx";
 import { downloadStudentTemplate } from "../../utils/excelTemplates";
@@ -93,6 +94,8 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
   const [isCreating, setIsCreating] = useState(false);
   const [isAddChoiceOpen, setIsAddChoiceOpen] = useState(false);
   const [isImportingXlsx, setIsImportingXlsx] = useState(false);
+  const [activeYearId, setActiveYearId] = useState<number | null>(null);
+  const [importErrors, setImportErrors] = useState<Array<{ row: number; field: string; value?: string; message: string }> | null>(null);
 
   // Edit Student State
   const [editTarget, setEditTarget] = useState<StudentAccount | null>(null);
@@ -122,12 +125,19 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
   const loadStudents = useCallback(async () => {
     setIsLoading(true);
     try {
-      const [data, classes] = await Promise.all([
+      const [data, classes, years] = await Promise.all([
         studentApi.listStudents(),
         classApi.listClasses().catch(() => []),
+        academicApi.getAcademicYears().catch(() => []),
       ]);
       setStudents(data);
       setMasterClasses(classes);
+
+      const activeYear = years.find((y: any) => y.status === "ACTIVE") || years[0];
+      if (activeYear) {
+        setActiveYearId(activeYear.id);
+      }
+
       setSelectedIds([]); // Clear selection on reload
     } catch (err: any) {
       showToast({ type: "error", title: "Gagal memuat daftar siswa.", message: err?.message });
@@ -948,6 +958,7 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
         onDownloadTemplate={downloadStudentTemplate}
         onImportXlsx={async (file) => {
           setIsImportingXlsx(true);
+          setImportErrors(null);
           try {
             const rows = await readXlsxFile(file);
             if (rows.length === 0) {
@@ -955,10 +966,12 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
               return;
             }
 
-            let success = 0;
-            let failed = 0;
+            if (!activeYearId) {
+              showToast({ type: "error", title: "Tahun Ajaran Aktif Tidak Ditemukan", message: "Harap buat tahun ajaran aktif terlebih dahulu." });
+              return;
+            }
 
-            for (const row of rows) {
+            const payloadRows = rows.map((row) => {
               const name = String(row["Nama Lengkap"] || "").trim();
               const nisn = String(row["NISN"] || "").trim().replace(/\D/g, "");
               const rawGender = String(row["Jenis Kelamin (L/P)"] || "").trim().toUpperCase();
@@ -967,35 +980,58 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
               const rawBirthDate = String(row["Tanggal Lahir (YYYY-MM-DD)"] || "").trim();
               const birthDate = /^\d{4}-\d{2}-\d{2}$/.test(rawBirthDate) ? rawBirthDate : undefined;
               const rawClassName = String(row["Kelas"] || "").trim();
+              const rawRegYear = String(row["Tahun Terdaftar"] || "").trim();
+              const regYear = rawRegYear ? parseInt(rawRegYear, 10) : undefined;
 
-              if (!name || !nisn || !gender) {
-                failed++;
-                continue;
-              }
-
-              try {
-                await studentApi.createStudent({
-                  name,
-                  nisn,
-                  gender,
-                  nis,
-                  birth_date: birthDate,
-                  class_name: rawClassName || undefined,
-                });
-                success++;
-              } catch {
-                failed++;
-              }
-            }
-
-            showToast({
-              type: success > 0 ? "success" : "error",
-              title: "Impor Berhasil",
-              message: `Berhasil mengimpor ${success} siswa.${failed > 0 ? ` ${failed} baris gagal/diabaikan.` : ""}`,
+              return {
+                name: name || undefined,
+                nisn: nisn || undefined,
+                gender: gender || undefined,
+                nis: nis || undefined,
+                birth_date: birthDate || undefined,
+                class_name: rawClassName || undefined,
+                registered_year: regYear || undefined,
+              };
             });
-            await loadStudents();
+
+            const result = await studentApi.importStudents({
+              academic_year_id: activeYearId,
+              rows: payloadRows,
+            });
+
+            if (result.status === "success") {
+              const skippedCount = result.skipped?.length || 0;
+              let msg = `Berhasil mengimpor ${result.imported_count} siswa.`;
+              if (skippedCount > 0) {
+                msg = `Berhasil mengimpor ${result.imported_count} siswa, ${skippedCount} siswa dilewati karena sudah ada di database.`;
+              }
+              showToast({
+                type: "success",
+                title: "Impor Berhasil",
+                message: msg,
+              });
+              await loadStudents();
+            } else {
+              setImportErrors(result.errors || []);
+            }
           } catch (err: any) {
-            showToast({ type: "error", title: "Gagal Membaca File", message: err?.message || "Format file salah." });
+            const serverErrors = err.response?.data?.errors;
+            const serverMsg = err.response?.data?.message;
+
+            if (serverErrors && Array.isArray(serverErrors)) {
+              setImportErrors(serverErrors);
+              showToast({
+                type: "error",
+                title: "Impor Dibatalkan",
+                message: "Tidak ada data siswa yang disimpan. Silakan periksa kesalahan validasi.",
+              });
+            } else {
+              showToast({
+                type: "error",
+                title: "Impor Gagal",
+                message: serverMsg || err.message || "Terjadi kesalahan saat memproses impor data.",
+              });
+            }
           } finally {
             setIsImportingXlsx(false);
           }
@@ -1491,6 +1527,60 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
         isLoading={bulkDeleteProgress !== null}
         confirmVariant="danger"
       />
+      {/* ── Modal: Loading Impor Siswa ── */}
+      <Modal
+        isOpen={isImportingXlsx}
+        onClose={() => {}}
+        title="Mengimpor Data Siswa"
+        maxWidth="sm"
+      >
+        <div className="flex flex-col items-center justify-center p-8 space-y-4 text-center">
+          <Loader2 className="w-10 h-10 animate-spin text-indigo-400" />
+          <h4 className="text-sm font-bold text-slate-200">Sedang memproses file Excel...</h4>
+          <p className="text-xs text-slate-400">
+            Harap tunggu sebentar, sistem sedang melakukan validasi dan mengimpor data siswa ke server.
+          </p>
+        </div>
+      </Modal>
+
+      {/* ── Modal: Kesalahan Validasi Impor Siswa ── */}
+      <Modal
+        isOpen={importErrors !== null}
+        onClose={() => setImportErrors(null)}
+        title="Impor Dibatalkan — Terdapat Kesalahan Validasi"
+        maxWidth="lg"
+      >
+        <div className="space-y-4 text-xs">
+          <div className="p-3.5 rounded-xl bg-rose-950/20 border border-rose-500/30 text-rose-300 font-medium">
+            Tidak ada data siswa yang disimpan ke database karena terdapat kesalahan pada file Excel yang Anda unggah.
+          </div>
+          <div className="max-h-60 overflow-y-auto space-y-2.5 pr-1">
+            {importErrors?.map((err, idx) => (
+              <div key={idx} className="p-2.5 rounded-lg bg-slate-900 border border-slate-800 flex items-start gap-2.5">
+                <div className="px-2 py-0.5 rounded bg-rose-500/10 border border-rose-500/20 text-rose-400 font-bold shrink-0">
+                  Baris {err.row}
+                </div>
+                <div className="flex-1 min-w-0">
+                  <p className="font-semibold text-slate-200">
+                    Kolom/Field: <span className="font-mono text-indigo-400">{err.field}</span>
+                  </p>
+                  {err.value && (
+                    <p className="text-[11px] text-slate-400 mt-0.5 truncate">
+                      Nilai Input: <span className="italic">"{err.value}"</span>
+                    </p>
+                  )}
+                  <p className="text-[11px] text-rose-300 mt-1 font-medium">{err.message}</p>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex justify-end pt-2">
+            <Button variant="primary" onClick={() => setImportErrors(null)}>
+              Tutup
+            </Button>
+          </div>
+        </div>
+      </Modal>
     </AppShell>
   );
 };

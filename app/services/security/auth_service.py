@@ -491,6 +491,27 @@ class AuthService:
 
         session_expires_in = int(expires_delta.total_seconds()) if expires_delta else None
 
+        from app.schemas.security.auth import CurrentUserResponse
+
+        user_profile = CurrentUserResponse(
+            user_id=account.id,
+            username=account.username or "unknown",
+            role=account.role.value if hasattr(account.role, "value") else str(account.role),
+            school_id=account.school_id,
+            must_change_password=bool(account.must_change_password),
+            name=account.name,
+            nis=account.nis,
+            nisn=account.nisn,
+            birth_date=account.birth_date,
+            gender=account.gender,
+            class_name=account.class_name,
+            registered_year=account.registered_year,
+            nip=account.nip,
+            teacher_code=account.teacher_code,
+            subjects_taught=account.subjects_taught,
+            classes_taught=account.classes_taught,
+        )
+
         return LoginResponse(
             access_token=access_token,
             refresh_token=refresh_token,
@@ -498,4 +519,5 @@ class AuthService:
             school_id=account.school_id,
             must_change_password=account.must_change_password,
             session_expires_in=session_expires_in,
+            user_profile=user_profile,
         )

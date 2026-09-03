@@ -8,16 +8,6 @@ class LoginRequest(BaseModel):
     password: str
 
 
-class LoginResponse(BaseModel):
-    access_token: str
-    refresh_token: str | None = None
-    token_type: str = "bearer"
-    role: str
-    school_id: int | None
-    must_change_password: bool
-    session_expires_in: int | None = None
-
-
 class CurrentUserResponse(BaseModel):
     user_id: int
     username: str
@@ -37,6 +27,17 @@ class CurrentUserResponse(BaseModel):
     teacher_code: str | None = None
     subjects_taught: list[str] | None = None
     classes_taught: list[str] | None = None
+
+
+class LoginResponse(BaseModel):
+    access_token: str
+    refresh_token: str | None = None
+    token_type: str = "bearer"
+    role: str
+    school_id: int | None
+    must_change_password: bool
+    session_expires_in: int | None = None
+    user_profile: CurrentUserResponse | None = None
 
 
 class RefreshRequest(BaseModel):

@@ -1,3 +1,4 @@
+import os
 import re
 
 import bcrypt
@@ -15,7 +16,8 @@ def _to_bytes(password: str) -> bytes:
 
 
 def hash_password(password: str) -> str:
-    hashed = bcrypt.hashpw(_to_bytes(password), bcrypt.gensalt(rounds=12))
+    rounds = int(os.getenv("BCRYPT_ROUNDS", "10"))
+    hashed = bcrypt.hashpw(_to_bytes(password), bcrypt.gensalt(rounds=rounds))
     return hashed.decode("utf-8")
 
 

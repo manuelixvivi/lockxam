@@ -34,6 +34,7 @@ export const LoginView: React.FC<{ onLoginSuccess?: (role: UserRole) => void }> 
         refresh_token: string;
         role: UserRole;
         school_id?: number;
+        user_profile?: any;
       }>("/api/v1/auth/login", {
         username: userToLogin,
         password: passToLogin,
@@ -41,12 +42,14 @@ export const LoginView: React.FC<{ onLoginSuccess?: (role: UserRole) => void }> 
 
       apiClient.setAccessToken(response.access_token);
 
-      const me = await apiClient.get("/api/v1/auth/me");
+      const userProfile =
+        response.user_profile ||
+        (await apiClient.get("/api/v1/auth/me"));
 
-      login(response.access_token, response.refresh_token, me);
+      login(response.access_token, response.refresh_token, userProfile);
 
       if (onLoginSuccess) {
-        onLoginSuccess(me.role);
+        onLoginSuccess(userProfile.role || response.role);
       }
     } catch (err: any) {
       setErrorMessage(

@@ -1,3 +1,7 @@
+from app.models.ai.ai_system_setting import (
+    AiConfigHistory as AiConfigHistory,
+    AiSystemSetting as AiSystemSetting,
+)
 from app.models.ai.assessment_embedding import AssessmentEmbedding as AssessmentEmbedding
 from app.models.ai.assessment_history import AssessmentHistory as AssessmentHistory
 from app.models.ai.dataset_version import DatasetVersion as DatasetVersion
@@ -17,6 +21,8 @@ from app.models.ai.training_job import (
 )
 
 __all__ = [
+    "AiSystemSetting",
+    "AiConfigHistory",
     "AssessmentHistory",
     "AssessmentEmbedding",
     "TrainingCandidate",

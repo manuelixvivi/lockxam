@@ -29,6 +29,7 @@ from app.api.proctor import router as proctor_router
 from app.api.school import router as school_router
 from app.api.school_staff import router as school_staff_router
 from app.api.school_student import router as school_student_router
+from app.api.superadmin_ai import router as superadmin_ai_router
 from app.api.teacher import dashboard_router, questions_router
 from app.api.teacher import router as teacher_router
 from app.core.database import Base, SessionLocal, engine
@@ -121,6 +122,7 @@ app.include_router(school_student_router)
 app.include_router(admin_subject_router)
 app.include_router(admin_class_router)
 app.include_router(admin_exam_schedule_router)
+app.include_router(superadmin_ai_router)
 
 # Mount Built Frontend Dist static files for Single-Port Production Serving
 from fastapi.responses import FileResponse

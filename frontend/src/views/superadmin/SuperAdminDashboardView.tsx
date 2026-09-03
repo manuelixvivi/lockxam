@@ -8,6 +8,7 @@ import {
   ArrowUpRight,
   School,
   CheckCircle2,
+  Cpu,
 } from "lucide-react";
 import { AppShell } from "../../components/layout/AppShell";
 import { RoleGuard } from "../../components/layout/RoleGuard";
@@ -79,7 +80,7 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
                 </p>
               </div>
 
-              <div className="flex items-center gap-3">
+              <div className="flex flex-wrap items-center gap-3">
                 <Button
                   variant="primary"
                   size="md"
@@ -94,7 +95,15 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
                   leftIcon={<KeyRound className="w-4 h-4 text-purple-400" />}
                   onClick={() => onNavigate && onNavigate("/superadmin/licenses")}
                 >
-                  Generate Activation Key
+                  Lisensi Key
+                </Button>
+                <Button
+                  variant="outline"
+                  size="md"
+                  leftIcon={<Cpu className="w-4 h-4 text-indigo-400" />}
+                  onClick={() => onNavigate && onNavigate("/superadmin/ai-system")}
+                >
+                  AI & Sistem
                 </Button>
               </div>
             </div>

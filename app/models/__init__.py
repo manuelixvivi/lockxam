@@ -23,6 +23,10 @@ from app.models.academic.student_class_enrollment import (
 )
 from app.models.academic.subject import Subject as Subject
 from app.models.academic.teacher_subject import TeacherSubject as TeacherSubject
+from app.models.ai.ai_system_setting import (
+    AiConfigHistory as AiConfigHistory,
+    AiSystemSetting as AiSystemSetting,
+)
 from app.models.ai.assessment_embedding import AssessmentEmbedding as AssessmentEmbedding
 from app.models.ai.assessment_history import AssessmentHistory as AssessmentHistory
 from app.models.ai.dataset_version import DatasetVersion as DatasetVersion

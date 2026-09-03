@@ -20,6 +20,7 @@ import { StudentWorkspaceView } from "./views/student/StudentWorkspaceView";
 
 import { SuperAdminSchoolsView } from "./views/superadmin/SuperAdminSchoolsView";
 import { SuperAdminLicensesView } from "./views/superadmin/SuperAdminLicensesView";
+import { SuperAdminAiSystemView } from "./views/superadmin/SuperAdminAiSystemView";
 import { Badge } from "./components/ui/Badge";
 import { Breadcrumb } from "./components/layout/Breadcrumb";
 import { BookOpen } from "lucide-react";
@@ -121,6 +122,9 @@ function NavigationRouter() {
     }
     if (currentPath === "/superadmin/licenses") {
       return <SuperAdminLicensesView onNavigate={handleNavigate} />;
+    }
+    if (currentPath.startsWith("/superadmin/ai-system")) {
+      return <SuperAdminAiSystemView onNavigate={handleNavigate} />;
     }
     return <SuperAdminDashboardView onNavigate={handleNavigate} />;
   }

@@ -12,6 +12,7 @@ import {
   Award,
   ShieldCheck,
   HelpCircle,
+  Cpu,
   X,
 } from "lucide-react";
 import { useAuth, UserRole } from "../../context/AuthContext";
@@ -44,6 +45,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
           { label: "Dashboard", href: "/superadmin/dashboard", icon: <LayoutDashboard className="w-4 h-4" /> },
           { label: "Manajemen Sekolah", href: "/superadmin/schools", icon: <Building2 className="w-4 h-4" /> },
           { label: "Lisensi Key Generator", href: "/superadmin/licenses", icon: <KeyRound className="w-4 h-4" /> },
+          { label: "AI & Sistem", href: "/superadmin/ai-system", icon: <Cpu className="w-4 h-4" /> },
         ];
       case UserRole.SCHOOL_ADMIN:
         return [

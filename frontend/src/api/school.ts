@@ -36,9 +36,26 @@ export interface ChangePasswordRequest {
   new_password: string;
 }
 
+export interface SchoolDashboardSummary {
+  school_id: number;
+  school_name: string;
+  school_code: string;
+  total_students: number;
+  total_teachers: number;
+  total_classes: number;
+  total_subjects: number;
+  active_academic_year: string;
+  active_academic_year_id?: number | null;
+  active_exam_schedules: number;
+}
+
 export const schoolApi = {
   getSchoolProfile: async (schoolIdOrPublicId: string | number): Promise<SchoolProfile> => {
     return apiClient.get<SchoolProfile>(`/api/v1/schools/${schoolIdOrPublicId}`);
+  },
+
+  getDashboardSummary: async (schoolIdOrPublicId: string | number): Promise<SchoolDashboardSummary> => {
+    return apiClient.get<SchoolDashboardSummary>(`/api/v1/schools/${schoolIdOrPublicId}/dashboard-summary`);
   },
 
   updateSchoolProfile: async (

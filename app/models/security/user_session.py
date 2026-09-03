@@ -1,7 +1,7 @@
 from datetime import datetime
 from uuid import UUID
 
-from sqlalchemy import ForeignKey, String, Text
+from sqlalchemy import ForeignKey, Index, String, Text
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -10,6 +10,9 @@ from app.core.database import Base
 class UserSession(Base):
 
     __tablename__ = "user_sessions"
+    __table_args__ = (
+        Index("ix_user_sessions_account_active", "auth_account_id", "revoked", "expires_at"),
+    )
 
     id: Mapped[UUID] = mapped_column(primary_key=True)
 

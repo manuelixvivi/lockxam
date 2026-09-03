@@ -18,6 +18,9 @@ export interface AppShellProps {
   hideSidebar?: boolean;
 }
 
+const schoolLogoCache: Record<number, string | null> = {};
+const schoolLicenseCache: Record<number, ActiveLicenseResponse | null> = {};
+
 export const AppShell: React.FC<AppShellProps> = ({
   children,
   activeHref,
@@ -25,31 +28,57 @@ export const AppShell: React.FC<AppShellProps> = ({
   hideSidebar = false,
 }) => {
   const { role, user } = useAuth();
-  const [license, setLicense] = useState<ActiveLicenseResponse | null>(null);
+  const schoolId = user?.school_id ? Number(user.school_id) : null;
+
+  const [license, setLicense] = useState<ActiveLicenseResponse | null>(() => {
+    return schoolId !== null && schoolLicenseCache[schoolId] !== undefined
+      ? schoolLicenseCache[schoolId]
+      : null;
+  });
 
   useEffect(() => {
-    if (role === UserRole.SCHOOL_ADMIN) {
+    if (role === UserRole.SCHOOL_ADMIN && schoolId !== null) {
+      if (schoolLicenseCache[schoolId] !== undefined) {
+        setLicense(schoolLicenseCache[schoolId]);
+        return;
+      }
       licenseApi
         .getMyLicense()
-        .then((lic) => setLicense(lic))
-        .catch(() => setLicense(null));
+        .then((lic) => {
+          schoolLicenseCache[schoolId] = lic;
+          setLicense(lic);
+        })
+        .catch(() => {
+          schoolLicenseCache[schoolId] = null;
+          setLicense(null);
+        });
     }
-  }, [role, user?.school_id]);
+  }, [role, schoolId]);
 
-  const [logoUrl, setLogoUrl] = useState<string | null>(null);
+  const [logoUrl, setLogoUrl] = useState<string | null>(() => {
+    return schoolId !== null && schoolLogoCache[schoolId] !== undefined
+      ? schoolLogoCache[schoolId]
+      : null;
+  });
 
   useEffect(() => {
-    if (user?.school_id) {
+    if (schoolId !== null) {
+      if (schoolLogoCache[schoolId] !== undefined) {
+        setLogoUrl(schoolLogoCache[schoolId]);
+        return;
+      }
       schoolApi
-        .getSchoolProfile(user.school_id)
+        .getSchoolProfile(schoolId)
         .then((profile) => {
-          if (profile.logo_url) {
-            setLogoUrl(profile.logo_url);
+          const logo = profile.logo_url || null;
+          schoolLogoCache[schoolId] = logo;
+          if (logo) {
+            setLogoUrl(logo);
           }
         })
         .catch(() => {});
     }
-  }, [user?.school_id]);
+  }, [schoolId]);
 
   const isSuspended = license?.status === "SUSPENDED" || license?.status === "PAUSED";
 

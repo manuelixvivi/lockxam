@@ -73,6 +73,14 @@ def get_school(identifier: str, db: Session = Depends(get_db)):
     return SchoolService.get_school_by_id_or_public_id(db, identifier)
 
 
+@router.get(
+    "/{identifier}/dashboard-summary",
+    dependencies=[Depends(require_authenticated())],
+)
+def get_school_dashboard_summary(identifier: str, db: Session = Depends(get_db)):
+    return SchoolService.get_dashboard_summary(db, identifier)
+
+
 @router.put(
     "/{public_id}",
     response_model=SchoolResponse,

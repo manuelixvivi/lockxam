@@ -18,14 +18,9 @@ import { Spinner } from "../../components/ui/Spinner";
 import { UserRole } from "../../context/AuthContext";
 import { useAuth } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
-import { schoolApi } from "../../api/school";
-import { teacherApi } from "../../api/teacher";
-import { studentApi } from "../../api/student";
-import { academicApi } from "../../api/academic";
-import type { SchoolProfile } from "../../api/school";
-import type { TeacherAccount } from "../../api/teacher";
-import type { StudentAccount } from "../../api/student";
-import type { AcademicYear } from "../../api/academic";
+import { schoolApi, type SchoolProfile, type SchoolDashboardSummary } from "../../api/school";
+import { teacherApi, type TeacherAccount } from "../../api/teacher";
+import { academicApi, type AcademicYear } from "../../api/academic";
 import type { AppApiError } from "../../api/client";
 
 export const SchoolDashboardView: React.FC<{ onNavigate?: (href: string) => void }> = ({
@@ -35,8 +30,8 @@ export const SchoolDashboardView: React.FC<{ onNavigate?: (href: string) => void
   const toast = useToast();
 
   const [school, setSchool] = useState<SchoolProfile | null>(null);
+  const [summary, setSummary] = useState<SchoolDashboardSummary | null>(null);
   const [teachers, setTeachers] = useState<TeacherAccount[]>([]);
-  const [students, setStudents] = useState<StudentAccount[]>([]);
   const [academicYears, setAcademicYears] = useState<AcademicYear[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
@@ -44,15 +39,15 @@ export const SchoolDashboardView: React.FC<{ onNavigate?: (href: string) => void
     if (!user?.school_id) return;
     setIsLoading(true);
     try {
-      const [schoolData, teachersData, studentsData, academicData] = await Promise.all([
+      const [schoolData, summaryData, teachersData, academicData] = await Promise.all([
         schoolApi.getSchoolProfile(user.school_id),
-        teacherApi.listTeachers(),
-        studentApi.listStudents(),
+        schoolApi.getDashboardSummary(user.school_id),
+        teacherApi.listTeachers(5),
         academicApi.getAcademicYears(),
       ]);
       setSchool(schoolData);
+      setSummary(summaryData);
       setTeachers(teachersData);
-      setStudents(studentsData);
       setAcademicYears(academicData);
     } catch (err: any) {
       const apiErr = err as AppApiError;
@@ -132,7 +127,7 @@ export const SchoolDashboardView: React.FC<{ onNavigate?: (href: string) => void
                   <span className="text-xs font-semibold text-slate-400">Total Guru</span>
                   <Users className="w-5 h-5 text-indigo-400" />
                 </div>
-                <div className="text-3xl font-black text-slate-100">{teachers.length}</div>
+                <div className="text-3xl font-black text-slate-100">{summary?.total_teachers ?? 0}</div>
                 <p className="text-[11px] text-slate-500 font-medium">Akun terdaftar resmi</p>
               </div>
 
@@ -142,7 +137,7 @@ export const SchoolDashboardView: React.FC<{ onNavigate?: (href: string) => void
                   <span className="text-xs font-semibold text-slate-400">Total Siswa</span>
                   <GraduationCap className="w-5 h-5 text-emerald-400" />
                 </div>
-                <div className="text-3xl font-black text-emerald-400">{students.length}</div>
+                <div className="text-3xl font-black text-emerald-400">{summary?.total_students ?? 0}</div>
                 <p className="text-[11px] text-slate-500 font-medium">Terdaftar di ujian central</p>
               </div>
 

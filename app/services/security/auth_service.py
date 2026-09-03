@@ -97,15 +97,10 @@ class AuthService:
                     from app.repositories.exam.attempt_repository import attempt_repository
                     from app.repositories.exam.checkin_repository import checkin_repository
 
-                    my_checkins = checkin_repository.get_by_student(db, account.id)
-                    has_checkin = bool(my_checkins)
+                    has_checkin = checkin_repository.has_student_checkin(db, account.id)
+                    has_active_exam = attempt_repository.has_active_or_paused(db, account.id)
 
-                    active_attempts = attempt_repository.get_active_or_paused(
-                        db, student_id=account.id
-                    )
-                    active_exam = active_attempts[0] if active_attempts else None
-
-                    if (has_checkin or active_exam) and os.getenv(
+                    if (has_checkin or has_active_exam) and os.getenv(
                         "COOKIE_SECURE", "true"
                     ) != "false":
                         # SISWA SUDAH SCAN QR ABSEN ATAU SEDANG UJIAN: Kunci total! Login dari HP lain DITOLAK

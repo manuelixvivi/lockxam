@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Index, Integer, Numeric, UniqueConstraint
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.dialects.postgresql import ARRAY
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -20,7 +20,10 @@ if TYPE_CHECKING:
 
 class ExamAttempt(TimestampMixin, PublicIdMixin, Base):
     __tablename__ = "exam_attempts"
-    __table_args__ = (UniqueConstraint("exam_session_id", "student_id", name="uq_session_student"),)
+    __table_args__ = (
+        UniqueConstraint("exam_session_id", "student_id", name="uq_session_student"),
+        Index("ix_exam_attempts_student_status", "student_id", "status"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
     exam_session_id: Mapped[int] = mapped_column(

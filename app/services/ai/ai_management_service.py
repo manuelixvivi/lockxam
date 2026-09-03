@@ -10,6 +10,7 @@ from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.core.database import engine
+from app.core.security.crypto import decrypt_secret, encrypt_secret
 from app.models.ai.ai_system_setting import AiConfigHistory, AiSystemSetting
 from app.models.ai.assessment_history import AssessmentHistory
 from app.models.ai.dataset_version import DatasetVersion
@@ -99,13 +100,21 @@ class AiManagementService:
     """
 
     @classmethod
+    def get_effective_api_key(cls, db: Session) -> str:
+        """Reads and decrypts current active API key from central DB or falls back to env."""
+        setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+        if setting and setting.encrypted_secret:
+            decrypted = decrypt_secret(setting.encrypted_secret)
+            if decrypted:
+                return decrypted
+        return AiConfig.GROQ_API_KEY
+
+    @classmethod
     def get_active_config(cls, db: Session) -> AiProviderConfigResponse:
         """Retrieves active AI provider configuration from DB or env fallback."""
         setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
         
-        effective_key = AiConfig.GROQ_API_KEY
-        if setting and setting.encrypted_secret:
-            effective_key = setting.encrypted_secret
+        effective_key = cls.get_effective_api_key(db)
 
         config_data = setting.value_json if setting and setting.value_json else {}
 
@@ -167,7 +176,7 @@ class AiManagementService:
             changes.append(f"Model diubah: {old_model} → {payload.model_name}")
 
         if payload.api_key and payload.api_key.strip():
-            setting.encrypted_secret = payload.api_key.strip()
+            setting.encrypted_secret = encrypt_secret(payload.api_key.strip())
             AiConfig.GROQ_API_KEY = payload.api_key.strip()
             changes.append("API Key diperbarui")
 
@@ -230,12 +239,7 @@ class AiManagementService:
         Performs a lightweight probe to the target provider/model and records test latency.
         """
         setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
-        effective_key = payload.api_key.strip() if payload.api_key else ""
-        if not effective_key:
-            if setting and setting.encrypted_secret:
-                effective_key = setting.encrypted_secret
-            else:
-                effective_key = AiConfig.GROQ_API_KEY
+        effective_key = payload.api_key.strip() if payload.api_key else cls.get_effective_api_key(db)
 
         target_model = payload.model_name or (
             setting.value_json.get("model_name") if setting and setting.value_json else AiConfig.MODEL_NAME

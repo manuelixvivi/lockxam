@@ -48,6 +48,19 @@ class AttemptRepository(BaseRepository[ExamAttempt]):
             stmt = stmt.where(ExamAttempt.student_id == student_id)
         return list(db.scalars(stmt).all())
 
+    def has_active_or_paused(self, db: Session, student_id: int) -> bool:
+        stmt = (
+            select(1)
+            .where(
+                ExamAttempt.student_id == student_id,
+                ExamAttempt.status.in_(
+                    [ExamAttemptStatus.IN_PROGRESS, ExamAttemptStatus.PAUSED, "IN_PROGRESS", "PAUSED"]
+                ),
+            )
+            .limit(1)
+        )
+        return db.scalar(stmt) is not None
+
     def get_by_student(self, db: Session, student_id: int) -> list[ExamAttempt]:
         stmt = select(ExamAttempt).where(ExamAttempt.student_id == student_id)
         return list(db.scalars(stmt).all())

@@ -30,9 +30,11 @@ class SchoolStaffService:
         return school.domain
 
     @staticmethod
-    def list_teachers(db: Session, school_id: int) -> list[AuthAccount]:
+    def list_teachers(
+        db: Session, school_id: int, limit: int | None = None, skip: int = 0
+    ) -> list[AuthAccount]:
         """List teachers and project relational assignments onto compatibility arrays using batch lookups."""
-        teachers = auth_repository.list_teachers_by_school(db, school_id)
+        teachers = auth_repository.list_teachers_by_school(db, school_id, limit=limit, skip=skip)
         if not teachers:
             return []
 

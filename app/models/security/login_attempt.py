@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 
-from sqlalchemy import Integer, String
+from sqlalchemy import Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -9,6 +9,9 @@ from app.core.database import Base
 class LoginAttempt(Base):
 
     __tablename__ = "login_attempts"
+    __table_args__ = (
+        Index("ix_login_attempts_ip_user", "ip_address", "username"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True, autoincrement=True)
     ip_address: Mapped[str] = mapped_column(String(100), index=True)

@@ -1,29 +1,71 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, Suspense, lazy } from "react";
 import { AuthProvider, useAuth, UserRole } from "./context/AuthContext";
 import { ToastProvider } from "./context/ToastContext";
 import { ErrorBoundary } from "./components/ui/ErrorBoundary";
 import { AppShell } from "./components/layout/AppShell";
 import { LoginView } from "./views/LoginView";
-import { SchoolDashboardView } from "./views/admin/SchoolDashboardView";
-import { SchoolProfileView } from "./views/admin/SchoolProfileView";
-import { SchoolSubscriptionView } from "./views/admin/SchoolSubscriptionView";
-import { AcademicYearsView } from "./views/admin/AcademicYearsView";
-import { TeachersView } from "./views/admin/TeachersView";
-import { StudentsView } from "./views/admin/StudentsView";
-import { SubjectsView } from "./views/admin/SubjectsView";
-import { ClassesView } from "./views/admin/ClassesView";
-import { ExamSchedulesView } from "./views/admin/ExamSchedulesView";
-import { ForceChangePasswordView } from "./views/ForceChangePasswordView";
-import { SuperAdminDashboardView } from "./views/superadmin/SuperAdminDashboardView";
-import { TeacherWorkspaceView } from "./views/teacher/TeacherWorkspaceView";
-import { StudentWorkspaceView } from "./views/student/StudentWorkspaceView";
-
-import { SuperAdminSchoolsView } from "./views/superadmin/SuperAdminSchoolsView";
-import { SuperAdminLicensesView } from "./views/superadmin/SuperAdminLicensesView";
-import { SuperAdminAiSystemView } from "./views/superadmin/SuperAdminAiSystemView";
 import { Badge } from "./components/ui/Badge";
 import { Breadcrumb } from "./components/layout/Breadcrumb";
+import { Spinner } from "./components/ui/Spinner";
 import { BookOpen } from "lucide-react";
+import { ThemeProvider } from "./context/ThemeContext";
+import { OfflineDetector } from "./components/ui/OfflineDetector";
+
+// 🚀 Route-Level Code Splitting (React.lazy)
+const SchoolDashboardView = lazy(() =>
+  import("./views/admin/SchoolDashboardView").then((m) => ({ default: m.SchoolDashboardView }))
+);
+const SchoolProfileView = lazy(() =>
+  import("./views/admin/SchoolProfileView").then((m) => ({ default: m.SchoolProfileView }))
+);
+const SchoolSubscriptionView = lazy(() =>
+  import("./views/admin/SchoolSubscriptionView").then((m) => ({ default: m.SchoolSubscriptionView }))
+);
+const AcademicYearsView = lazy(() =>
+  import("./views/admin/AcademicYearsView").then((m) => ({ default: m.AcademicYearsView }))
+);
+const TeachersView = lazy(() =>
+  import("./views/admin/TeachersView").then((m) => ({ default: m.TeachersView }))
+);
+const StudentsView = lazy(() =>
+  import("./views/admin/StudentsView").then((m) => ({ default: m.StudentsView }))
+);
+const SubjectsView = lazy(() =>
+  import("./views/admin/SubjectsView").then((m) => ({ default: m.SubjectsView }))
+);
+const ClassesView = lazy(() =>
+  import("./views/admin/ClassesView").then((m) => ({ default: m.ClassesView }))
+);
+const ExamSchedulesView = lazy(() =>
+  import("./views/admin/ExamSchedulesView").then((m) => ({ default: m.ExamSchedulesView }))
+);
+const ForceChangePasswordView = lazy(() =>
+  import("./views/ForceChangePasswordView").then((m) => ({ default: m.ForceChangePasswordView }))
+);
+const SuperAdminDashboardView = lazy(() =>
+  import("./views/superadmin/SuperAdminDashboardView").then((m) => ({ default: m.SuperAdminDashboardView }))
+);
+const SuperAdminSchoolsView = lazy(() =>
+  import("./views/superadmin/SuperAdminSchoolsView").then((m) => ({ default: m.SuperAdminSchoolsView }))
+);
+const SuperAdminLicensesView = lazy(() =>
+  import("./views/superadmin/SuperAdminLicensesView").then((m) => ({ default: m.SuperAdminLicensesView }))
+);
+const SuperAdminAiSystemView = lazy(() =>
+  import("./views/superadmin/SuperAdminAiSystemView").then((m) => ({ default: m.SuperAdminAiSystemView }))
+);
+const TeacherWorkspaceView = lazy(() =>
+  import("./views/teacher/TeacherWorkspaceView").then((m) => ({ default: m.TeacherWorkspaceView }))
+);
+const StudentWorkspaceView = lazy(() =>
+  import("./views/student/StudentWorkspaceView").then((m) => ({ default: m.StudentWorkspaceView }))
+);
+
+const RouteLoadingFallback = () => (
+  <div className="min-h-[60vh] flex items-center justify-center">
+    <Spinner size="lg" label="Memuat modul..." />
+  </div>
+);
 
 function NavigationRouter() {
   const { isAuthenticated, role, user, isLoading } = useAuth();
@@ -79,24 +121,21 @@ function NavigationRouter() {
     }
   }, [role]);
 
+  // Loading State
   if (isLoading) {
     return (
-      <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-6 text-slate-400 text-xs">
-        <div className="w-8 h-8 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mb-3" />
-        <span>Memuat sesi pengguna...</span>
+      <div className="min-h-screen bg-slate-950 flex items-center justify-center">
+        <Spinner size="lg" label="Memuat platform EquiGrade..." />
       </div>
     );
   }
 
+  // Not Authenticated -> Login
   if (!isAuthenticated) {
-    if (window.location.pathname !== "/login" && window.location.pathname !== "/") {
-      window.history.replaceState({}, "", "/login");
-    }
-
     return (
       <LoginView
-        onLoginSuccess={(loggedInRole) => {
-          const r = String(loggedInRole);
+        onLoginSuccess={(accountRole: UserRole) => {
+          const r = String(accountRole || role || "");
           if (r === "SCHOOL_ADMIN" || r === "ADMIN") {
             handleNavigate("/admin/dashboard");
           } else if (r === "SUPERADMIN" || r === "SUPER_ADMIN") {
@@ -112,92 +151,94 @@ function NavigationRouter() {
   }
 
   if (user?.must_change_password) {
-    return <ForceChangePasswordView />;
+    return (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <ForceChangePasswordView />
+      </Suspense>
+    );
   }
 
   // SuperAdmin Routes (Phase 3A)
   if (role === UserRole.SUPER_ADMIN) {
-    if (currentPath === "/superadmin/schools") {
-      return <SuperAdminSchoolsView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/superadmin/licenses") {
-      return <SuperAdminLicensesView onNavigate={handleNavigate} />;
-    }
-    if (currentPath.startsWith("/superadmin/ai-system")) {
-      return <SuperAdminAiSystemView onNavigate={handleNavigate} />;
-    }
-    return <SuperAdminDashboardView onNavigate={handleNavigate} />;
+    return (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        {currentPath === "/superadmin/schools" ? (
+          <SuperAdminSchoolsView onNavigate={handleNavigate} />
+        ) : currentPath === "/superadmin/licenses" ? (
+          <SuperAdminLicensesView onNavigate={handleNavigate} />
+        ) : currentPath.startsWith("/superadmin/ai-system") ? (
+          <SuperAdminAiSystemView onNavigate={handleNavigate} />
+        ) : (
+          <SuperAdminDashboardView onNavigate={handleNavigate} />
+        )}
+      </Suspense>
+    );
   }
 
   // School Admin Routes (Phase 3B)
   if (role === UserRole.SCHOOL_ADMIN) {
-    if (currentPath === "/admin/dashboard") {
-      return <SchoolDashboardView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/profile") {
-      return <SchoolProfileView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/subscription") {
-      return <SchoolSubscriptionView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/academic-years") {
-      return <AcademicYearsView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/teachers") {
-      return <TeachersView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/students") {
-      return <StudentsView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/subjects") {
-      return <SubjectsView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/classes" || currentPath === "/admin/classes-subjects") {
-      return <ClassesView onNavigate={handleNavigate} />;
-    }
-    if (currentPath === "/admin/exam-schedules") {
-      return <ExamSchedulesView onNavigate={handleNavigate} />;
-    }
+    return (
+      <Suspense fallback={<RouteLoadingFallback />}>
+        {currentPath === "/admin/dashboard" ? (
+          <SchoolDashboardView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/profile" ? (
+          <SchoolProfileView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/subscription" ? (
+          <SchoolSubscriptionView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/academic-years" ? (
+          <AcademicYearsView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/teachers" ? (
+          <TeachersView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/students" ? (
+          <StudentsView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/subjects" ? (
+          <SubjectsView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/classes" || currentPath === "/admin/classes-subjects" ? (
+          <ClassesView onNavigate={handleNavigate} />
+        ) : currentPath === "/admin/exam-schedules" ? (
+          <ExamSchedulesView onNavigate={handleNavigate} />
+        ) : (
+          <AppShell activeHref={currentPath} onNavigate={(path) => setCurrentPath(path)}>
+            <Breadcrumb
+              items={[{ label: "School Admin", href: "/admin/profile" }, { label: "Halaman dalam Pengembangan" }]}
+            />
+            <div className="glass-panel p-10 text-center space-y-4">
+              <div className="w-16 h-16 bg-indigo-500/10 border border-indigo-500/30 rounded-full flex items-center justify-center mx-auto">
+                <BookOpen className="w-8 h-8 text-indigo-400" />
+              </div>
+              <h2 className="text-xl font-bold text-slate-100">Halaman Sedang Dalam Pengembangan</h2>
+              <p className="text-sm text-slate-400 max-w-md mx-auto">
+                Fitur ini sedang dipersiapkan dan akan segera tersedia. Silakan gunakan menu navigasi di sidebar untuk berpindah ke halaman lain.
+              </p>
+              <Badge variant="indigo">COMING SOON</Badge>
+            </div>
+          </AppShell>
+        )}
+      </Suspense>
+    );
   }
 
   // Teacher Routes (Phase 4.1)
   if (role === UserRole.TEACHER) {
     return (
-      <TeacherWorkspaceView
-        initialPath={currentPath || "/teacher/dashboard"}
-        onNavigate={handleNavigate}
-      />
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <TeacherWorkspaceView
+          initialPath={currentPath || "/teacher/dashboard"}
+          onNavigate={handleNavigate}
+        />
+      </Suspense>
     );
   }
 
   // Student Routes (Phase 4.2)
   if (role === UserRole.STUDENT) {
     return (
-      <StudentWorkspaceView
-        initialPath={currentPath || "/student/dashboard"}
-        onNavigate={handleNavigate}
-      />
-    );
-  }
-
-
-
-  // School Admin — unimplemented page placeholder
-  if (role === UserRole.SCHOOL_ADMIN) {
-    return (
-      <AppShell activeHref={currentPath} onNavigate={(path) => setCurrentPath(path)}>
-        <Breadcrumb items={[{ label: "School Admin", href: "/admin/profile" }, { label: "Halaman dalam Pengembangan" }]} />
-        <div className="glass-panel p-10 text-center space-y-4">
-          <div className="w-16 h-16 bg-indigo-500/10 border border-indigo-500/30 rounded-full flex items-center justify-center mx-auto">
-            <BookOpen className="w-8 h-8 text-indigo-400" />
-          </div>
-          <h2 className="text-xl font-bold text-slate-100">Halaman Sedang Dalam Pengembangan</h2>
-          <p className="text-sm text-slate-400 max-w-md mx-auto">
-            Fitur ini sedang dipersiapkan dan akan segera tersedia. Silakan gunakan menu navigasi di sidebar untuk berpindah ke halaman lain.
-          </p>
-          <Badge variant="indigo">COMING SOON</Badge>
-        </div>
-      </AppShell>
+      <Suspense fallback={<RouteLoadingFallback />}>
+        <StudentWorkspaceView
+          initialPath={currentPath || "/student/dashboard"}
+          onNavigate={handleNavigate}
+        />
+      </Suspense>
     );
   }
 
@@ -214,9 +255,6 @@ function NavigationRouter() {
     </AppShell>
   );
 }
-
-import { ThemeProvider } from "./context/ThemeContext";
-import { OfflineDetector } from "./components/ui/OfflineDetector";
 
 export default function App() {
   return (

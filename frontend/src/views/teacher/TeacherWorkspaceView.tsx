@@ -54,7 +54,7 @@ export function TeacherWorkspaceView({ initialPath = "/teacher/dashboard", onNav
 
   useEffect(() => {
     fetchStats();
-  }, [currentPath]);
+  }, []);
 
   // Sync state path if props change
   useEffect(() => {

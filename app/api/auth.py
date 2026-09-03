@@ -109,20 +109,6 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     resolved_class_name = account.class_name if account else None
 
     if account and account.school_id:
-        if account.role in [UserRole.STUDENT, "STUDENT"] and not resolved_class_name:
-            from app.repositories.academic.class_repository import class_repository
-            from app.repositories.academic.student_enrollment_repository import (
-                student_enrollment_repository,
-            )
-
-            enrollment = student_enrollment_repository.get_active_by_student(db, account.id)
-            if enrollment:
-                cls = class_repository.get_by_id(db, enrollment.class_id)
-                if cls:
-                    resolved_class_name = cls.name
-                    account.class_name = cls.name
-                    db.commit()
-
         from app.repositories.master.school_level_repository import school_level_repository
         from app.repositories.school.school_repository import school_repository
 

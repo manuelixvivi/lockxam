@@ -52,8 +52,13 @@ export interface ResetPasswordResult {
 }
 
 export const teacherApi = {
-  listTeachers: (): Promise<TeacherAccount[]> =>
-    apiClient.get<TeacherAccount[]>("/api/v1/admin/teachers"),
+  listTeachers: (limit?: number, skip: number = 0): Promise<TeacherAccount[]> => {
+    const query = new URLSearchParams();
+    if (limit !== undefined) query.set("limit", limit.toString());
+    if (skip > 0) query.set("skip", skip.toString());
+    const qs = query.toString();
+    return apiClient.get<TeacherAccount[]>(`/api/v1/admin/teachers${qs ? `?${qs}` : ""}`);
+  },
 
   createTeacher: (data: TeacherCreateRequest): Promise<TeacherCreateResponse> =>
     apiClient.post<TeacherCreateResponse>("/api/v1/admin/teachers", data),

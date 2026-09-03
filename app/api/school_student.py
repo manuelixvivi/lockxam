@@ -28,11 +28,13 @@ def _get_school_id(current_user: dict) -> int:
 
 @router.get("", response_model=list[StudentAccountResponse])
 def list_students(
+    limit: int | None = None,
+    skip: int = 0,
     current_user=Depends(require_admin()),
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
-    return SchoolStudentService.list_students(db, school_id)
+    return SchoolStudentService.list_students(db, school_id, limit=limit, skip=skip)
 
 
 @router.post("", response_model=StudentCreateResponse, status_code=status.HTTP_201_CREATED)

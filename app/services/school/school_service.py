@@ -276,6 +276,66 @@ class SchoolService:
         return SchoolService._enrich_admin_username(db, school)
 
     @staticmethod
+    def get_dashboard_summary(db: Session, identifier: str) -> dict:
+        school = SchoolService.get_school_by_id_or_public_id(db, identifier)
+        from sqlalchemy import func
+        from app.models.security.auth_account import AuthAccount
+        from app.models.security.enums import UserRole
+        from app.models.academic.class_entity import Class
+        from app.models.academic.subject import Subject
+        from app.models.academic.academic_year import AcademicYear
+        from app.models.exam.exam_schedule import ExamSchedule
+
+        student_count = (
+            db.query(func.count(AuthAccount.id))
+            .filter(AuthAccount.school_id == school.id, AuthAccount.role == UserRole.STUDENT)
+            .scalar()
+            or 0
+        )
+        teacher_count = (
+            db.query(func.count(AuthAccount.id))
+            .filter(AuthAccount.school_id == school.id, AuthAccount.role == UserRole.TEACHER)
+            .scalar()
+            or 0
+        )
+        class_count = (
+            db.query(func.count(Class.id))
+            .filter(Class.school_id == school.id)
+            .scalar()
+            or 0
+        )
+        subject_count = (
+            db.query(func.count(Subject.id))
+            .filter(Subject.school_id == school.id)
+            .scalar()
+            or 0
+        )
+        active_year = (
+            db.query(AcademicYear)
+            .filter(AcademicYear.school_id == school.id, AcademicYear.is_active == True)
+            .first()
+        )
+        active_exam_schedules = (
+            db.query(func.count(ExamSchedule.id))
+            .filter(ExamSchedule.school_id == school.id, ExamSchedule.is_active == True)
+            .scalar()
+            or 0
+        )
+
+        return {
+            "school_id": school.id,
+            "school_name": school.name,
+            "school_code": school.code,
+            "total_students": student_count,
+            "total_teachers": teacher_count,
+            "total_classes": class_count,
+            "total_subjects": subject_count,
+            "active_academic_year": active_year.name if active_year else "-",
+            "active_academic_year_id": active_year.id if active_year else None,
+            "active_exam_schedules": active_exam_schedules,
+        }
+
+    @staticmethod
     def delete_school(db: Session, public_id: uuid.UUID) -> None:
         school = school_repository.get_by_public_id(db, public_id)
         if not school:

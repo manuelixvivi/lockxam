@@ -21,6 +21,10 @@ class CheckinRepository(BaseRepository[ExamCheckin]):
         stmt = select(ExamCheckin).where(ExamCheckin.student_id == student_id)
         return list(db.scalars(stmt).all())
 
+    def has_student_checkin(self, db: Session, student_id: int) -> bool:
+        stmt = select(1).where(ExamCheckin.student_id == student_id).limit(1)
+        return db.scalar(stmt) is not None
+
     def get_by_schedule(self, db: Session, schedule_id: int) -> list[ExamCheckin]:
         stmt = select(ExamCheckin).where(ExamCheckin.schedule_id == schedule_id)
         return list(db.scalars(stmt).all())

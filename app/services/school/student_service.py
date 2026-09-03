@@ -25,9 +25,11 @@ class SchoolStudentService:
         return school.domain
 
     @staticmethod
-    def list_students(db: Session, school_id: int) -> list[AuthAccount]:
-        """List all student accounts for a school via repository."""
-        return auth_repository.list_students_by_school(db, school_id)
+    def list_students(
+        db: Session, school_id: int, limit: int | None = None, skip: int = 0
+    ) -> list[AuthAccount]:
+        """List student accounts for a school with optional pagination."""
+        return auth_repository.list_students_by_school(db, school_id, limit=limit, skip=skip)
 
     @staticmethod
     def create_student(

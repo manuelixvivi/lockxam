@@ -38,29 +38,31 @@ class AuthRepository(BaseRepository[AuthAccount]):
             )
         )
 
-    def list_teachers_by_school(self, db: Session, school_id: int) -> list[AuthAccount]:
+    def list_teachers_by_school(
+        self, db: Session, school_id: int, limit: int | None = None, skip: int = 0
+    ) -> list[AuthAccount]:
         from app.models.security.enums import UserRole
 
-        return list(
-            db.scalars(
-                select(AuthAccount).where(
-                    AuthAccount.school_id == school_id,
-                    AuthAccount.role.in_([UserRole.TEACHER, "TEACHER"]),
-                )
-            ).all()
-        )
+        stmt = select(AuthAccount).where(
+            AuthAccount.school_id == school_id,
+            AuthAccount.role.in_([UserRole.TEACHER, "TEACHER"]),
+        ).offset(skip)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(db.scalars(stmt).all())
 
-    def list_students_by_school(self, db: Session, school_id: int) -> list[AuthAccount]:
+    def list_students_by_school(
+        self, db: Session, school_id: int, limit: int | None = None, skip: int = 0
+    ) -> list[AuthAccount]:
         from app.models.security.enums import UserRole
 
-        return list(
-            db.scalars(
-                select(AuthAccount).where(
-                    AuthAccount.school_id == school_id,
-                    AuthAccount.role.in_([UserRole.STUDENT, "STUDENT"]),
-                )
-            ).all()
-        )
+        stmt = select(AuthAccount).where(
+            AuthAccount.school_id == school_id,
+            AuthAccount.role.in_([UserRole.STUDENT, "STUDENT"]),
+        ).offset(skip)
+        if limit is not None:
+            stmt = stmt.limit(limit)
+        return list(db.scalars(stmt).all())
 
     def count_students_by_school(self, db: Session, school_id: int) -> int:
         from app.models.security.enums import UserRole

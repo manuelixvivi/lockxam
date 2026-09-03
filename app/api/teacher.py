@@ -1227,6 +1227,7 @@ def list_session_attempts(
     # Map existing attempts
     attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id == exam_session_id).all()
     attempt_map = {a.student_id: a for a in attempts}
+    attempt_ids = [a.id for a in attempts]
 
     res = []
     all_student_ids = list(set(student_ids + list(attempt_map.keys())))
@@ -1238,43 +1239,61 @@ def list_session_attempts(
     )
     student_map = {s.id: s for s in students}
 
+    from app.models.exam.exam_checkin import ExamCheckin
+    from app.models.security.user_session import UserSession
+
+    checkins = (
+        db.query(ExamCheckin)
+        .filter(
+            ExamCheckin.schedule_id == schedule.id,
+            ExamCheckin.student_id.in_(all_student_ids),
+        )
+        .all()
+        if all_student_ids
+        else []
+    )
+    checkin_map = {c.student_id: c for c in checkins}
+
+    user_sessions_list = (
+        db.query(UserSession)
+        .filter(
+            UserSession.auth_account_id.in_(all_student_ids),
+            UserSession.revoked == False,
+        )
+        .order_by(UserSession.created_at.desc())
+        .all()
+        if all_student_ids
+        else []
+    )
+    user_sess_map = {}
+    for us in user_sessions_list:
+        if us.auth_account_id not in user_sess_map:
+            user_sess_map[us.auth_account_id] = us
+
+    device_sessions_list = (
+        db.query(DeviceSession)
+        .filter(DeviceSession.exam_attempt_id.in_(attempt_ids))
+        .order_by(DeviceSession.created_at.desc())
+        .all()
+        if attempt_ids
+        else []
+    )
+    device_session_map = {}
+    for ds in device_sessions_list:
+        if ds.exam_attempt_id not in device_session_map:
+            device_session_map[ds.exam_attempt_id] = ds
+
     for sid in all_student_ids:
         student = student_map.get(sid)
         if not student:
             continue
 
         a = attempt_map.get(sid)
-
-        # Cek data presensi QR & Sesi Login Aktif untuk siswa ini
-        from app.models.exam.exam_checkin import ExamCheckin
-        from app.models.security.user_session import UserSession
-
-        checkin = (
-            db.query(ExamCheckin)
-            .filter(
-                ExamCheckin.schedule_id == schedule.id,
-                ExamCheckin.student_id == sid,
-            )
-            .first()
-        )
-
-        user_sess = (
-            db.query(UserSession)
-            .filter(
-                UserSession.auth_account_id == sid,
-                UserSession.revoked == False,
-            )
-            .order_by(UserSession.created_at.desc())
-            .first()
-        )
+        checkin = checkin_map.get(sid)
+        user_sess = user_sess_map.get(sid)
 
         if a:
-            device_session = (
-                db.query(DeviceSession)
-                .filter(DeviceSession.exam_attempt_id == a.id)
-                .order_by(DeviceSession.created_at.desc())
-                .first()
-            )
+            device_session = device_session_map.get(a.id)
 
             from app.api.exam import TELEMETRY_STORE
 
@@ -1390,6 +1409,7 @@ def list_teacher_exam_history(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
+    from sqlalchemy import or_
     from app.models.academic.class_entity import ClassEntity
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.academic.subject import Subject
@@ -1399,7 +1419,13 @@ def list_teacher_exam_history(
     effective_limit = min(max(1, limit), 100)
     schedules = (
         db.query(ExamSchedule)
-        .filter(ExamSchedule.school_id == school_id)
+        .filter(
+            ExamSchedule.school_id == school_id,
+            or_(
+                ExamSchedule.teacher_id == teacher_id,
+                ExamSchedule.proctor_id == teacher_id,
+            ),
+        )
         .order_by(ExamSchedule.start_time.desc())
         .offset(skip)
         .limit(effective_limit)

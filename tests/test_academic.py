@@ -237,6 +237,9 @@ def test_rollover_academic_year_success_and_infractions(db, test_superadmin):
     assert "Masih ada sesi ujian yang sedang aktif" in excinfo.value.errors[0]
 
     # Clear active exams
+    db.execute(text("DELETE FROM assessment_embeddings"))
+    db.execute(text("DELETE FROM assessment_histories"))
+    db.execute(text("DELETE FROM exam_answer_evaluations"))
     db.execute(text("DELETE FROM exam_snapshots"))
     db.execute(text("DELETE FROM student_answers"))
     db.execute(text("DELETE FROM exam_attempts"))

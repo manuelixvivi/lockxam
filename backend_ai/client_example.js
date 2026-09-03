@@ -5,7 +5,7 @@
  */
 
 const BASE_URL = "http://localhost:5000";
-const GROQ_API_KEY = "gsk_your_groq_api_key_here";
+const GROQ_API_KEY = "YOUR_GROQ_API_KEY_HERE";
 
 async function main() {
   console.log("--- [1] Checking API Health ---");

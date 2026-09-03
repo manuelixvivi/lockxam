@@ -75,3 +75,8 @@ dist/
 # Scratch & temporary
 scratch/
 scratch_*.py
+runs/
+tmp_s3_staging/
+tmp_*/
+checkpoints/
+*.log

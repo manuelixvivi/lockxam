@@ -13,7 +13,7 @@ import requests
 BASE_URL = "http://localhost:5000"
 
 # Your Groq API Key (Can be passed via header X-API-Key or Authorization Bearer)
-GROQ_API_KEY = "gsk_your_groq_api_key_here"
+GROQ_API_KEY = "YOUR_GROQ_API_KEY_HERE"
 
 headers = {"Content-Type": "application/json", "X-API-Key": GROQ_API_KEY}
 

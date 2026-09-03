@@ -19,5 +19,18 @@ class ExamScheduleStatus(str, Enum):
     DRAFT = "DRAFT"
     READY = "READY"
     ACTIVE = "ACTIVE"
+    TIME_ENDED = "TIME_ENDED"
+    LOCKED = "LOCKED"
+    GRADING = "GRADING"
+    GRADED = "GRADED"
     COMPLETED = "COMPLETED"
+    CANCELLED = "CANCELLED"
+
+
+class GradingRunStatus(str, Enum):
+    QUEUED = "QUEUED"
+    PROCESSING = "PROCESSING"
+    COMPLETED = "COMPLETED"
+    PARTIAL = "PARTIAL"
+    FAILED = "FAILED"
     CANCELLED = "CANCELLED"

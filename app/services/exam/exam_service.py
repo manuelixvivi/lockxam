@@ -794,6 +794,9 @@ class ExamService:
 
                 try:
                     rubrics_list = q.get("rubrics", [])
+                    max_score = float(
+                        q.get("max_score", q.get("score", eval_item.max_score or 10.0))
+                    )
                     ai_res = AiGradingService.grade_essay(
                         question_text=q.get("content", ""),
                         answer_key=q.get("answer_key", ""),
@@ -802,14 +805,20 @@ class ExamService:
                         concepts=q.get("concepts", []),
                         education_level=education_level,
                         education_class=education_class,
+                        db=db,
+                        school_id=schedule.school_id if schedule else None,
+                        subject_id=schedule.subject_id if schedule else None,
+                        academic_year_id=schedule.academic_year_id if schedule else None,
+                        subject_name=(
+                            schedule.subject.name if (schedule and schedule.subject) else "Umum"
+                        ),
+                        class_level=education_level,
+                        max_score=max_score,
                     )
 
                     if ai_res and ai_res.get("status") == "success":
                         final_pct = float(ai_res.get("final_score", 0.0))
                         feedback = ai_res.get("feedback", "")
-                        max_score = float(
-                            q.get("max_score", q.get("score", eval_item.max_score or 10.0))
-                        )
                         actual_score = round((final_pct / 100.0) * max_score, 2)
 
                         eval_item.score = actual_score
@@ -880,6 +889,18 @@ class ExamService:
             evaluation.grading_source = GradingSource.TEACHER
             evaluation.last_evaluated_at = datetime.now(timezone.utc)
             db.flush()
+
+            # Milestone A1: Ingest validated evaluation into immutable AssessmentHistory
+            try:
+                from app.services.ai.assessment_history_service import AssessmentHistoryService
+
+                AssessmentHistoryService.capture_finalized_evaluation(
+                    db=db,
+                    evaluation=evaluation,
+                    finalized_by_teacher_id=teacher_account_id,
+                )
+            except Exception as hist_err:
+                logger.warning(f"Failed to record AssessmentHistory: {hist_err}")
 
             # Always recalculate final_score and update status upon teacher essay grading
             attempt = attempt_for_auth

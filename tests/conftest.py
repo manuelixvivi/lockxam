@@ -13,8 +13,9 @@ from app.models.school.school import School
 from app.models.security.auth_account import AuthAccount
 from main import app
 
-DATABASE_URL = os.getenv("DATABASE_URL", "")
-engine = create_engine(DATABASE_URL, echo=True)
+DATABASE_URL = os.getenv("DATABASE_URL") or "sqlite:///./equigrade_test.db"
+connect_args = {"check_same_thread": False} if DATABASE_URL.startswith("sqlite") else {}
+engine = create_engine(DATABASE_URL, connect_args=connect_args, echo=False)
 TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 
 
@@ -25,8 +26,17 @@ def setup_db():
     with engine.connect() as conn:
         try:
             from sqlalchemy import text
-            conn.execute(text("ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS target_type VARCHAR(20) DEFAULT 'ALL_CLASS';"))
-            conn.execute(text("ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS allowed_student_ids JSON;"))
+
+            conn.execute(
+                text(
+                    "ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS target_type VARCHAR(20) DEFAULT 'ALL_CLASS';"
+                )
+            )
+            conn.execute(
+                text(
+                    "ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS allowed_student_ids JSON;"
+                )
+            )
             conn.commit()
         except Exception:
             pass
@@ -145,6 +155,4 @@ def test_teacher(db, test_school):
 
     return {"account": acc, "username": username, "password": password}
 
-
-from tests.test_academic_administration_api import api_test_data
 

@@ -12,9 +12,38 @@ load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
 
-# Sanitize DATABASE_URL for SQLAlchemy 2.0
+# Detect available PostgreSQL driver (psycopg 3 or psycopg2)
+_has_psycopg3 = False
+_has_psycopg2 = False
+try:
+    import psycopg  # noqa: F401
+
+    _has_psycopg3 = True
+except ImportError:
+    pass
+
+try:
+    import psycopg2  # noqa: F401
+
+    _has_psycopg2 = True
+except ImportError:
+    pass
+
+_preferred_driver = (
+    "postgresql+psycopg://"
+    if _has_psycopg3
+    else ("postgresql+psycopg2://" if _has_psycopg2 else "postgresql://")
+)
+
+# Sanitize DATABASE_URL for SQLAlchemy 2.0 & available driver
 if DATABASE_URL.startswith("postgres://"):
-    DATABASE_URL = DATABASE_URL.replace("postgres://", "postgresql://", 1)
+    DATABASE_URL = DATABASE_URL.replace("postgres://", _preferred_driver, 1)
+elif DATABASE_URL.startswith("postgresql://") and not DATABASE_URL.startswith("postgresql+"):
+    DATABASE_URL = DATABASE_URL.replace("postgresql://", _preferred_driver, 1)
+elif DATABASE_URL.startswith("postgresql+psycopg://") and not _has_psycopg3 and _has_psycopg2:
+    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg://", "postgresql+psycopg2://", 1)
+elif DATABASE_URL.startswith("postgresql+psycopg2://") and not _has_psycopg2 and _has_psycopg3:
+    DATABASE_URL = DATABASE_URL.replace("postgresql+psycopg2://", "postgresql+psycopg://", 1)
 
 # Safely convert Neon direct endpoint to Neon pgBouncer pooler endpoint
 if ".neon.tech" in DATABASE_URL and "-pooler" not in DATABASE_URL:
@@ -42,8 +71,10 @@ if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:
 
 # Fallback if DATABASE_URL is empty, invalid, or incorrectly set to https://...
 if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.startswith("https://"):
-    print(f"WARNING: Invalid DATABASE_URL protocol detected ('{DATABASE_URL}'). Falling back to temporary SQLite DB.")
-    DATABASE_URL = "sqlite:////tmp/lockxam.db"
+    print(
+        f"WARNING: Invalid DATABASE_URL protocol detected ('{DATABASE_URL}'). Falling back to temporary SQLite DB."
+    )
+    DATABASE_URL = "sqlite:///./equigrade_dev.db"
 
 connect_args = {}
 engine_kwargs = {"echo": False}

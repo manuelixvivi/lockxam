@@ -577,3 +577,90 @@ class ExamScheduleService:
 
         db.flush()
         return created_schedules
+
+    @staticmethod
+    def lock_exam_schedule(db: Session, school_id: int, public_id: UUID) -> ExamSchedule:
+        """Locks an exam schedule and automatically triggers post-exam batch essay grading."""
+        schedule = exam_schedule_repository.get_by_public_id(db, public_id)
+        if not schedule or schedule.school_id != school_id:
+            raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
+
+        schedule.status = ExamScheduleStatus.LOCKED.value
+        db.commit()
+
+        # Trigger post-exam batch grading workflow
+        try:
+            from app.services.ai.grading.batch_grading_service import BatchGradingService
+
+            BatchGradingService.start_post_exam_grading(db, schedule.id)
+        except Exception as e:
+            print(f"Post-exam grading launch notice: {e}")
+
+        return schedule
+
+    @staticmethod
+    def extend_exam_schedule(
+        db: Session, school_id: int, public_id: UUID, new_end_time: datetime
+    ) -> ExamSchedule:
+        """Safely extends exam end time. If schedule was TIME_ENDED, returns to ACTIVE without grading."""
+        schedule = exam_schedule_repository.get_by_public_id(db, public_id)
+        if not schedule or schedule.school_id != school_id:
+            raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
+
+        from app.utils.timezone import ensure_wib
+
+        new_end_wib = ensure_wib(new_end_time)
+        if new_end_wib <= ensure_wib(schedule.start_time):
+            raise BusinessException(
+                "Waktu selesai baru harus lebih besar dari waktu mulai.", status_code=400
+            )
+
+        schedule.end_time = new_end_wib
+        if schedule.status in [ExamScheduleStatus.TIME_ENDED.value, "TIME_ENDED"]:
+            schedule.status = ExamScheduleStatus.ACTIVE.value
+
+        # Calculate new duration
+        duration_delta = (new_end_wib - ensure_wib(schedule.start_time)).total_seconds() / 60
+        schedule.duration_minutes = int(duration_delta)
+
+        db.commit()
+        return schedule
+
+    @staticmethod
+    def reopen_exam_schedule(
+        db: Session, school_id: int, public_id: UUID, extended_minutes: int = 15
+    ) -> ExamSchedule:
+        """
+        Reopens a LOCKED or COMPLETED exam schedule.
+        Crucial Invariant: Cancels any active GradingRun so obsolete grading results cannot overwrite reopened data.
+        """
+        schedule = exam_schedule_repository.get_by_public_id(db, public_id)
+        if not schedule or schedule.school_id != school_id:
+            raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
+
+        from app.models.academic.enums import GradingRunStatus
+        from app.models.academic.grading_run import GradingRun
+        from app.utils.timezone import ensure_wib
+
+        # 1. Cancel in-flight or queued grading runs
+        active_runs = (
+            db.query(GradingRun)
+            .filter(
+                GradingRun.exam_schedule_id == schedule.id,
+                GradingRun.status.in_(
+                    [GradingRunStatus.QUEUED.value, GradingRunStatus.PROCESSING.value]
+                ),
+            )
+            .all()
+        )
+        for r in active_runs:
+            r.status = GradingRunStatus.CANCELLED.value
+            r.cancelled_at = datetime.now(timezone.utc)
+
+        # 2. Reopen schedule and extend end_time
+        schedule.status = ExamScheduleStatus.ACTIVE.value
+        schedule.end_time = ensure_wib(schedule.end_time) + timedelta(minutes=extended_minutes)
+        schedule.duration_minutes += extended_minutes
+
+        db.commit()
+        return schedule

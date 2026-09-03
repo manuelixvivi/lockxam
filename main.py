@@ -18,6 +18,7 @@ from app.api.academic import router as academic_router
 from app.api.admin_class import router as admin_class_router
 from app.api.admin_exam_schedule import router as admin_exam_schedule_router
 from app.api.admin_subject import router as admin_subject_router
+from app.api.ai import router as ai_router
 from app.api.auth import router as auth_router
 from app.api.exam import router as exam_router
 from app.api.exam_command import router as exam_command_router
@@ -87,6 +88,7 @@ async def db_health():
 
 
 app.include_router(auth_router)
+app.include_router(ai_router)
 app.include_router(master_router)
 app.include_router(school_router)
 app.include_router(license_router)

@@ -205,11 +205,12 @@ class AiManagementService:
         setting.updated_by_id = user_id
         setting.updated_at = datetime.now(timezone.utc)
 
-        # Apply runtime updates to AiConfig class properties
+        # Apply runtime updates to AiConfig class properties and invalidate process cache
         AiConfig.MODEL_NAME = payload.model_name
         AiConfig.EVAL_MODEL_NAME = payload.model_name
         if payload.fallback_model:
             AiConfig.GROQ_FALLBACK_MODEL = payload.fallback_model
+        AiConfig._db_cache["config"] = None
 
         # Record audit history
         user = db.query(AuthAccount).filter(AuthAccount.id == user_id).first()
@@ -313,8 +314,7 @@ class AiManagementService:
         ]
 
         # Optionally query live models from Groq if key exists
-        setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
-        effective_key = setting.encrypted_secret if setting and setting.encrypted_secret else AiConfig.GROQ_API_KEY
+        effective_key = cls.get_effective_api_key(db)
 
         if effective_key:
             try:

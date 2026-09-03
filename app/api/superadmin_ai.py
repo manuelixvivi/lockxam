@@ -96,13 +96,16 @@ def get_config_history(
 
 
 @router.get("/model-registry", summary="List Registered Models & Versions (A9.4)")
-def list_model_registry(db: Session = Depends(get_db)) -> Dict[str, Any]:
+def list_model_registry(
+    limit: int = 50, skip: int = 0, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """Returns model registry items from A9.4 with version status and Merkle artifact verifications."""
-    registered_models = db.query(RegisteredModel).all()
-    model_versions = (
-        db.query(ModelVersion)
-        .order_by(ModelVersion.created_at.desc())
-        .limit(100)
+    effective_limit = min(max(1, limit), 100)
+    registered_models = (
+        db.query(RegisteredModel)
+        .order_by(RegisteredModel.created_at.desc())
+        .offset(skip)
+        .limit(effective_limit)
         .all()
     )
 
@@ -138,9 +141,18 @@ def list_model_registry(db: Session = Depends(get_db)) -> Dict[str, Any]:
 
 
 @router.get("/training-jobs", summary="List Training Jobs (A9.3)")
-def list_training_jobs(db: Session = Depends(get_db)) -> Dict[str, Any]:
+def list_training_jobs(
+    limit: int = 50, skip: int = 0, db: Session = Depends(get_db)
+) -> Dict[str, Any]:
     """Returns training jobs from A9.3 with live execution status and metrics."""
-    jobs = db.query(TrainingJob).order_by(TrainingJob.created_at.desc()).limit(100).all()
+    effective_limit = min(max(1, limit), 100)
+    jobs = (
+        db.query(TrainingJob)
+        .order_by(TrainingJob.created_at.desc())
+        .offset(skip)
+        .limit(effective_limit)
+        .all()
+    )
 
     jobs_data = []
     for j in jobs:

@@ -69,10 +69,23 @@ if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:
     except Exception as _parse_err:
         print(f"URL parse notice: {_parse_err}")
 
+# Production fail-fast verification
+is_production = (
+    os.getenv("ENV", "").lower() in ("prod", "production")
+    or os.getenv("ENVIRONMENT", "").lower() in ("prod", "production")
+    or bool(os.getenv("VERCEL"))
+    or bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+)
+
 # Fallback if DATABASE_URL is empty, invalid, or incorrectly set to https://...
 if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.startswith("https://"):
+    if is_production:
+        raise RuntimeError(
+            f"Production Database Error: Valid PostgreSQL DATABASE_URL must be configured in production/Vercel. "
+            f"Received: '{DATABASE_URL}'"
+        )
     print(
-        f"WARNING: Invalid DATABASE_URL protocol detected ('{DATABASE_URL}'). Falling back to temporary SQLite DB."
+        f"WARNING: Invalid or missing DATABASE_URL in dev ('{DATABASE_URL}'). Falling back to temporary SQLite DB."
     )
     DATABASE_URL = "sqlite:///./equigrade_dev.db"
 
@@ -80,6 +93,8 @@ connect_args = {}
 engine_kwargs = {"echo": False}
 
 if DATABASE_URL.startswith("sqlite"):
+    if is_production:
+        raise RuntimeError("Production Database Error: SQLite is not supported in production/Vercel environment.")
     connect_args = {"check_same_thread": False}
 else:
     # Serverless database pool optimization for PostgreSQL / Neon / Supabase
@@ -89,18 +104,18 @@ else:
 
         engine_kwargs["poolclass"] = NullPool
     else:
-        is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
-        default_pool_size = 5 if is_serverless else 10
-        default_max_overflow = 5 if is_serverless else 20
+        is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME") or os.getenv("SERVERLESS"))
+        default_pool_size = 1 if is_serverless else 10
+        default_max_overflow = 1 if is_serverless else 20
         pool_size = int(os.getenv("DB_POOL_SIZE", str(default_pool_size)))
         max_overflow = int(os.getenv("DB_MAX_OVERFLOW", str(default_max_overflow)))
 
         engine_kwargs.update(
             {
                 "pool_pre_ping": True,
+                "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "300")),
                 "pool_size": pool_size,
                 "max_overflow": max_overflow,
-                "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "300")),
                 "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
             }
         )

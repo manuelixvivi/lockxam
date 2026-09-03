@@ -1,0 +1,63 @@
+# ─────────────────────────────────────────────────────────────────────────────
+# EquiGrade x Lockxam — Vercel Deployment Ignore Rules
+# Excludes development artifacts, test harness, legacy sandboxes, and documentation.
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Test suites & benchmarks
+tests/
+test/
+*.test.py
+*.spec.ts
+*.spec.tsx
+
+# Legacy sandbox backend
+backend_ai/
+
+# Local database files & logs
+*.db
+*.sqlite
+*.sqlite3
+*.log
+
+# Python cache & virtual environments
+.venv/
+venv/
+env/
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.pytest_cache/
+.coverage
+coverage.xml
+
+# Node & frontend cache (Vercel builds via npm run build)
+node_modules/
+.npm/
+
+# Git & IDE
+.git/
+.github/
+.vscode/
+.idea/
+.gemini/
+
+# Documentation, Architecture Diagrams & Markdown Notes (Retain only deployment manifests)
+documentation/
+docs/
+*.png
+*.jpg
+*.jpeg
+*.zip
+
+# Docker & Container configs
+Dockerfile
+docker-compose.yml
+docker-compose.*.yml
+.dockerignore
+
+# Environment local secrets
+.env
+.env.local
+.env.development
+.env.test

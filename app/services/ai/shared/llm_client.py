@@ -109,8 +109,8 @@ class LlmClient:
         api_key: Optional[str] = None,
         temperature: float = 0.2,
         max_tokens: int = 2048,
-        timeout: int = 45,
-        max_retries: int = 3,
+        timeout: int = 25,
+        max_retries: int = 2,
         extra_payload: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """

@@ -45,7 +45,6 @@ export default defineConfig({
       'xlsx',
       'katex',
       'jszip',
-      'react-router-dom',
     ],
   },
   build: {

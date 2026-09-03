@@ -36,16 +36,21 @@ from app.database.seed_master import seed_master_data
 from app.exceptions import register_exception_handlers
 from app.middleware import RequestContextMiddleware
 
-# Ensure all database tables exist safely on startup
-try:
-    Base.metadata.create_all(bind=engine)
-    db = SessionLocal()
+# Ensure all database tables exist safely on startup (skipped in serverless cold starts unless explicitly enabled)
+should_auto_migrate = os.getenv(
+    "AUTO_CREATE_TABLES", "false" if os.getenv("VERCEL") else "true"
+).lower() in ("true", "1", "yes")
+
+if should_auto_migrate:
     try:
-        seed_master_data(db)
-    finally:
-        db.close()
-except Exception as _err:
-    print(f"Deferred DB init on import: {_err}")
+        Base.metadata.create_all(bind=engine)
+        db = SessionLocal()
+        try:
+            seed_master_data(db)
+        finally:
+            db.close()
+    except Exception as _err:
+        print(f"Deferred DB init on import: {_err}")
 
 app = FastAPI(title="EquiGrade API", version="1.0.0")
 
@@ -59,10 +64,21 @@ except Exception as _static_err:
 # Register RequestContextMiddleware for tracking latency, Request ID, IP, user agent
 app.add_middleware(RequestContextMiddleware)
 
-# CORS configuration for Frontend dev server
+# CORS configuration for Frontend dev server & production domains
+raw_origins = os.getenv("ALLOWED_ORIGINS", "")
+allowed_origins = [o.strip() for o in raw_origins.split(",") if o.strip()] or [
+    "http://localhost:5173",
+    "http://127.0.0.1:5173",
+    "http://localhost:3000",
+    "http://127.0.0.1:3000",
+]
+
+allow_origin_regex = os.getenv("CORS_ORIGIN_REGEX", r"^https:\/\/.*\.vercel\.app$")
+
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=allowed_origins,
+    allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
@@ -72,6 +88,7 @@ app.add_middleware(
 register_exception_handlers(app)
 
 app.include_router(health_router)
+app.include_router(health_router, prefix="/api/v1")
 
 
 @app.get("/api/info")

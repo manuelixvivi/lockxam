@@ -10,7 +10,9 @@ export const ServerHealthIndicator: React.FC = () => {
     setStatus("checking");
     const startTime = performance.now();
     try {
-      const baseUrl = localStorage.getItem("equigrade_server_url") || window.location.origin;
+      const baseUrl =
+        localStorage.getItem("equigrade_server_url") ||
+        ((import.meta.env?.VITE_API_BASE_URL as string) || window.location.origin);
       setServerUrl(baseUrl);
 
       const controller = new AbortController();
@@ -60,7 +62,7 @@ export const ServerHealthIndicator: React.FC = () => {
           <div className="flex items-center gap-1.5 font-bold text-slate-200">
             <span>
               {status === "online"
-                ? "Server Lokal Online"
+                ? "Server Online"
                 : status === "offline"
                 ? "Server Terputus / Offline"
                 : "Memeriksa Koneksi..."}
@@ -72,7 +74,7 @@ export const ServerHealthIndicator: React.FC = () => {
             )}
           </div>
           <p className="text-[11px] text-slate-400 font-mono truncate max-w-[220px]">
-            {serverUrl || "http://localhost:1409"}
+            {serverUrl || window.location.origin}
           </p>
         </div>
       </div>

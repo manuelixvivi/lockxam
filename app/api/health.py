@@ -6,9 +6,9 @@ from app.core.database import engine
 router = APIRouter(prefix="/health", tags=["Health"])
 
 
+@router.get("")
 @router.get("/")
 async def health():
-
     return {"status": "ok"}
 
 

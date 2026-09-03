@@ -83,15 +83,27 @@ if DATABASE_URL.startswith("sqlite"):
     connect_args = {"check_same_thread": False}
 else:
     # Serverless database pool optimization for PostgreSQL / Neon / Supabase
-    engine_kwargs.update(
-        {
-            "pool_pre_ping": True,
-            "pool_size": 10,
-            "max_overflow": 20,
-            "pool_recycle": 300,
-            "pool_timeout": 10,
-        }
-    )
+    use_nullpool = os.getenv("DB_USE_NULLPOOL", "false").lower() in ("true", "1", "yes")
+    if use_nullpool:
+        from sqlalchemy.pool import NullPool
+
+        engine_kwargs["poolclass"] = NullPool
+    else:
+        is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
+        default_pool_size = 5 if is_serverless else 10
+        default_max_overflow = 5 if is_serverless else 20
+        pool_size = int(os.getenv("DB_POOL_SIZE", str(default_pool_size)))
+        max_overflow = int(os.getenv("DB_MAX_OVERFLOW", str(default_max_overflow)))
+
+        engine_kwargs.update(
+            {
+                "pool_pre_ping": True,
+                "pool_size": pool_size,
+                "max_overflow": max_overflow,
+                "pool_recycle": int(os.getenv("DB_POOL_RECYCLE", "300")),
+                "pool_timeout": int(os.getenv("DB_POOL_TIMEOUT", "10")),
+            }
+        )
 
 engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
 

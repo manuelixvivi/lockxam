@@ -156,3 +156,8 @@ def test_teacher(db, test_school):
     return {"account": acc, "username": username, "password": password}
 
 
+from tests.test_academic_administration_api import (  # noqa: E402
+    api_test_data as api_test_data,
+)
+
+

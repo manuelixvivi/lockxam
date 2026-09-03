@@ -49,7 +49,8 @@ class ApiClient {
     endpoint: string,
     options: RequestOptions = {}
   ): Promise<T> {
-    const url = endpoint.startsWith("http") ? endpoint : endpoint;
+    const apiBase = (import.meta.env?.VITE_API_BASE_URL as string) || "";
+    const url = endpoint.startsWith("http") ? endpoint : `${apiBase}${endpoint}`;
     const { headers: inputHeaders, isRetry, ...restOptions } = options;
 
     const isFormData = typeof FormData !== "undefined" && restOptions.body instanceof FormData;

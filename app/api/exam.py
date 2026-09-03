@@ -343,10 +343,10 @@ def get_qr_checkin_token(
         )
 
     # Token: base64url( schedule_id | expires_ts | hmac )
-    secret = os.environ.get("SECRET_KEY", "equigrade-secret")
+    from app.core.security.keys import SECRET_KEY
     expires_ts = int(time.time()) + 180  # 3 menit (180 detik)
     payload_str = f"{schedule_id}:{expires_ts}"
-    sig = hmac.new(secret.encode(), payload_str.encode(), hashlib.sha256).hexdigest()[:16]
+    sig = hmac.new(SECRET_KEY.encode(), payload_str.encode(), hashlib.sha256).hexdigest()[:16]
     token = f"{schedule_id}:{expires_ts}:{sig}"
 
     # Generate short 6-digit numeric PIN
@@ -411,7 +411,8 @@ def student_checkin(
             raw_token = cached["token"]
 
     # Validasi token
-    secret = os.environ.get("SECRET_KEY", "equigrade-secret")
+    from app.core.security.keys import SECRET_KEY
+    secret = SECRET_KEY
     try:
         parts = raw_token.split(":")
         if len(parts) != 3:

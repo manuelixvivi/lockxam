@@ -26,8 +26,9 @@ router = APIRouter(prefix="/api/v1/exam/commands", tags=["Exam — Internal Comm
 
 def _validate_internal_token(x_internal_token: str | None = Header(default=None)) -> None:
     """Dependency: Pastikan caller adalah internal service yang telah diotorisasi."""
-    expected = os.getenv("INTERNAL_SERVICE_TOKEN", "equigrade-internal-secret-token")
-    if not expected or x_internal_token != expected:
+    from app.core.security.keys import get_internal_service_token
+    expected = get_internal_service_token()
+    if not expected or not x_internal_token or x_internal_token != expected:
         raise HTTPException(status_code=401, detail="Invalid or missing X-Internal-Token.")
 
 

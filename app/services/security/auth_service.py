@@ -218,7 +218,7 @@ class AuthService:
             raise AuthenticationException("Invalid refresh token payload")
 
         try:
-            user_session = session_repository.get_by_id(db, session_id)
+            user_session = session_repository.get_by_id_for_update(db, session_id)
 
             if not user_session:
                 raise AuthenticationException("Session not found")
@@ -228,6 +228,16 @@ class AuthService:
 
             if user_session.expires_at < datetime.now(timezone.utc):
                 raise AuthenticationException("Session has expired")
+
+            # Check account active status
+            account = auth_repository.get_by_id(db, user_session.auth_account_id)
+            if not account or not account.is_active:
+                user_session.revoked = True
+                user_session.revoked_at = datetime.now(timezone.utc)
+                user_session.revoked_reason = SessionRevokedReason.ADMIN_REVOCATION
+                session_repository.update(db, user_session)
+                db.commit()
+                raise AuthenticationException("User account is inactive or disabled")
 
             # Validate refresh_token_jti for rotation
             if str(user_session.refresh_token_jti) != refresh_jti:
@@ -261,19 +271,20 @@ class AuthService:
 
             db.commit()
 
-            # Create new tokens
+            # Create new tokens with fresh account role and school_id
+            fresh_role = account.role.value if hasattr(account.role, "value") else str(account.role)
             new_access_token = create_user_token(
                 user_id=user_session.auth_account_id,
-                role=payload["role"],
-                school_id=payload["school_id"],
+                role=fresh_role,
+                school_id=account.school_id,
                 session_id=str(user_session.id),
                 access_jti=new_access_jti,
             )
 
             new_refresh_token = create_refresh_token(
                 user_id=user_session.auth_account_id,
-                role=payload["role"],
-                school_id=payload["school_id"],
+                role=fresh_role,
+                school_id=account.school_id,
                 session_id=str(user_session.id),
                 refresh_jti=new_refresh_jti,
             )

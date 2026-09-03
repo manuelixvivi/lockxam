@@ -68,10 +68,15 @@ def get_current_user(
         db.commit()
         raise AuthenticationException("Session expired due to inactivity")
 
-    # Update last activity time
-    user_session.last_activity_at = datetime.now(timezone.utc)
-    session_repository.update(db, user_session)
-    db.commit()
+    # Update last activity time (Throttled: at most once per 60 seconds to prevent DB write amplification)
+    now_utc = datetime.now(timezone.utc)
+    last_act = user_session.last_activity_at
+    if last_act.tzinfo is None:
+        last_act = last_act.replace(tzinfo=timezone.utc)
+    if (now_utc - last_act).total_seconds() > 60:
+        user_session.last_activity_at = now_utc
+        session_repository.update(db, user_session)
+        db.commit()
 
     # Enforce School Status Checks (BR-LIC-007, BR-LIC-008, BR-LIC-011)
     school_id = payload.get("school_id")

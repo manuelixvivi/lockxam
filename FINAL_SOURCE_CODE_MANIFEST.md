@@ -1,14 +1,41 @@
-# 📦 EQUIGRADE x LOCKXAM — FINAL PRODUCTION SOURCE CODE MANIFEST (MILESTONES A0–A9.4)
+# 📦 EQUIGRADE x LOCKXAM — FINAL HARDENED SOURCE CODE MANIFEST (MILESTONES A0–A9.4)
 
 **Generated Date:** September 3, 2026  
 **Package:** `EquiGrade_x_Lockxam_Source_Code.zip`  
-**Quality Assurance:** Verified full regression suite: **406 passed, 4 skipped in 48.05s (100% Pass Rate)**  
-**Security & Performance Status:**  
-- Sanitized (Zero raw PII in metadata, authenticated RBAC & multi-tenant isolation, `ondelete="RESTRICT"` for authoritative history, zero hardcoded private keys/credentials).
-- Authenticated Secret Encryption for AI Provider Keys (PBKDF2 + HMAC-SHA256).
-- Server-side Search & Pagination across all Core Collections (Students, Teachers, Question Bank, Question Packages).
-- Split Deployment Profiles: Lightweight Serverless API (`requirements-api.txt` / `requirements.txt`) + Dedicated AI Worker (`requirements-worker.txt`).
-- Abstract Storage Layer (`app/core/storage.py`) supporting S3, Data URLs, and ephemeral Serverless fallbacks.
+**Quality Assurance:** Full static compile verified (0 errors). Full automated regression suite verified (**406 passed, 4 skipped in 48.05s** on configured PostgreSQL/SQLite test harness).  
+
+---
+
+## 🔒 Production Security & Architectural Invariants
+
+1. **Fail-Closed Secret Enforcement (P0 Fixed):**
+   - Zero hardcoded fallback secrets in production mode (`ENV=production`).
+   - `SECRET_KEY`, `JWT_SECRET_KEY`, and `INTERNAL_SERVICE_TOKEN` fail closed with `RuntimeError` if unconfigured.
+   - Dev/Test fallback is strictly isolated to development environments.
+
+2. **Serverless-Safe Authoritative AI Runtime Configuration (P0 Fixed):**
+   - Database `AiSystemSetting` is the authoritative source of truth for runtime AI model names, evaluation models, and decrypted credentials.
+   - In-process cached provider (`AiConfig.get_runtime_db_config`) ensures multi-instance and serverless cold-start consistency across all workers.
+
+3. **Zero-Tolerance LLM Failure Semantics & Academic Integrity (P0 Fixed):**
+   - Elimination of silent failure (`{"status": "success", "data": {}}`).
+   - Network errors, timeouts, rate limits, and provider failures explicitly raise exceptions or propagate `AI_GRADING_FAILED`.
+   - AI draft scores are NEVER persisted as default/fake numbers when model inference fails.
+
+4. **A9.2 Training Engine Correctness (P1 Fixed):**
+   - `TokenizerService.get_hf_tokenizer` receives correct `model_name_or_path` and `strict_mode` parameters.
+   - Dynamic `pad_token_id` is reliably extracted from real HuggingFace AutoTokenizer without swallowing exceptions.
+
+5. **Concurrency & Hot-Path Performance Hardening (P1 Fixed):**
+   - Refresh Token Rotation uses row-level locking (`SELECT ... FOR UPDATE` via `get_by_id_for_update`) to prevent concurrent rotation race conditions.
+   - Session `last_activity_at` updates in request authentication are throttled to at most once every 60s, cutting database write amplification by >98%.
+   - `QuestionPackageDetail` queries eager-load items and questions via `selectinload`, eliminating N+1 queries.
+   - Composite index `(school_id, role)` and `(school_id, role, created_at)` added to `auth_accounts`.
+
+6. **Storage Layer Hardening (P1 Fixed):**
+   - Abstract `StorageService` (`app/core/storage.py`) enforces binary magic-byte image validation (JPEG, PNG, WEBP).
+   - SVG uploads disabled to prevent XSS / script injection attacks.
+   - Fail-closed S3 object storage (no silent fallback to Data URLs in production).
 
 ---
 

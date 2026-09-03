@@ -207,13 +207,16 @@ class SftTrainingEngine:
         # 5. Resolve pad_token_id dynamically from Tokenizer
         resolved_pad_id = 0
         try:
-            hf_tok = TokenizerService.get_hf_tokenizer(token_config)
+            hf_tok = TokenizerService.get_hf_tokenizer(
+                token_config.model_name_or_path, strict_mode=not is_cpu_test
+            )
             if hf_tok is not None:
                 if getattr(hf_tok, "pad_token_id", None) is not None:
                     resolved_pad_id = hf_tok.pad_token_id
                 elif getattr(hf_tok, "eos_token_id", None) is not None:
                     resolved_pad_id = hf_tok.eos_token_id
-        except Exception:
+        except Exception as tok_err:
+            logger.warning(f"Could not resolve tokenizer pad_token_id ({tok_err}), defaulting to 0.")
             resolved_pad_id = 0
 
         # 6. Execute Training Loop (Real PyTorch or Mock CPU Test Harness)

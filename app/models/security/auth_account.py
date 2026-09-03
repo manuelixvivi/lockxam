@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from sqlalchemy import JSON, Boolean, Date, ForeignKey, Integer, String
+from sqlalchemy import JSON, Boolean, Date, ForeignKey, Index, Integer, String
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.core.database import Base
@@ -12,6 +12,10 @@ from app.models.security.enums import UserRole
 class AuthAccount(TimestampMixin, PublicIdMixin, Base):
 
     __tablename__ = "auth_accounts"
+    __table_args__ = (
+        Index("ix_auth_accounts_school_role", "school_id", "role"),
+        Index("ix_auth_accounts_school_role_created", "school_id", "role", "created_at"),
+    )
 
     id: Mapped[int] = mapped_column(primary_key=True)
 

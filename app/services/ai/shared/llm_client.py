@@ -118,8 +118,9 @@ class LlmClient:
         and fallback model routing.
         """
         effective_key = AiConfig.get_effective_api_key(api_key)
-        target_model = model or AiConfig.MODEL_NAME
+        target_model = model or AiConfig.get_effective_model()
 
+        direct_error = None
         if effective_key:
             url = f"{AiConfig.GROQ_BASE_URL.rstrip('/')}/chat/completions"
             headers = {
@@ -147,6 +148,8 @@ class LlmClient:
                         resp_json = json.loads(resp.read().decode("utf-8"))
                         raw_content = resp_json["choices"][0]["message"]["content"].strip()
                         parsed = cls.clean_and_parse_json(raw_content)
+                        if not parsed or not isinstance(parsed, dict):
+                            raise ValueError(f"Empty or non-dictionary JSON from LLM: {raw_content[:100]}")
                         return {
                             "status": "success",
                             "data": parsed,
@@ -171,9 +174,8 @@ class LlmClient:
                         if attempt < max_retries - 1:
                             time.sleep(sleep_time)
                             continue
-                        raise RuntimeError(
-                            f"Rate limit exceeded (429) after {max_retries} retries: {error_body}"
-                        )
+                        direct_error = f"Rate limit exceeded (429) after {max_retries} retries: {error_body}"
+                        break
 
                     # Handle 404 Model Not Found / Deprecated -> Attempt Fallback Model
                     if he.code == 404 and target_model != AiConfig.GROQ_FALLBACK_MODEL:
@@ -186,9 +188,8 @@ class LlmClient:
                     # Handle 401 / 403 Authentication / Permission Error
                     if he.code in (401, 403):
                         logger.error(f"Authentication error ({he.code}) on AI engine: {error_body}")
-                        raise RuntimeError(
-                            f"Groq API Authentication Error ({he.code}): {error_body}"
-                        )
+                        direct_error = f"Groq API Authentication Error ({he.code}): {error_body}"
+                        break
 
                     # Handle 5xx Provider Server Error
                     if he.code >= 500:
@@ -200,16 +201,18 @@ class LlmClient:
                             continue
 
                     logger.error(f"Direct LLM HTTP Error {he.code}: {error_body}")
-                    raise RuntimeError(f"LLM Chat Completion error ({he.code}): {error_body}")
+                    direct_error = f"LLM Chat Completion error ({he.code}): {error_body}"
+                    break
 
                 except Exception as e:
                     logger.warning(
                         f"Direct LLM call failed ({e}), attempting microservice bridge fallback..."
                     )
+                    direct_error = str(e)
                     break
 
         # Fallback to microservice if direct key is absent or failed
-        return cls._call_microservice_fallback(
+        fallback_res = cls._call_microservice_fallback(
             system_prompt=system_prompt,
             user_prompt=user_prompt,
             model=target_model,
@@ -217,6 +220,13 @@ class LlmClient:
             timeout=timeout,
             extra_payload=extra_payload,
         )
+        if fallback_res.get("status") == "success" and fallback_res.get("data"):
+            return fallback_res
+
+        # If both direct API and microservice fallback fail, fail closed with explicit exception
+        err_msg = direct_error or fallback_res.get("error") or "All AI inference providers failed."
+        logger.error(f"AI Inference failure: {err_msg}")
+        raise RuntimeError(f"AI Inference Service Failure: {err_msg}")
 
     @classmethod
     def _call_microservice_fallback(
@@ -251,7 +261,7 @@ class LlmClient:
                 resp_bytes = resp.read()
                 if resp_bytes:
                     resp_data = json.loads(resp_bytes.decode("utf-8"))
-                    if isinstance(resp_data, dict):
+                    if isinstance(resp_data, dict) and resp_data:
                         return {
                             "status": "success",
                             "data": resp_data,
@@ -261,11 +271,20 @@ class LlmClient:
                         }
         except Exception as e:
             logger.warning(f"Microservice HTTP bridge error: {e}")
+            return {
+                "status": "error",
+                "error": f"Microservice HTTP bridge failed: {e}",
+                "data": None,
+                "raw": "",
+                "model": model,
+                "usage": {},
+            }
 
         return {
-            "status": "success",
-            "data": {},
-            "raw": "{}",
+            "status": "error",
+            "error": "Microservice returned empty response",
+            "data": None,
+            "raw": "",
             "model": model,
             "usage": {},
         }

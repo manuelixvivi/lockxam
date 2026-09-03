@@ -4,12 +4,32 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-SECRET_KEY = (
-    os.getenv("SECRET_KEY")
-    or os.getenv("JWT_SECRET_KEY")
-    or os.getenv("JWT_SECRET")
-    or "equigrade_lockxam_default_secret_key_2026_secure_production"
-)
+def _resolve_secret_key() -> str:
+    key = (
+        os.getenv("SECRET_KEY")
+        or os.getenv("JWT_SECRET_KEY")
+        or os.getenv("JWT_SECRET")
+    )
+    if key and key.strip():
+        return key.strip()
+
+    is_production = os.getenv("ENV", "").lower() in ("prod", "production") or os.getenv("ENVIRONMENT", "").lower() in ("prod", "production")
+    if is_production:
+        raise RuntimeError("Production Security Error: 'SECRET_KEY' (or 'JWT_SECRET_KEY') must be explicitly set in production environment.")
+    
+    # Dev / Test fallback with explicit warning
+    return "equigrade_lockxam_dev_test_ephemeral_secret_key_32bytes_minimum!!"
+
+SECRET_KEY = _resolve_secret_key()
+
+def get_internal_service_token() -> str:
+    token = os.getenv("INTERNAL_SERVICE_TOKEN")
+    if token and token.strip():
+        return token.strip()
+    is_production = os.getenv("ENV", "").lower() in ("prod", "production") or os.getenv("ENVIRONMENT", "").lower() in ("prod", "production")
+    if is_production:
+        raise RuntimeError("Production Security Error: 'INTERNAL_SERVICE_TOKEN' must be explicitly set in production environment.")
+    return "dev-internal-token-change-in-production"
 
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
 ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))

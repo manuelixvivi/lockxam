@@ -7,8 +7,8 @@ from typing import Optional
 
 
 def _get_master_secret() -> bytes:
-    key_str = os.getenv("SECRET_KEY", "equigrade-production-secret-key-salt-32chars!!")
-    return key_str.encode("utf-8")
+    from app.core.security.keys import SECRET_KEY
+    return SECRET_KEY.encode("utf-8")
 
 
 def encrypt_secret(plaintext: Optional[str]) -> str:

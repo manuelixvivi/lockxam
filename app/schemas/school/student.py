@@ -70,4 +70,4 @@ class StudentImportRow(BaseModel):
 
 class StudentBulkImportRequest(BaseModel):
     academic_year_id: int
-    rows: list[StudentImportRow]
+    rows: list[StudentImportRow] = Field(..., max_length=5000)

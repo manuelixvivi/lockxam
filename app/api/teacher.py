@@ -42,8 +42,9 @@ dashboard_router = APIRouter(prefix="/api/v1/teacher", tags=["Teacher Dashboard 
 
 
 def require_internal_token(x_internal_service_token: str = Header(None)):
-    secret = os.getenv("INTERNAL_SERVICE_TOKEN", "equigrade-internal-secret-token")
-    if x_internal_service_token != secret:
+    from app.core.security.keys import get_internal_service_token
+    secret = get_internal_service_token()
+    if not x_internal_service_token or x_internal_service_token != secret:
         raise HTTPException(
             status_code=HTTP_403_FORBIDDEN,
             detail="Access denied: Internal service only",
@@ -170,7 +171,7 @@ def get_package_detail(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    package = question_package_repository.get_by_id(db, package_id)
+    package = question_package_repository.get_by_id_with_items_and_questions(db, package_id)
     if (
         not package
         or package.owner_teacher_account_id != teacher_account_id
@@ -706,12 +707,12 @@ async def upload_question_image(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
-    allowed_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif", ".svg"}
+    allowed_exts = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
     ext = os.path.splitext(file.filename or "")[1].lower()
     if ext not in allowed_exts:
         raise HTTPException(
             status_code=400,
-            detail=f"Format file '{ext}' tidak didukung. Hanya file gambar (.jpg, .png, .webp, .svg, .gif) yang diizinkan.",
+            detail=f"Format file '{ext}' tidak didukung. Hanya file gambar (.jpg, .png, .webp, .gif) yang diizinkan.",
         )
 
     content = await file.read()
@@ -720,12 +721,18 @@ async def upload_question_image(
 
     from app.core.storage import storage_service
 
-    saved = storage_service.save_file(
-        content=content,
-        filename=file.filename or f"image{ext}",
-        content_type=file.content_type,
-        folder="questions",
-    )
+    try:
+        saved = storage_service.save_file(
+            content=content,
+            filename=file.filename or f"image{ext}",
+            content_type=file.content_type,
+            folder="questions",
+        )
+    except ValueError as ve:
+        raise HTTPException(status_code=400, detail=str(ve))
+    except Exception as err:
+        raise HTTPException(status_code=500, detail=f"Gagal menyimpan file gambar: {err}")
+
     return {"url": saved["url"], "filename": saved["filename"]}
 
 

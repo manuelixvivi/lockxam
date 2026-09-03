@@ -27,6 +27,28 @@ class StorageService:
             return "data_url"
         return "local"
 
+    @staticmethod
+    def validate_image_bytes(content: bytes, ext: str) -> None:
+        """Enforces magic byte checking to prevent polyglot / script injection attacks."""
+        if not content or len(content) < 8:
+            raise ValueError("File is empty or corrupted.")
+        
+        # Check standard image magic bytes
+        if ext in (".jpg", ".jpeg"):
+            if not content.startswith(b"\xff\xd8\xff"):
+                raise ValueError("Invalid JPEG image signature.")
+        elif ext == ".png":
+            if not content.startswith(b"\x89PNG\r\n\x1a\n"):
+                raise ValueError("Invalid PNG image signature.")
+        elif ext == ".webp":
+            if not (content.startswith(b"RIFF") and b"WEBP" in content[:16]):
+                raise ValueError("Invalid WEBP image signature.")
+        elif ext == ".gif":
+            if not (content.startswith(b"GIF87a") or content.startswith(b"GIF89a")):
+                raise ValueError("Invalid GIF image signature.")
+        else:
+            raise ValueError(f"Format gambar '{ext}' tidak diizinkan.")
+
     @classmethod
     def save_file(
         cls,
@@ -38,6 +60,9 @@ class StorageService:
         """Save file content and return URL and filename identifier."""
         backend = cls.get_backend()
         ext = os.path.splitext(filename)[1].lower()
+        
+        cls.validate_image_bytes(content, ext)
+
         if not content_type:
             content_type = mimetypes.guess_type(filename)[0] or "application/octet-stream"
 
@@ -46,6 +71,9 @@ class StorageService:
         if backend == "s3":
             # Cloud S3 / Cloudflare R2 Storage
             bucket = os.getenv("AWS_S3_BUCKET") or os.getenv("S3_BUCKET_NAME")
+            if not bucket:
+                raise RuntimeError("Cloud Storage Error: S3_BUCKET_NAME is not configured.")
+
             endpoint = os.getenv("S3_ENDPOINT_URL")
             public_domain = os.getenv("S3_PUBLIC_DOMAIN")
 
@@ -65,7 +93,6 @@ class StorageService:
                     Key=key,
                     Body=content,
                     ContentType=content_type,
-                    ACL="public-read",
                 )
                 if public_domain:
                     url = f"https://{public_domain}/{key}"
@@ -73,11 +100,10 @@ class StorageService:
                     url = f"https://{bucket}.s3.amazonaws.com/{key}"
                 return {"url": url, "filename": unique_name, "backend": "s3"}
             except Exception as s3_err:
-                print(f"S3 upload error, falling back to data_url: {s3_err}")
-                backend = "data_url"
+                raise RuntimeError(f"Cloud S3 Object Storage Error: {s3_err}")
 
         if backend == "data_url":
-            # Serverless persistent data URL (100% resilient across lambda cold starts)
+            # Serverless fallback data URL for ephemeral testing
             b64_data = base64.b64encode(content).decode("utf-8")
             url = f"data:{content_type};base64,{b64_data}"
             return {"url": url, "filename": unique_name, "backend": "data_url"}
@@ -91,11 +117,12 @@ class StorageService:
                 f.write(content)
             url = f"/uploads/{folder}/{unique_name}"
             return {"url": url, "filename": unique_name, "backend": "local"}
-        except Exception:
-            # If filesystem is read-only (like Vercel production), fallback to data_url
-            b64_data = base64.b64encode(content).decode("utf-8")
-            url = f"data:{content_type};base64,{b64_data}"
-            return {"url": url, "filename": unique_name, "backend": "data_url"}
+        except Exception as local_err:
+            if os.getenv("VERCEL") or os.getenv("SERVERLESS"):
+                b64_data = base64.b64encode(content).decode("utf-8")
+                url = f"data:{content_type};base64,{b64_data}"
+                return {"url": url, "filename": unique_name, "backend": "data_url"}
+            raise RuntimeError(f"Local Storage Error: {local_err}")
 
 
 storage_service = StorageService()

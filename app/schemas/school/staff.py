@@ -69,7 +69,7 @@ class TeacherImportItem(BaseModel):
 
 
 class TeacherImportRequest(BaseModel):
-    teachers: list[TeacherImportItem]
+    teachers: list[TeacherImportItem] = Field(..., max_length=2000)
 
 
 # Batch 3 Bulk Import Remediation Verified

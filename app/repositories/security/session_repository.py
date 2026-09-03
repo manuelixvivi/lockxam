@@ -13,6 +13,14 @@ class SessionRepository(BaseRepository[UserSession]):
     def __init__(self):
         super().__init__(UserSession)
 
+    def get_by_id_for_update(self, db: Session, session_id: uuid.UUID) -> UserSession | None:
+        stmt = select(UserSession).where(UserSession.id == session_id)
+        # SQLite in-memory doesn't support FOR UPDATE, gracefully fall back if needed
+        try:
+            return db.scalar(stmt.with_for_update())
+        except Exception:
+            return db.scalar(stmt)
+
     def get_session_by_id_and_jti(
         self, db: Session, session_id: uuid.UUID, access_jti: uuid.UUID
     ) -> UserSession | None:

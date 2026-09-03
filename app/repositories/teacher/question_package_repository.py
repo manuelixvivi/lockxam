@@ -12,6 +12,19 @@ class QuestionPackageRepository(BaseRepository[QuestionPackage]):
     def __init__(self):
         super().__init__(QuestionPackage)
 
+    def get_by_id_with_items_and_questions(
+        self, db: Session, package_id: int
+    ) -> QuestionPackage | None:
+        from sqlalchemy.orm import selectinload
+        stmt = (
+            select(QuestionPackage)
+            .where(QuestionPackage.id == package_id)
+            .options(
+                selectinload(QuestionPackage.items).selectinload(QuestionPackageItem.question)
+            )
+        )
+        return db.scalar(stmt)
+
     def get_by_owner_and_tenant(
         self, db: Session, teacher_account_id: int, school_id: int
     ) -> list[QuestionPackage]:

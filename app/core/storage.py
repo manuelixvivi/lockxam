@@ -18,13 +18,34 @@ class StorageService:
     @staticmethod
     def get_backend() -> str:
         """Returns the active storage backend."""
+        is_serverless = bool(os.getenv("VERCEL") or os.getenv("SERVERLESS"))
+        is_production = (
+            os.getenv("ENVIRONMENT", "").lower() in ("production", "prod") or is_serverless
+        )
+
         explicit = os.getenv("STORAGE_BACKEND", "").lower().strip()
         if explicit:
+            if explicit == "s3":
+                bucket = os.getenv("AWS_S3_BUCKET") or os.getenv("S3_BUCKET_NAME")
+                if not bucket and is_production:
+                    raise RuntimeError(
+                        "Production/Vercel deployment requires AWS_S3_BUCKET or S3_BUCKET_NAME when STORAGE_BACKEND=s3."
+                    )
+            elif is_production and explicit != "s3":
+                raise RuntimeError(
+                    f"Production/Vercel requires S3-compatible object storage (STORAGE_BACKEND=s3), got '{explicit}'."
+                )
             return explicit
+
         if os.getenv("AWS_S3_BUCKET") or os.getenv("S3_BUCKET_NAME"):
             return "s3"
-        if os.getenv("VERCEL") or os.getenv("SERVERLESS"):
-            return "data_url"
+
+        if is_production:
+            raise RuntimeError(
+                "Production/Vercel deployment requires S3-compatible object storage. "
+                "Please configure STORAGE_BACKEND=s3 along with AWS_S3_BUCKET / S3_BUCKET_NAME."
+            )
+
         return "local"
 
     @staticmethod
@@ -118,10 +139,6 @@ class StorageService:
             url = f"/uploads/{folder}/{unique_name}"
             return {"url": url, "filename": unique_name, "backend": "local"}
         except Exception as local_err:
-            if os.getenv("VERCEL") or os.getenv("SERVERLESS"):
-                b64_data = base64.b64encode(content).decode("utf-8")
-                url = f"data:{content_type};base64,{b64_data}"
-                return {"url": url, "filename": unique_name, "backend": "data_url"}
             raise RuntimeError(f"Local Storage Error: {local_err}")
 
 

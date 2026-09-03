@@ -1755,30 +1755,54 @@ def list_grading_evaluations(
     from app.repositories.academic.class_repository import class_repository
     from app.repositories.security.auth_repository import auth_repository
 
+    from sqlalchemy import and_, or_
+
     # 1. Fetch teacher's assigned subjects and classes from ClassSubjectTeacher
     teacher_csts = (
         db.query(ClassSubjectTeacher)
         .filter(
-            ClassSubjectTeacher.school_id == school_id, ClassSubjectTeacher.teacher_id == teacher_id
+            ClassSubjectTeacher.school_id == school_id,
+            ClassSubjectTeacher.teacher_id == teacher_id,
         )
         .all()
     )
-    teacher_subject_ids = set(cst.subject_id for cst in teacher_csts)
-    teacher_class_ids = set(cst.class_id for cst in teacher_csts)
-
-    all_schedules = db.query(ExamSchedule).filter(ExamSchedule.school_id == school_id).all()
+    teacher_subject_ids = {cst.subject_id for cst in teacher_csts if cst.subject_id}
+    teacher_class_ids = {cst.class_id for cst in teacher_csts if cst.class_id}
 
     user_role = current_user.get("role")
     if user_role in ["SCHOOL_ADMIN", "SUPERADMIN"]:
-        schedules = all_schedules
+        schedules = db.query(ExamSchedule).filter(ExamSchedule.school_id == school_id).all()
     else:
-        schedules = []
-        for s in all_schedules:
-            if s.teacher_id == teacher_id:
-                schedules.append(s)
-            elif s.subject_id and s.subject_id in teacher_subject_ids:
-                if not s.class_id or s.class_id in teacher_class_ids:
-                    schedules.append(s)
+        conditions = [
+            ExamSchedule.teacher_id == teacher_id,
+            ExamSchedule.proctor_id == teacher_id,
+        ]
+        if teacher_subject_ids:
+            if teacher_class_ids:
+                conditions.append(
+                    and_(
+                        ExamSchedule.subject_id.in_(teacher_subject_ids),
+                        or_(
+                            ExamSchedule.class_id.is_(None),
+                            ExamSchedule.class_id.in_(teacher_class_ids),
+                        ),
+                    )
+                )
+            else:
+                conditions.append(
+                    and_(
+                        ExamSchedule.subject_id.in_(teacher_subject_ids),
+                        ExamSchedule.class_id.is_(None),
+                    )
+                )
+        schedules = (
+            db.query(ExamSchedule)
+            .filter(
+                ExamSchedule.school_id == school_id,
+                or_(*conditions),
+            )
+            .all()
+        )
 
     schedule_ids = [s.id for s in schedules]
     if not schedule_ids:
@@ -1786,14 +1810,22 @@ def list_grading_evaluations(
 
     schedule_map = {s.id: s for s in schedules}
 
-    # Fetch packages map for package_title
+    # Fetch only relevant packages and subjects maps
+    package_ids = {s.package_id for s in schedules if s.package_id}
+    subject_ids = {s.subject_id for s in schedules if s.subject_id}
+
     packages = (
-        db.query(ExamSchedulePackage).filter(ExamSchedulePackage.school_id == school_id).all()
+        db.query(ExamSchedulePackage).filter(ExamSchedulePackage.id.in_(package_ids)).all()
+        if package_ids
+        else []
     )
     package_map = {p.id: p.title for p in packages}
 
-    # Fetch subjects map for subject_name
-    subjects = db.query(Subject).filter(Subject.school_id == school_id).all()
+    subjects = (
+        db.query(Subject).filter(Subject.id.in_(subject_ids)).all()
+        if subject_ids
+        else []
+    )
     subject_map = {sub.id: sub.name for sub in subjects}
 
     # 2. Get sessions for these schedules

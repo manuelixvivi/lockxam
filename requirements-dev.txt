@@ -1,0 +1,5 @@
+# EquiGrade Development & Testing Dependencies
+-r requirements.txt
+pytest>=8.0.0
+pytest-asyncio>=0.23.0
+Faker>=24.0.0

@@ -834,6 +834,8 @@ class FinalizeEssayGradingRequest(BaseModel):
 
 @dashboard_router.get("/assignments", response_model=list[TeacherAssignmentResponse])
 def list_teacher_assignments(
+    limit: int = 100,
+    skip: int = 0,
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
@@ -842,29 +844,67 @@ def list_teacher_assignments(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
+    from app.models.academic.academic_year import AcademicYear
+    from app.models.academic.class_entity import ClassEntity
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.academic.exam_snapshot import ExamSnapshot
-    from app.repositories.academic.academic_year_repository import academic_year_repository
-    from app.repositories.academic.class_repository import class_repository
-    from app.repositories.academic.subject_repository import subject_repository
+    from app.models.academic.subject import Subject
 
+    effective_limit = min(max(1, limit), 200)
     schedules = (
         db.query(ExamSchedule)
         .filter(ExamSchedule.school_id == school_id, ExamSchedule.teacher_id == teacher_id)
         .order_by(ExamSchedule.start_time.asc())
+        .offset(skip)
+        .limit(effective_limit)
         .all()
+    )
+
+    if not schedules:
+        return []
+
+    sched_ids = [s.id for s in schedules]
+    class_ids = {s.class_id for s in schedules if s.class_id}
+    subject_ids = {s.subject_id for s in schedules if s.subject_id}
+    ay_ids = {
+        s.academic_year_id
+        for s in schedules
+        if hasattr(s, "academic_year_id") and s.academic_year_id
+    }
+
+    # Bulk prefetch relations in 4 targeted queries
+    classes_map = (
+        {c.id: c for c in db.query(ClassEntity).filter(ClassEntity.id.in_(class_ids)).all()}
+        if class_ids
+        else {}
+    )
+    subjects_map = (
+        {sub.id: sub for sub in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
+        if subject_ids
+        else {}
+    )
+    ay_map = (
+        {a.id: a for a in db.query(AcademicYear).filter(AcademicYear.id.in_(ay_ids)).all()}
+        if ay_ids
+        else {}
+    )
+    snapshots_map = (
+        {
+            snap.exam_schedule_id: snap
+            for snap in db.query(ExamSnapshot)
+            .filter(ExamSnapshot.exam_schedule_id.in_(sched_ids))
+            .all()
+        }
+        if sched_ids
+        else {}
     )
 
     res = []
     for s in schedules:
-        cls = class_repository.get_by_id(db, s.class_id)
-        subj = subject_repository.get_by_id(db, s.subject_id)
-        ay = (
-            academic_year_repository.get_by_id(db, s.academic_year_id)
-            if hasattr(s, "academic_year_id") and s.academic_year_id
-            else None
-        )
-        snapshot = db.query(ExamSnapshot).filter(ExamSnapshot.exam_schedule_id == s.id).first()
+        cls = classes_map.get(s.class_id)
+        subj = subjects_map.get(s.subject_id)
+        ay = ay_map.get(getattr(s, "academic_year_id", None))
+        snapshot = snapshots_map.get(s.id)
 
         package_name = None
         assigned_pkg_pub_id = None
@@ -991,6 +1031,8 @@ def unassign_teacher_assignment(
 
 @dashboard_router.get("/proctor/assignments", response_model=list[TeacherProctorAssignmentResponse])
 def list_proctor_assignments(
+    limit: int = 100,
+    skip: int = 0,
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
@@ -999,23 +1041,53 @@ def list_proctor_assignments(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
+    from app.models.academic.class_entity import ClassEntity
     from app.models.academic.exam_schedule import ExamSchedule
+    from app.models.academic.subject import Subject
     from app.models.exam.exam_session import ExamSession
-    from app.repositories.academic.class_repository import class_repository
-    from app.repositories.academic.subject_repository import subject_repository
 
+    effective_limit = min(max(1, limit), 200)
     schedules = (
         db.query(ExamSchedule)
         .filter(ExamSchedule.school_id == school_id, ExamSchedule.proctor_id == teacher_id)
         .order_by(ExamSchedule.start_time.asc())
+        .offset(skip)
+        .limit(effective_limit)
         .all()
+    )
+
+    if not schedules:
+        return []
+
+    sched_ids = [s.id for s in schedules]
+    class_ids = {s.class_id for s in schedules if s.class_id}
+    subject_ids = {s.subject_id for s in schedules if s.subject_id}
+
+    classes_map = (
+        {c.id: c for c in db.query(ClassEntity).filter(ClassEntity.id.in_(class_ids)).all()}
+        if class_ids
+        else {}
+    )
+    subjects_map = (
+        {sub.id: sub for sub in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
+        if subject_ids
+        else {}
+    )
+    sessions_map = (
+        {
+            sess.schedule_id: sess
+            for sess in db.query(ExamSession).filter(ExamSession.schedule_id.in_(sched_ids)).all()
+        }
+        if sched_ids
+        else {}
     )
 
     res = []
     for s in schedules:
-        cls = class_repository.get_by_id(db, s.class_id)
-        subj = subject_repository.get_by_id(db, s.subject_id)
-        session = db.query(ExamSession).filter(ExamSession.schedule_id == s.id).first()
+        cls = classes_map.get(s.class_id)
+        subj = subjects_map.get(s.subject_id)
+        session = sessions_map.get(s.id)
+
         if not session and s.status in ["READY", "ACTIVE"]:
             from datetime import datetime, timezone
 
@@ -1039,6 +1111,7 @@ def list_proctor_assignments(
             db.add(session)
             db.commit()
             db.refresh(session)
+            sessions_map[s.id] = session
 
         res.append(
             TeacherProctorAssignmentResponse(
@@ -1079,10 +1152,19 @@ def list_class_students_for_teacher(
     if not cls or cls.school_id != school_id:
         raise HTTPException(status_code=404, detail="Kelas tidak ditemukan")
 
+    from app.models.security.auth_account import AuthAccount
+
     enrollments = ClassStructureService.list_students_in_class(db, class_id)
+    student_ids = {e.student_id for e in enrollments}
+    students_map = (
+        {u.id: u for u in db.query(AuthAccount).filter(AuthAccount.id.in_(student_ids)).all()}
+        if student_ids
+        else {}
+    )
+
     res = []
     for e in enrollments:
-        student = auth_repository.get_by_id(db, e.student_id)
+        student = students_map.get(e.student_id)
         res.append(
             StudentEnrollmentResponse(
                 id=e.id,
@@ -1293,6 +1375,8 @@ def list_session_attempts(
 
 @dashboard_router.get("/exam-history", status_code=status.HTTP_200_OK)
 def list_teacher_exam_history(
+    limit: int = 50,
+    skip: int = 0,
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
@@ -1306,36 +1390,66 @@ def list_teacher_exam_history(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
+    from app.models.academic.class_entity import ClassEntity
     from app.models.academic.exam_schedule import ExamSchedule
-    from app.models.academic.school_class import SchoolClass
     from app.models.academic.subject import Subject
     from app.models.exam.exam_attempt import ExamAttempt
     from app.models.exam.exam_session import ExamSession
 
+    effective_limit = min(max(1, limit), 100)
     schedules = (
         db.query(ExamSchedule)
         .filter(ExamSchedule.school_id == school_id)
         .order_by(ExamSchedule.start_time.desc())
+        .offset(skip)
+        .limit(effective_limit)
         .all()
     )
+
+    if not schedules:
+        return {"grouped_packages": []}
+
+    sched_ids = [s.id for s in schedules]
+    class_ids = {s.class_id for s in schedules if s.class_id}
+    subject_ids = {s.subject_id for s in schedules if s.subject_id}
+
+    classes_map = (
+        {c.id: c for c in db.query(ClassEntity).filter(ClassEntity.id.in_(class_ids)).all()}
+        if class_ids
+        else {}
+    )
+    subjects_map = (
+        {sub.id: sub for sub in db.query(Subject).filter(Subject.id.in_(subject_ids)).all()}
+        if subject_ids
+        else {}
+    )
+    sessions = db.query(ExamSession).filter(ExamSession.schedule_id.in_(sched_ids)).all()
+    sessions_map = {sess.schedule_id: sess for sess in sessions}
+    session_ids = [sess.id for sess in sessions]
+
+    attempts = (
+        db.query(ExamAttempt).filter(ExamAttempt.exam_session_id.in_(session_ids)).all()
+        if session_ids
+        else []
+    )
+    attempts_by_session: dict[int, list[ExamAttempt]] = {}
+    for a in attempts:
+        attempts_by_session.setdefault(a.exam_session_id, []).append(a)
 
     grouped: dict[str, list] = {}
 
     for s in schedules:
-        subj = db.query(Subject).filter(Subject.id == s.subject_id).first()
-        scls = db.query(SchoolClass).filter(SchoolClass.id == s.class_id).first()
-        sess = db.query(ExamSession).filter(ExamSession.schedule_id == s.id).first()
+        subj = subjects_map.get(s.subject_id)
+        scls = classes_map.get(s.class_id)
+        sess = sessions_map.get(s.id)
 
         sess_id = sess.id if sess else None
-        attempts = []
-        if sess_id:
-            attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id == sess_id).all()
+        att_list = attempts_by_session.get(sess_id, []) if sess_id else []
 
         submitted_attempts = [
             a
-            for a in attempts
-            if hasattr(a.status, "value")
-            and a.status.value in ["SUBMITTED", "GRADED"]
+            for a in att_list
+            if (hasattr(a.status, "value") and a.status.value in ["SUBMITTED", "GRADED"])
             or str(a.status) in ["SUBMITTED", "GRADED"]
         ]
         scores = [a.final_score for a in submitted_attempts if a.final_score is not None]
@@ -1358,7 +1472,7 @@ def list_teacher_exam_history(
                 "start_time": s.start_time.isoformat() if s.start_time else None,
                 "end_time": s.end_time.isoformat() if s.end_time else None,
                 "status": s.status,
-                "total_students": len(attempts),
+                "total_students": len(att_list),
                 "submitted_students": len(submitted_attempts),
                 "average_score": avg_score,
             }
@@ -1420,17 +1534,50 @@ def get_student_answers_for_schedule(
 
     session_ids = [s.id for s in sessions]
     attempts = db.query(ExamAttempt).filter(ExamAttempt.exam_session_id.in_(session_ids)).all()
+    if not attempts:
+        return {"students": []}
+
+    attempt_ids = [a.id for a in attempts]
+    student_ids = {a.student_id for a in attempts if a.student_id}
+
+    # Bulk prefetch students, answers, evaluations, and questions
+    students_map = (
+        {u.id: u for u in db.query(AuthAccount).filter(AuthAccount.id.in_(student_ids)).all()}
+        if student_ids
+        else {}
+    )
+
+    all_answers = db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id.in_(attempt_ids)).all()
+    all_evals = (
+        db.query(ExamAnswerEvaluation)
+        .filter(ExamAnswerEvaluation.exam_attempt_id.in_(attempt_ids))
+        .all()
+    )
+
+    answers_by_attempt: dict[int, list[StudentAnswer]] = {}
+    for ans in all_answers:
+        answers_by_attempt.setdefault(ans.exam_attempt_id, []).append(ans)
+
+    evals_by_attempt: dict[int, dict[int, ExamAnswerEvaluation]] = {}
+    eval_list_by_attempt: dict[int, list[ExamAnswerEvaluation]] = {}
+    for ev in all_evals:
+        evals_by_attempt.setdefault(ev.exam_attempt_id, {})[ev.question_id] = ev
+        eval_list_by_attempt.setdefault(ev.exam_attempt_id, []).append(ev)
+
+    q_ids = {ans.question_id for ans in all_answers} | {ev.question_id for ev in all_evals}
+    questions_map = (
+        {q.id: q for q in db.query(Question).filter(Question.id.in_(q_ids)).all()}
+        if q_ids
+        else {}
+    )
+
     results = []
 
     for a in attempts:
-        student = db.query(AuthAccount).filter(AuthAccount.id == a.student_id).first()
-        answers = db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id == a.id).all()
-        evaluations = (
-            db.query(ExamAnswerEvaluation)
-            .filter(ExamAnswerEvaluation.exam_attempt_id == a.id)
-            .all()
-        )
-        eval_map = {ev.question_id: ev for ev in evaluations}
+        student = students_map.get(a.student_id)
+        answers = answers_by_attempt.get(a.id, [])
+        evaluations = eval_list_by_attempt.get(a.id, [])
+        eval_map = evals_by_attempt.get(a.id, {})
 
         score_pg = 0.0
         max_pg = 0.0
@@ -1441,7 +1588,7 @@ def get_student_answers_for_schedule(
 
         ans_data = []
         for ans in answers:
-            q = db.query(Question).filter(Question.id == ans.question_id).first()
+            q = questions_map.get(ans.question_id)
             q_type = get_q_type(q)
 
             ev = eval_map.get(ans.question_id)
@@ -1495,8 +1642,8 @@ def get_student_answers_for_schedule(
             )
 
         for ev in evaluations:
-            if not any(a["question_id"] == ev.question_id for a in ans_data):
-                q = db.query(Question).filter(Question.id == ev.question_id).first()
+            if not any(a_item["question_id"] == ev.question_id for a_item in ans_data):
+                q = questions_map.get(ev.question_id)
                 q_type = get_q_type(q)
                 earned = float(ev.score)
                 max_q = float(ev.max_score) if ev.max_score else 1.0

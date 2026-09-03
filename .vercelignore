@@ -45,9 +45,6 @@ node_modules/
 # Documentation, Architecture Diagrams & Markdown Notes (Retain only deployment manifests)
 documentation/
 docs/
-*.png
-*.jpg
-*.jpeg
 *.zip
 
 # Docker & Container configs

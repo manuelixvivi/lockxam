@@ -27,49 +27,98 @@ def _get_school_id(current_user: dict) -> int:
     return school_id
 
 
-def _enrich_schedule_response(db: Session, s) -> ExamScheduleResponse:
-    from app.repositories.academic.academic_semester_repository import academic_semester_repository
-    from app.repositories.academic.academic_year_repository import academic_year_repository
-    from app.repositories.academic.class_repository import class_repository
-    from app.repositories.academic.subject_repository import subject_repository
-    from app.repositories.security.auth_repository import auth_repository
+def _bulk_enrich_schedules(db: Session, schedules: list) -> list[ExamScheduleResponse]:
+    if not schedules:
+        return []
 
-    year = academic_year_repository.get_by_id(db, s.academic_year_id)
-    sem = academic_semester_repository.get_by_id(db, s.academic_semester_id)
-    cls = class_repository.get_by_id(db, s.class_id)
-    subj = subject_repository.get_by_id(db, s.subject_id)
-    teacher = auth_repository.get_by_id(db, s.teacher_id)
-    proctor = auth_repository.get_by_id(db, s.proctor_id) if s.proctor_id else None
+    from app.models.academic.academic_semester import AcademicSemester
+    from app.models.academic.academic_year import AcademicYear
+    from app.models.academic.class_entity import ClassEntity
+    from app.models.academic.subject import Subject
+    from app.models.security.auth_account import AuthAccount
 
-    return ExamScheduleResponse(
-        id=s.id,
-        public_id=s.public_id,
-        school_id=s.school_id,
-        package_id=s.package_id,
-        academic_year_id=s.academic_year_id,
-        academic_semester_id=s.academic_semester_id,
-        class_id=s.class_id,
-        subject_id=s.subject_id,
-        teacher_id=s.teacher_id,
-        proctor_id=s.proctor_id,
-        title=s.title,
-        name=s.title,
-        start_time=s.start_time,
-        end_time=s.end_time,
-        duration_minutes=s.duration_minutes,
-        status=s.status,
-        target_type=getattr(s, "target_type", "ALL_CLASS") or "ALL_CLASS",
-        allowed_student_ids=getattr(s, "allowed_student_ids", None),
-        created_at=s.created_at,
-        updated_at=s.updated_at,
-        class_name=cls.name if cls else None,
-        subject_name=subj.name if subj else None,
-        teacher_name=teacher.name or teacher.username if teacher else None,
-        proctor_name=proctor.name or proctor.username if proctor else None,
-        proctor_code=proctor.teacher_code if proctor else None,
-        academic_year_name=year.name if year else None,
-        academic_semester_name=sem.display_name if sem else None,
+    year_ids = {s.academic_year_id for s in schedules if s.academic_year_id}
+    sem_ids = {s.academic_semester_id for s in schedules if s.academic_semester_id}
+    class_ids = {s.class_id for s in schedules if s.class_id}
+    subj_ids = {s.subject_id for s in schedules if s.subject_id}
+    user_ids = {s.teacher_id for s in schedules if s.teacher_id} | {
+        s.proctor_id for s in schedules if s.proctor_id
+    }
+
+    years = (
+        {y.id: y for y in db.query(AcademicYear).filter(AcademicYear.id.in_(year_ids)).all()}
+        if year_ids
+        else {}
     )
+    sems = (
+        {
+            sem.id: sem
+            for sem in db.query(AcademicSemester).filter(AcademicSemester.id.in_(sem_ids)).all()
+        }
+        if sem_ids
+        else {}
+    )
+    classes = (
+        {c.id: c for c in db.query(ClassEntity).filter(ClassEntity.id.in_(class_ids)).all()}
+        if class_ids
+        else {}
+    )
+    subjects = (
+        {sub.id: sub for sub in db.query(Subject).filter(Subject.id.in_(subj_ids)).all()}
+        if subj_ids
+        else {}
+    )
+    users = (
+        {u.id: u for u in db.query(AuthAccount).filter(AuthAccount.id.in_(user_ids)).all()}
+        if user_ids
+        else {}
+    )
+
+    res = []
+    for s in schedules:
+        year = years.get(s.academic_year_id)
+        sem = sems.get(s.academic_semester_id)
+        cls = classes.get(s.class_id)
+        subj = subjects.get(s.subject_id)
+        teacher = users.get(s.teacher_id)
+        proctor = users.get(s.proctor_id) if s.proctor_id else None
+
+        res.append(
+            ExamScheduleResponse(
+                id=s.id,
+                public_id=s.public_id,
+                school_id=s.school_id,
+                package_id=s.package_id,
+                academic_year_id=s.academic_year_id,
+                academic_semester_id=s.academic_semester_id,
+                class_id=s.class_id,
+                subject_id=s.subject_id,
+                teacher_id=s.teacher_id,
+                proctor_id=s.proctor_id,
+                title=s.title,
+                name=s.title,
+                start_time=s.start_time,
+                end_time=s.end_time,
+                duration_minutes=s.duration_minutes,
+                status=s.status,
+                target_type=getattr(s, "target_type", "ALL_CLASS") or "ALL_CLASS",
+                allowed_student_ids=getattr(s, "allowed_student_ids", None),
+                created_at=s.created_at,
+                updated_at=s.updated_at,
+                class_name=cls.name if cls else None,
+                subject_name=subj.name if subj else None,
+                teacher_name=teacher.name or teacher.username if teacher else None,
+                proctor_name=proctor.name or proctor.username if proctor else None,
+                proctor_code=proctor.teacher_code if proctor else None,
+                academic_year_name=year.name if year else None,
+                academic_semester_name=sem.display_name if sem else None,
+            )
+        )
+    return res
+
+
+def _enrich_schedule_response(db: Session, s) -> ExamScheduleResponse:
+    return _bulk_enrich_schedules(db, [s])[0]
 
 
 @router.post("", response_model=ExamScheduleResponse, status_code=status.HTTP_201_CREATED)
@@ -143,7 +192,7 @@ def list_exam_schedules(
         academic_semester_id=academic_semester_id,
         class_id=class_id,
     )
-    return [_enrich_schedule_response(db, s) for s in schedules]
+    return _bulk_enrich_schedules(db, schedules)
 
 
 def _enrich_package_response(db: Session, p) -> ExamSchedulePackageResponse:
@@ -154,7 +203,7 @@ def _enrich_package_response(db: Session, p) -> ExamSchedulePackageResponse:
     from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
 
     schedules = exam_schedule_repository.list_by_package(db, p.id)
-    enriched_schedules = [_enrich_schedule_response(db, s) for s in schedules]
+    enriched_schedules = _bulk_enrich_schedules(db, schedules)
 
     is_closed_val = bool(getattr(p, "is_closed", False))
     if not is_closed_val and schedules:

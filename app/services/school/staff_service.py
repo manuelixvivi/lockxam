@@ -31,28 +31,51 @@ class SchoolStaffService:
 
     @staticmethod
     def list_teachers(db: Session, school_id: int) -> list[AuthAccount]:
-        """List teachers and project relational assignments onto compatibility arrays."""
+        """List teachers and project relational assignments onto compatibility arrays using batch lookups."""
         teachers = auth_repository.list_teachers_by_school(db, school_id)
+        if not teachers:
+            return []
 
         active_classes = [c for c in class_repository.list_by_school(db, school_id) if c.is_active]
-        active_class_names = {c.name for c in active_classes}
+        active_class_map = {c.id: c.name for c in active_classes}
+        active_class_names = set(active_class_map.values())
 
         active_subjects = subject_repository.list_by_school(db, school_id)
-        active_subject_dict = {}
-        for s in active_subjects:
-            active_subject_dict[s.id] = s.name
-            active_subject_dict[s.name.strip().lower()] = s.name
-            if s.code:
-                active_subject_dict[s.code.strip().lower()] = s.name
+        subject_name_map = {s.id: s.name for s in active_subjects if s.school_id == school_id}
+
+        teacher_ids = [t.id for t in teachers]
+
+        # Batch query all CST assignments for these teachers
+        from app.models.academic.class_subject_teacher import ClassSubjectTeacher
+        from app.models.academic.teacher_subject import TeacherSubject
+
+        all_csts = (
+            db.query(ClassSubjectTeacher)
+            .filter(ClassSubjectTeacher.teacher_id.in_(teacher_ids))
+            .all()
+        )
+        cst_by_teacher: dict[int, list[ClassSubjectTeacher]] = {}
+        for cst in all_csts:
+            cst_by_teacher.setdefault(cst.teacher_id, []).append(cst)
+
+        # Batch query all direct TeacherSubject mappings
+        all_ts = (
+            db.query(TeacherSubject)
+            .filter(TeacherSubject.teacher_id.in_(teacher_ids))
+            .all()
+        )
+        ts_by_teacher: dict[int, list[TeacherSubject]] = {}
+        for ts in all_ts:
+            ts_by_teacher.setdefault(ts.teacher_id, []).append(ts)
 
         for t in teachers:
             # 1. Sync classes_taught
-            assigned_csts = class_subject_teacher_repository.list_by_teacher(db, t.id)
-            assigned_class_ids = [cst.class_id for cst in assigned_csts]
-            cst_class_names = []
-            if assigned_class_ids:
-                cst_classes = class_repository.get_by_ids(db, assigned_class_ids)
-                cst_class_names = [c.name for c in cst_classes if c.is_active]
+            assigned_csts = cst_by_teacher.get(t.id, [])
+            cst_class_names = [
+                active_class_map[cst.class_id]
+                for cst in assigned_csts
+                if cst.class_id in active_class_map
+            ]
 
             existing_taught_classes = list(t.classes_taught or [])
             valid_taught_classes = [
@@ -60,24 +83,18 @@ class SchoolStaffService:
             ]
 
             combined_class_names = list(dict.fromkeys(valid_taught_classes + cst_class_names))
-
             if t.classes_taught != combined_class_names:
                 t.classes_taught = combined_class_names
 
-            # 2. Sync subjects_taught (Read-only compatibility projection)
-            assigned_ts = teacher_subject_repository.list_by_teacher(db, t.id)
-
+            # 2. Sync subjects_taught
+            assigned_ts = ts_by_teacher.get(t.id, [])
             subject_ids_from_cst = [cst.subject_id for cst in assigned_csts if cst.subject_id]
             subject_ids_from_ts = [ts.subject_id for ts in assigned_ts if ts.subject_id]
             combined_subject_ids = list(dict.fromkeys(subject_ids_from_cst + subject_ids_from_ts))
 
-            relational_subject_names = []
-            if combined_subject_ids:
-                relational_subjects = subject_repository.get_by_ids(db, combined_subject_ids)
-                relational_subject_names = [
-                    s.name for s in relational_subjects if s.school_id == school_id
-                ]
-
+            relational_subject_names = [
+                subject_name_map[sid] for sid in combined_subject_ids if sid in subject_name_map
+            ]
             combined_subject_names = list(dict.fromkeys(relational_subject_names))
 
             if t.subjects_taught != combined_subject_names:

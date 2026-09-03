@@ -38,24 +38,7 @@ export interface ChangePasswordRequest {
 
 export const schoolApi = {
   getSchoolProfile: async (schoolIdOrPublicId: string | number): Promise<SchoolProfile> => {
-    // If it's a UUID string, fetch directly by public_id
-    if (typeof schoolIdOrPublicId === "string" && schoolIdOrPublicId.includes("-")) {
-      return apiClient.get<SchoolProfile>(`/api/v1/schools/${schoolIdOrPublicId}`);
-    }
-
-    // Otherwise, fetch all schools and find matching school_id
-    const schools = await apiClient.get<SchoolProfile[]>("/api/v1/schools");
-    const numId = typeof schoolIdOrPublicId === "number" ? schoolIdOrPublicId : parseInt(schoolIdOrPublicId, 10);
-    const found = schools.find((s) => s.id === numId);
-
-    if (!found) {
-      throw {
-        statusCode: 404,
-        message: `Sekolah dengan ID #${schoolIdOrPublicId} tidak ditemukan.`,
-      };
-    }
-
-    return found;
+    return apiClient.get<SchoolProfile>(`/api/v1/schools/${schoolIdOrPublicId}`);
   },
 
   updateSchoolProfile: async (

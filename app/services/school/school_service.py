@@ -173,6 +173,21 @@ class SchoolService:
         return SchoolService._enrich_admin_username(db, school)
 
     @staticmethod
+    def get_school_by_id_or_public_id(db: Session, identifier: str | int | uuid.UUID) -> School:
+        school = None
+        if isinstance(identifier, int) or (isinstance(identifier, str) and identifier.isdigit()):
+            school = school_repository.get_by_id(db, int(identifier))
+        else:
+            try:
+                u = uuid.UUID(str(identifier))
+                school = school_repository.get_by_public_id(db, u)
+            except (ValueError, AttributeError):
+                pass
+        if not school:
+            raise BusinessException("School not found", status_code=404)
+        return SchoolService._enrich_admin_username(db, school)
+
+    @staticmethod
     def get_all_schools(db: Session) -> list[School]:
         schools = school_repository.get_all_active(db)
         for s in schools:

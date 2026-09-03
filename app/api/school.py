@@ -65,12 +65,12 @@ def list_schools(db: Session = Depends(get_db)):
 
 
 @router.get(
-    "/{public_id}",
+    "/{identifier}",
     response_model=SchoolResponse,
     dependencies=[Depends(require_authenticated())],
 )
-def get_school(public_id: UUID, db: Session = Depends(get_db)):
-    return SchoolService.get_school_by_public_id(db, public_id)
+def get_school(identifier: str, db: Session = Depends(get_db)):
+    return SchoolService.get_school_by_id_or_public_id(db, identifier)
 
 
 @router.put(

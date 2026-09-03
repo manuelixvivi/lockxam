@@ -34,7 +34,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         .then((lic) => setLicense(lic))
         .catch(() => setLicense(null));
     }
-  }, [role, activeHref]);
+  }, [role, user?.school_id]);
 
   const [logoUrl, setLogoUrl] = useState<string | null>(null);
 

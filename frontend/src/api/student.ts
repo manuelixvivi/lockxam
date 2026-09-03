@@ -50,10 +50,17 @@ export interface StudentResetPasswordResult {
 }
 
 export const studentApi = {
-  listStudents: (limit?: number, skip: number = 0): Promise<StudentAccount[]> => {
+  listStudents: (
+    limit?: number,
+    skip: number = 0,
+    search?: string,
+    className?: string
+  ): Promise<StudentAccount[]> => {
     const query = new URLSearchParams();
     if (limit !== undefined) query.set("limit", limit.toString());
     if (skip > 0) query.set("skip", skip.toString());
+    if (search && search.trim()) query.set("search", search.trim());
+    if (className && className.trim()) query.set("class_name", className.trim());
     const qs = query.toString();
     return apiClient.get<StudentAccount[]>(`/api/v1/admin/students${qs ? `?${qs}` : ""}`);
   },

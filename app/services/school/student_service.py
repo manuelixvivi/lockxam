@@ -26,10 +26,17 @@ class SchoolStudentService:
 
     @staticmethod
     def list_students(
-        db: Session, school_id: int, limit: int | None = None, skip: int = 0
+        db: Session,
+        school_id: int,
+        limit: int | None = None,
+        skip: int = 0,
+        search: str | None = None,
+        class_name: str | None = None,
     ) -> list[AuthAccount]:
-        """List student accounts for a school with optional pagination."""
-        return auth_repository.list_students_by_school(db, school_id, limit=limit, skip=skip)
+        """List student accounts for a school with optional pagination and search."""
+        return auth_repository.list_students_by_school(
+            db, school_id, limit=limit, skip=skip, search=search, class_name=class_name
+        )
 
     @staticmethod
     def create_student(

@@ -92,10 +92,22 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     let token = apiClient.getAccessToken();
     if (!token) {
       try {
-        const refreshRes = await apiClient.post<{ access_token: string }>("/api/v1/auth/refresh");
+        const refreshRes = await apiClient.post<{ access_token: string; user_profile?: any }>("/api/v1/auth/refresh");
         if (refreshRes && refreshRes.access_token) {
           apiClient.setAccessToken(refreshRes.access_token);
           token = refreshRes.access_token;
+          if (refreshRes.user_profile) {
+            const me = refreshRes.user_profile;
+            const normalizedUser: UserProfile = {
+              ...me,
+              id: me.user_id || me.id,
+              email: me.email || me.username || "user@school.id",
+              full_name: me.name || me.full_name || me.username || "Pengguna Equigrade",
+            };
+            setUser(normalizedUser);
+            setIsLoading(false);
+            return;
+          }
         }
       } catch {
         apiClient.clearTokens();

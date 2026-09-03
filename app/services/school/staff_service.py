@@ -31,10 +31,16 @@ class SchoolStaffService:
 
     @staticmethod
     def list_teachers(
-        db: Session, school_id: int, limit: int | None = None, skip: int = 0
+        db: Session,
+        school_id: int,
+        limit: int | None = None,
+        skip: int = 0,
+        search: str | None = None,
     ) -> list[AuthAccount]:
         """List teachers and project relational assignments onto compatibility arrays using batch lookups."""
-        teachers = auth_repository.list_teachers_by_school(db, school_id, limit=limit, skip=skip)
+        teachers = auth_repository.list_teachers_by_school(
+            db, school_id, limit=limit, skip=skip, search=search
+        )
         if not teachers:
             return []
 

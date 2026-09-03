@@ -134,55 +134,6 @@ def list_model_registry(db: Session = Depends(get_db)) -> Dict[str, Any]:
             "versions": versions,
         })
 
-    # Default baseline descriptor if empty
-    if not models_data:
-        models_data.append({
-            "id": 1,
-            "name": "EquiGrade Essay Evaluator",
-            "task_type": "ESSAY_GRADING",
-            "description": "Domain-adapted neural scoring pipeline for Indonesian descriptive essays.",
-            "current_production_version_id": 1,
-            "current_staged_version_id": None,
-            "versions": [
-                {
-                    "id": 3,
-                    "version_number": "1.3",
-                    "version_tag": "v1.3",
-                    "status": "PRODUCTION",
-                    "base_model_name": "openai/gpt-oss-120b",
-                    "adapter_type": "LoRA (r=16, α=32)",
-                    "dataset_version": "dataset-v2026.08",
-                    "manifest_hash": "sha256:8f4c2e1b...",
-                    "artifact_hash": "sha256:3a7b9c1d...",
-                    "created_at": "2026-09-02T14:30:00Z",
-                },
-                {
-                    "id": 2,
-                    "version_number": "1.2",
-                    "version_tag": "v1.2",
-                    "status": "ARCHIVED",
-                    "base_model_name": "llama-3.3-70b-versatile",
-                    "adapter_type": "LoRA (r=8, α=16)",
-                    "dataset_version": "dataset-v2026.07",
-                    "manifest_hash": "sha256:7b5d1a2c...",
-                    "artifact_hash": "sha256:2c8e4f0a...",
-                    "created_at": "2026-08-15T10:00:00Z",
-                },
-                {
-                    "id": 1,
-                    "version_number": "1.0",
-                    "version_tag": "v1.0",
-                    "status": "ARCHIVED",
-                    "base_model_name": "openai/gpt-oss-20b",
-                    "adapter_type": "Native Base",
-                    "dataset_version": "dataset-v2026.06",
-                    "manifest_hash": "sha256:1a2b3c4d...",
-                    "artifact_hash": "sha256:5e6f7a8b...",
-                    "created_at": "2026-07-01T09:00:00Z",
-                },
-            ],
-        })
-
     return {"models": models_data, "total": len(models_data)}
 
 
@@ -190,7 +141,7 @@ def list_model_registry(db: Session = Depends(get_db)) -> Dict[str, Any]:
 def list_training_jobs(db: Session = Depends(get_db)) -> Dict[str, Any]:
     """Returns training jobs from A9.3 with live execution status and metrics."""
     jobs = db.query(TrainingJob).order_by(TrainingJob.created_at.desc()).limit(100).all()
-    
+
     jobs_data = []
     for j in jobs:
         jobs_data.append({
@@ -207,50 +158,6 @@ def list_training_jobs(db: Session = Depends(get_db)) -> Dict[str, Any]:
             "started_at": getattr(j, "started_at", None).isoformat() if getattr(j, "started_at", None) else None,
             "completed_at": getattr(j, "completed_at", None).isoformat() if getattr(j, "completed_at", None) else None,
         })
-
-    # Default illustrative jobs if none in DB
-    if not jobs_data:
-        jobs_data = [
-            {
-                "id": 1042,
-                "job_id": "job-lora-20260902-1042",
-                "task_type": "SFT_LORA",
-                "status": "COMPLETED",
-                "base_model_name": "openai/gpt-oss-120b",
-                "dataset_version_tag": "dataset-v2026.08",
-                "training_config": {"epochs": 3, "lora_r": 16, "lora_alpha": 32, "lr": 2e-4},
-                "training_metrics": {"loss": 0.412, "val_loss": 0.448, "epoch": 3, "step": 2000, "total_steps": 2000},
-                "created_at": "2026-09-02T10:42:00Z",
-                "started_at": "2026-09-02T10:42:15Z",
-                "completed_at": "2026-09-02T11:28:40Z",
-            },
-            {
-                "id": 1041,
-                "job_id": "job-lora-20260901-0915",
-                "task_type": "SFT_LORA",
-                "status": "COMPLETED",
-                "base_model_name": "llama-3.3-70b-versatile",
-                "dataset_version_tag": "dataset-v2026.08",
-                "training_config": {"epochs": 3, "lora_r": 16, "lora_alpha": 32, "lr": 1e-4},
-                "training_metrics": {"loss": 0.485, "val_loss": 0.512, "epoch": 3, "step": 1800, "total_steps": 1800},
-                "created_at": "2026-09-01T09:15:00Z",
-                "started_at": "2026-09-01T09:15:30Z",
-                "completed_at": "2026-09-01T10:02:10Z",
-            },
-            {
-                "id": 1040,
-                "job_id": "job-val-20260830-1600",
-                "task_type": "DATASET_VALIDATION",
-                "status": "FAILED",
-                "base_model_name": "openai/gpt-oss-120b",
-                "dataset_version_tag": "dataset-v2026.07-draft",
-                "training_config": {"min_quality_score": 0.85},
-                "training_metrics": {"error": "Target truncation rate 14.2% exceeds max threshold 5.0%"},
-                "created_at": "2026-08-30T16:00:00Z",
-                "started_at": "2026-08-30T16:00:05Z",
-                "completed_at": "2026-08-30T16:01:20Z",
-            },
-        ]
 
     return {"jobs": jobs_data, "total": len(jobs_data)}
 

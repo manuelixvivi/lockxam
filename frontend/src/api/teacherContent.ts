@@ -69,10 +69,25 @@ export interface QuestionUpdate {
   ai_grading?: boolean;
 }
 
+export interface TeacherDashboardSummary {
+  package_count: number;
+  ready_package_count: number;
+  question_count: number;
+}
+
 export const teacherContentApi = {
+  getDashboardSummary: (): Promise<TeacherDashboardSummary> =>
+    apiClient.get<TeacherDashboardSummary>("/api/v1/teacher/dashboard-summary"),
+
   // Question Packages
-  listPackages: (): Promise<QuestionPackage[]> =>
-    apiClient.get<QuestionPackage[]>("/api/v1/teacher/packages"),
+  listPackages: (limit?: number, skip: number = 0, search?: string): Promise<QuestionPackage[]> => {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.set("limit", limit.toString());
+    if (skip > 0) params.set("skip", skip.toString());
+    if (search && search.trim()) params.set("search", search.trim());
+    const qs = params.toString();
+    return apiClient.get<QuestionPackage[]>(`/api/v1/teacher/packages${qs ? `?${qs}` : ""}`);
+  },
 
   createPackage: (data: QuestionPackageCreate): Promise<QuestionPackage> =>
     apiClient.post<QuestionPackage>("/api/v1/teacher/packages", data),
@@ -102,8 +117,15 @@ export const teacherContentApi = {
     apiClient.post<QuestionPackageDetail>(`/api/v1/teacher/packages/${packageId}/reorder`, orderMap),
 
   // Question Bank (Questions)
-  listQuestions: (subject?: string): Promise<Question[]> =>
-    apiClient.get<Question[]>(`/api/v1/teacher/questions${subject ? `?subject=${encodeURIComponent(subject)}` : ""}`),
+  listQuestions: (subject?: string, limit?: number, skip: number = 0, search?: string): Promise<Question[]> => {
+    const params = new URLSearchParams();
+    if (subject && subject.trim()) params.set("subject", subject.trim());
+    if (limit !== undefined) params.set("limit", limit.toString());
+    if (skip > 0) params.set("skip", skip.toString());
+    if (search && search.trim()) params.set("search", search.trim());
+    const qs = params.toString();
+    return apiClient.get<Question[]>(`/api/v1/teacher/questions${qs ? `?${qs}` : ""}`);
+  },
 
   createQuestion: (data: QuestionCreate): Promise<Question> =>
     apiClient.post<Question>("/api/v1/teacher/questions", data),

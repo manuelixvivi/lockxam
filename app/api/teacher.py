@@ -51,12 +51,12 @@ def require_internal_token(x_internal_service_token: str = Header(None)):
 
 
 # ─────────────────────────────────────────────────────────────────────────────
-# Question Packages Endpoints
+# Teacher Dashboard Endpoints
 # ─────────────────────────────────────────────────────────────────────────────
 
 
-@router.get("", response_model=list[QuestionPackageResponse])
-def list_packages(
+@dashboard_router.get("/dashboard-summary")
+def get_teacher_dashboard_summary(
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
@@ -64,7 +64,77 @@ def list_packages(
     school_id = current_user.get("school_id")
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
-    return question_package_repository.get_by_owner_and_tenant(db, teacher_account_id, school_id)
+
+    from sqlalchemy import func
+    from app.models.teacher.question_package import QuestionPackage
+
+    total_packages = (
+        db.query(func.count(QuestionPackage.id))
+        .filter(
+            QuestionPackage.owner_teacher_account_id == teacher_account_id,
+            QuestionPackage.school_id == school_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    ready_packages = (
+        db.query(func.count(QuestionPackage.id))
+        .filter(
+            QuestionPackage.owner_teacher_account_id == teacher_account_id,
+            QuestionPackage.school_id == school_id,
+            QuestionPackage.status == "READY",
+        )
+        .scalar()
+        or 0
+    )
+
+    total_questions = (
+        db.query(func.count(Question.id))
+        .filter(
+            Question.owner_teacher_account_id == teacher_account_id,
+        )
+        .scalar()
+        or 0
+    )
+
+    return {
+        "package_count": total_packages,
+        "ready_package_count": ready_packages,
+        "question_count": total_questions,
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Question Packages Endpoints
+# ─────────────────────────────────────────────────────────────────────────────
+
+
+@router.get("", response_model=list[QuestionPackageResponse])
+def list_packages(
+    limit: int | None = None,
+    skip: int = 0,
+    search: str | None = None,
+    current_user=Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    teacher_account_id = int(current_user["sub"])
+    school_id = current_user.get("school_id")
+    if not school_id:
+        raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
+
+    from app.models.teacher.question_package import QuestionPackage
+
+    stmt = select(QuestionPackage).where(
+        QuestionPackage.owner_teacher_account_id == teacher_account_id,
+        QuestionPackage.school_id == school_id,
+    )
+    if search and search.strip():
+        stmt = stmt.where(QuestionPackage.name.ilike(f"%{search.strip()}%"))
+    stmt = stmt.order_by(QuestionPackage.created_at.desc()).offset(skip)
+    if limit is not None:
+        stmt = stmt.limit(limit)
+    return list(db.scalars(stmt).all())
 
 
 @router.post("", response_model=QuestionPackageResponse, status_code=status.HTTP_201_CREATED)
@@ -446,8 +516,12 @@ def get_snapshot_payload(
 
 @questions_router.get("", response_model=list[TeacherQuestionResponse])
 def list_questions(
+    limit: int | None = None,
+    skip: int = 0,
+    search: str | None = None,
     subject: str | None = None,
     class_level: str | None = None,
+    question_type: str | None = None,
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
@@ -461,6 +535,13 @@ def list_questions(
         stmt = stmt.where(Question.subject == subject)
     if class_level:
         stmt = stmt.where(Question.class_level == class_level)
+    if question_type:
+        stmt = stmt.where(Question.type == question_type)
+    if search and search.strip():
+        stmt = stmt.where(Question.content.ilike(f"%{search.strip()}%"))
+    stmt = stmt.order_by(Question.created_at.desc()).offset(skip)
+    if limit is not None:
+        stmt = stmt.limit(limit)
     return list(db.scalars(stmt).all())
 
 

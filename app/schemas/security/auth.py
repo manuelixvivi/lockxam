@@ -49,6 +49,7 @@ class TokenResponse(BaseModel):
     refresh_token: str | None = None
     token_type: str = "bearer"
     session_expires_in: int | None = None
+    user_profile: CurrentUserResponse | None = None
 
 
 class ChangePasswordRequest(BaseModel):

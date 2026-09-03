@@ -21,6 +21,7 @@ from app.repositories.security.auth_repository import auth_repository
 from app.repositories.security.login_attempt_repository import login_attempt_repository
 from app.repositories.security.session_repository import session_repository
 from app.schemas.security.auth import (
+    CurrentUserResponse,
     LoginRequest,
     LoginResponse,
     RefreshRequest,
@@ -284,10 +285,52 @@ class AuthService:
             remaining = expires_at - datetime.now(timezone.utc)
             session_expires_in = max(0, int(remaining.total_seconds()))
 
+            # Construct user profile for 1-step bootstrap
+            user_profile = None
+            account = auth_repository.get_by_id(db, user_session.auth_account_id)
+            if account:
+                school_name = None
+                school_level_code = None
+                if account.school_id:
+                    from app.repositories.master.school_level_repository import (
+                        school_level_repository,
+                    )
+                    from app.repositories.school.school_repository import school_repository
+
+                    school = school_repository.get_by_id(db, account.school_id)
+                    if school:
+                        school_name = school.name
+                        if school.school_level_id:
+                            s_lvl = school_level_repository.get_by_id(db, school.school_level_id)
+                            if s_lvl:
+                                school_level_code = s_lvl.code
+
+                user_profile = CurrentUserResponse(
+                    user_id=account.id,
+                    username=account.username,
+                    role=account.role.value if hasattr(account.role, "value") else str(account.role),
+                    school_id=account.school_id,
+                    school_name=school_name,
+                    school_level_code=school_level_code,
+                    must_change_password=account.must_change_password,
+                    name=account.name,
+                    nis=account.nis,
+                    nisn=account.nisn,
+                    birth_date=account.birth_date,
+                    gender=account.gender,
+                    class_name=account.class_name,
+                    registered_year=account.registered_year,
+                    nip=account.nip,
+                    teacher_code=account.teacher_code,
+                    subjects_taught=account.subjects_taught,
+                    classes_taught=account.classes_taught,
+                )
+
             return TokenResponse(
                 access_token=new_access_token,
                 refresh_token=new_refresh_token,
                 session_expires_in=session_expires_in,
+                user_profile=user_profile,
             )
         except Exception:
             db.rollback()

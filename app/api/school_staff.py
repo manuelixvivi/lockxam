@@ -30,11 +30,12 @@ def _get_school_id(current_user: dict) -> int:
 def list_teachers(
     limit: int | None = None,
     skip: int = 0,
+    search: str | None = None,
     current_user=Depends(require_admin()),
     db: Session = Depends(get_db),
 ):
     school_id = _get_school_id(current_user)
-    return SchoolStaffService.list_teachers(db, school_id, limit=limit, skip=skip)
+    return SchoolStaffService.list_teachers(db, school_id, limit=limit, skip=skip, search=search)
 
 
 @router.post("", response_model=TeacherCreateResponse, status_code=status.HTTP_201_CREATED)

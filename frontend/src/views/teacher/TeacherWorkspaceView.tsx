@@ -40,13 +40,10 @@ export function TeacherWorkspaceView({ initialPath = "/teacher/dashboard", onNav
 
   const fetchStats = async () => {
     try {
-      const [pkgs, qstns] = await Promise.all([
-        teacherContentApi.listPackages(),
-        teacherContentApi.listQuestions(),
-      ]);
-      setPackageCount(pkgs.length);
-      setQuestionCount(qstns.length);
-      setReadyPackageCount(pkgs.filter((p) => p.status === "READY").length);
+      const summary = await teacherContentApi.getDashboardSummary();
+      setPackageCount(summary.package_count);
+      setQuestionCount(summary.question_count);
+      setReadyPackageCount(summary.ready_package_count);
     } catch {
       // Quiet fail or silent
     }

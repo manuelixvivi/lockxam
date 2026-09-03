@@ -718,16 +718,15 @@ async def upload_question_image(
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Ukuran gambar maksimal 5 MB.")
 
-    filename = f"q_img_{uuid.uuid4().hex}{ext}"
-    target_dir = os.path.join("uploads", "questions")
-    os.makedirs(target_dir, exist_ok=True)
-    file_path = os.path.join(target_dir, filename)
+    from app.core.storage import storage_service
 
-    with open(file_path, "wb") as f:
-        f.write(content)
-
-    url = f"/uploads/questions/{filename}"
-    return {"url": url, "filename": filename}
+    saved = storage_service.save_file(
+        content=content,
+        filename=file.filename or f"image{ext}",
+        content_type=file.content_type,
+        folder="questions",
+    )
+    return {"url": saved["url"], "filename": saved["filename"]}
 
 
 # ─────────────────────────────────────────────────────────────────────────────

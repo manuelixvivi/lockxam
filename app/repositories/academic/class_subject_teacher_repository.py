@@ -52,6 +52,19 @@ class ClassSubjectTeacherRepository(BaseRepository[ClassSubjectTeacher]):
             ).all()
         )
 
+    def list_by_teachers(
+        self, db: Session, teacher_ids: list[int]
+    ) -> list[ClassSubjectTeacher]:
+        if not teacher_ids:
+            return []
+        return list(
+            db.scalars(
+                select(ClassSubjectTeacher).where(
+                    ClassSubjectTeacher.teacher_id.in_(teacher_ids)
+                )
+            ).all()
+        )
+
     def assign_or_update(
         self, db: Session, school_id: int, class_id: int, subject_id: int, teacher_id: int
     ) -> ClassSubjectTeacher:

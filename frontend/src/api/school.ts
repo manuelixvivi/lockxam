@@ -49,9 +49,20 @@ export interface SchoolDashboardSummary {
   active_exam_schedules: number;
 }
 
+const schoolProfilePromiseCache: Record<string, Promise<SchoolProfile>> = {};
+
 export const schoolApi = {
-  getSchoolProfile: async (schoolIdOrPublicId: string | number): Promise<SchoolProfile> => {
-    return apiClient.get<SchoolProfile>(`/api/v1/schools/${schoolIdOrPublicId}`);
+  getSchoolProfile: async (schoolIdOrPublicId: string | number, forceFresh: boolean = false): Promise<SchoolProfile> => {
+    const key = String(schoolIdOrPublicId);
+    if (!forceFresh && schoolProfilePromiseCache[key] !== undefined) {
+      return schoolProfilePromiseCache[key];
+    }
+    const p = apiClient.get<SchoolProfile>(`/api/v1/schools/${schoolIdOrPublicId}`).catch((err) => {
+      delete schoolProfilePromiseCache[key];
+      throw err;
+    });
+    schoolProfilePromiseCache[key] = p;
+    return p;
   },
 
   getDashboardSummary: async (schoolIdOrPublicId: string | number): Promise<SchoolDashboardSummary> => {

@@ -121,12 +121,22 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
   // Master Classes State
   const [masterClasses, setMasterClasses] = useState<ClassEntity[]>([]);
 
+  // Pagination State (25 per page by default)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize, setPageSize] = useState<number>(25);
+
   // Load students and master classes
   const loadStudents = useCallback(async () => {
     setIsLoading(true);
     try {
+      const skip = (currentPage - 1) * pageSize;
       const [data, classes, years] = await Promise.all([
-        studentApi.listStudents(),
+        studentApi.listStudents(
+          pageSize,
+          skip,
+          searchQuery.trim() || undefined,
+          filterClass === "UNASSIGNED" ? undefined : (filterClass.trim() || undefined)
+        ),
         classApi.listClasses().catch(() => []),
         academicApi.getAcademicYears().catch(() => []),
       ]);
@@ -144,7 +154,7 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [currentPage, pageSize, searchQuery, filterClass, showToast]);
 
   useEffect(() => {
     loadStudents();
@@ -158,14 +168,8 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
     masterClasses.forEach((c) => {
       list.push({ value: c.name, label: `${c.name} (${c.grade_level || "Rombel"})` });
     });
-    // Add existing student classes if not already present
-    students.forEach((s) => {
-      if (s.class_name && !list.some((o) => o.value === s.class_name)) {
-        list.push({ value: s.class_name, label: s.class_name });
-      }
-    });
     return list;
-  }, [masterClasses, students]);
+  }, [masterClasses]);
 
   // Combined class options for filter bar
   const filterClassOptions: SelectOption[] = useMemo(() => {
@@ -176,46 +180,17 @@ export function StudentsView({ onNavigate }: StudentsViewProps) {
     ];
   }, [classFormOptions]);
 
-  // Filtered list
+  // Filtered list (client-side status filter on the loaded page)
   const filtered = useMemo(() => {
+    if (!filterStatus) return students;
     return students.filter((s) => {
-      const q = searchQuery.toLowerCase();
-      const matchesSearch =
-        s.username.toLowerCase().includes(q) ||
-        (s.name || "").toLowerCase().includes(q) ||
-        (s.nis || "").toLowerCase().includes(q) ||
-        (s.nisn || "").toLowerCase().includes(q);
-
-      const matchesClass = filterClass
-        ? filterClass === "UNASSIGNED"
-          ? !s.class_name || s.class_name.trim() === ""
-          : s.class_name === filterClass
-        : true;
-      const matchesStatus =
-        filterStatus === "active"
-          ? s.is_active
-          : filterStatus === "inactive"
-          ? !s.is_active
-          : true;
-
-      return matchesSearch && matchesClass && matchesStatus;
+      return filterStatus === "active" ? s.is_active : !s.is_active;
     });
-  }, [students, searchQuery, filterClass, filterStatus]);
+  }, [students, filterStatus]);
 
-  // Pagination State (25 per page by default)
-  const [currentPage, setCurrentPage] = useState(1);
-  const [pageSize, setPageSize] = useState<number>(25);
+  const totalPages = Math.max(1, Math.ceil(filtered.length >= pageSize ? currentPage + 1 : currentPage));
 
-  useEffect(() => {
-    setCurrentPage(1);
-  }, [searchQuery, filterClass, filterStatus, pageSize]);
-
-  const totalPages = Math.max(1, Math.ceil(filtered.length / pageSize));
-
-  const paginatedStudents = useMemo(() => {
-    const start = (currentPage - 1) * pageSize;
-    return filtered.slice(start, start + pageSize);
-  }, [filtered, currentPage, pageSize]);
+  const paginatedStudents = filtered;
 
   // Selection handlers
   const handleToggleSelect = (publicId: string) => {

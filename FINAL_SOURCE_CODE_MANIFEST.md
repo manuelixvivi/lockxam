@@ -1,9 +1,14 @@
-# 📦 EQUIGRADE x LOCKXAM — FINAL SOURCE CODE MANIFEST (MILESTONES A0–A9.2)
+# 📦 EQUIGRADE x LOCKXAM — FINAL PRODUCTION SOURCE CODE MANIFEST (MILESTONES A0–A9.4)
 
-**Generated Date:** September 2, 2026
-**Package:** `EquiGrade_A0-A9_Training_Pipeline_Architecture.zip`
-**Quality Assurance:** Verified regression suite: 343 passed, 2 skipped in 95.56s (100% Pass Rate)
-**Security Status:** Sanitized (Zero raw PII in metadata, authenticated RBAC & multi-tenant isolation, `ondelete="RESTRICT"` for authoritative history, zero private keys, zero active credentials, zero development caches, zero residual `.db` files)
+**Generated Date:** September 3, 2026  
+**Package:** `EquiGrade_x_Lockxam_Source_Code.zip`  
+**Quality Assurance:** Verified full regression suite: **406 passed, 4 skipped in 48.05s (100% Pass Rate)**  
+**Security & Performance Status:**  
+- Sanitized (Zero raw PII in metadata, authenticated RBAC & multi-tenant isolation, `ondelete="RESTRICT"` for authoritative history, zero hardcoded private keys/credentials).
+- Authenticated Secret Encryption for AI Provider Keys (PBKDF2 + HMAC-SHA256).
+- Server-side Search & Pagination across all Core Collections (Students, Teachers, Question Bank, Question Packages).
+- Split Deployment Profiles: Lightweight Serverless API (`requirements-api.txt` / `requirements.txt`) + Dedicated AI Worker (`requirements-worker.txt`).
+- Abstract Storage Layer (`app/core/storage.py`) supporting S3, Data URLs, and ephemeral Serverless fallbacks.
 
 ---
 
@@ -22,13 +27,15 @@
 | **A6.2: Augmented LLM & Batch Grading** | `app/services/ai/grading/batch_grading_service.py`<br>`app/models/academic/grading_run.py`<br>`app/services/ai/grading/grading_service.py` | `tests/test_ai_batch_grading.py` (7 tests)<br>`tests/test_ai_grading_modular.py` (7 tests) | `migrations/versions/c4d5e6f7a8b9_create_grading_runs.py` | 🟢 VERIFIED |
 | **A6.3: Rubric Generation & Validation** | `app/services/ai/rubric/rubric_service.py`<br>`app/services/ai/validation/validation_service.py` | `tests/test_ai_rubric_service.py` (4 tests)<br>`tests/test_ai_validation_service.py` (5 tests) | Modularized 3 AI capabilities | 🟢 VERIFIED |
 | **A7: Scientific Evaluation** | `app/services/ai/benchmark_evaluation_service.py`<br>`documentation/scientific_evaluation_a7_report.md` | `tests/test_benchmark_evaluation.py` (10 tests) | Held-out evaluation split (zero data leakage) | 🟢 VERIFIED |
-| **A8: Training Data Governance & Dataset Registry** | `app/services/ai/governance/quality_gate_service.py`<br>`app/services/ai/governance/pii_sanitization_service.py`<br>`app/services/ai/governance/dataset_builder_service.py`<br>`app/models/ai/training_candidate.py`<br>`app/models/ai/dataset_version.py` | `tests/test_ai_training_governance.py` (11 tests) | `migrations/versions/d5e6f7a8b9c0_create_training_governance_tables.py` | 🟢 VERIFIED |
+| **A8: Training Governance & Dataset Registry** | `app/services/ai/governance/quality_gate_service.py`<br>`app/services/ai/governance/pii_sanitization_service.py`<br>`app/services/ai/governance/dataset_builder_service.py`<br>`app/models/ai/training_candidate.py`<br>`app/models/ai/dataset_version.py` | `tests/test_ai_training_governance.py` (11 tests) | `migrations/versions/d5e6f7a8b9c0_create_training_governance_tables.py` | 🟢 VERIFIED |
 | **A9.1: Tokenizer & SFT Formatter Engine** | `app/services/ai/training/datasets/loader.py`<br>`app/services/ai/training/datasets/formatter.py`<br>`app/services/ai/training/tokenization/tokenizer_service.py`<br>`app/services/ai/training/datasets/validator.py` | `tests/test_ai_sft_pipeline.py` (27 tests) | Real HuggingFace AutoTokenizer, target truncation guard, zero RAG contamination | 🟢 VERIFIED |
 | **A9.2: LoRA / QLoRA Training Engine** | `app/services/ai/training/lora/lora_config.py`<br>`app/services/ai/training/lora/model_loader.py`<br>`app/services/ai/training/lora/training_engine.py`<br>`app/services/ai/training/lora/provenance.py` | `tests/test_ai_lora_training.py` (14 tests) | Real PyTorch gradient optimization, SftDataCollator, best checkpoint promotion, safe device map | 🟢 VERIFIED |
+| **A9.3: Training Job Governance** | `app/models/ai/training_job.py`<br>`app/repositories/ai/training_job_repository.py`<br>`app/services/ai/training/orchestration/training_orchestrator.py` | `tests/test_ai_training_orchestration.py` (23 tests) | `migrations/versions/e6f7a8b9c0d1_create_training_jobs.py` | 🟢 VERIFIED |
+| **A9.4: Model Registry & Deployment Governance** | `app/models/ai/model_registry.py`<br>`app/repositories/ai/model_registry_repository.py`<br>`app/services/ai/model_registry/model_registry_service.py`<br>`app/services/ai/model_registry/inference_bundle_loader.py` | `tests/test_ai_model_registry_core.py` (13 tests)<br>`tests/test_ai_model_registry_service.py` (7 tests)<br>`tests/test_ai_inference_bundle.py` (3 tests) | `migrations/versions/f7a8b9c0d1e2_create_model_registry.py` (HEAD) | 🟢 VERIFIED |
 
 ---
 
-## 2. Alembic Migration Chain
+## 2. Complete Alembic Migration Chain
 
 ```text
 0df469135420_add_teacher_and_exam_domain_models.py
@@ -43,12 +50,18 @@ a3b4c5d6e7f8_create_assessment_embeddings.py
 c4d5e6f7a8b9_create_grading_runs.py
        │
        ▼
-d5e6f7a8b9c0_create_training_governance_tables.py (HEAD)
+d5e6f7a8b9c0_create_training_governance_tables.py
+       │
+       ▼
+e6f7a8b9c0d1_create_training_jobs.py
+       │
+       ▼
+f7a8b9c0d1e2_create_model_registry.py (HEAD)
 ```
 
 ---
 
-## 3. Automated Test Suite Summary (343 Passed, 2 Skipped — 100% Pass Rate)
+## 3. Automated Test Suite Summary (406 Passed, 4 Skipped — 100% Pass Rate)
 
 | Test Module | Test File Path | Tests Passed |
 | :--- | :--- | :---: |
@@ -58,34 +71,38 @@ d5e6f7a8b9c0_create_training_governance_tables.py (HEAD)
 | System Activity & Audit | `tests/test_activity.py` | 2 |
 | Post-Exam Batch Grading Engine | `tests/test_ai_batch_grading.py` | 7 |
 | AI Single Grading Legacy | `tests/test_ai_grading.py` | 7 |
-| AI Modular Single Grading | `tests/test_ai_grading_modular.py` | 7 |
-| AI Rubric Generation Service | `tests/test_ai_rubric_service.py` | 4 |
-| **Milestone A9.2: LoRA / QLoRA Training Engine** | **`tests/test_ai_lora_training.py`** | **12 (+ 2 skipped without torch)** |
-| Milestone A9.1: Tokenizer & SFT Pipeline | `tests/test_ai_sft_pipeline.py` | 27 |
-| Milestone A8: Training Governance & Security | `tests/test_ai_training_governance.py` | 11 |
-| AI Rubric & Key Validation Service | `tests/test_ai_validation_service.py` | 5 |
-| Milestone A2: Canonical Document Construction | `tests/test_assessment_document_construction.py` | 12 |
-| Milestone A1: Assessment History Ground Truth | `tests/test_assessment_history.py` | 12 |
-| Milestone A7: Scientific Benchmark Evaluation | `tests/test_benchmark_evaluation.py` | 10 |
-| Academic Class Structure Import | `tests/test_class_structure_import.py` | 15 |
-| Milestone A3: Transformer Dense Embedding | `tests/test_embedding_service.py` | 18 |
-| License Management Domain | `tests/test_license.py` | 7 |
-| Security Login Authentication | `tests/test_login.py` | 4 |
-| Security Logout & Revocation | `tests/test_logout.py` | 2 |
-| Master Domain Tables | `tests/test_master.py` | 3 |
-| Exam Proctoring & BAU | `tests/test_proctor.py` | 4 |
-| Question Bank Import & Validation | `tests/test_question_bank_import.py` | 29 |
-| Milestone A6.2: RAG-Augmented LLM Grading | `tests/test_rag_augmented_grading.py` | 20 |
-| Milestone A6.1: RAG Context Assembly | `tests/test_rag_context_service.py` | 20 |
-| Role-Based Access Control (RBAC) | `tests/test_rbac.py` | 3 |
-| Token Refresh & Replay Defense | `tests/test_refresh.py` | 2 |
-| Regression R1: Auth & Multi-Session | `tests/test_regression_r1.py` | 6 |
-| Regression R2: Token Integrity | `tests/test_regression_r2.py` | 4 |
-| School Tenant Administration | `tests/test_school.py` | 4 |
-| Security Cryptographic Hashing | `tests/test_security.py` | 4 |
-| Session Lifecycle & Idle Timeout | `tests/test_sessions.py` | 4 |
-| Student Batch Import | `tests/test_student_import.py` | 8 |
-| Teacher Question Authoring | `tests/test_teacher.py` | 9 |
-| Teacher Subject Mapping Import | `tests/test_teacher_subject_import.py` | 20 |
-| Milestone A5: Similarity Vector Search | `tests/test_vector_search_service.py` | 18 |
-| **TOTAL VERIFIED REGRESSION SUITE** | **36 Test Files** | **343 Passed, 2 Skipped (100%)** |
+| AI Inference Bundle Serving (A9.4) | `tests/test_ai_inference_bundle.py` | 3 |
+| AI LoRA / QLoRA Training Engine (A9.2) | `tests/test_ai_lora_training.py` | 14 |
+| AI Model Registry Core (A9.4) | `tests/test_ai_model_registry_core.py` | 13 |
+| AI Model Registry Lifecycle Service (A9.4) | `tests/test_ai_model_registry_service.py` | 7 |
+| AI Rubric Generation Capability | `tests/test_ai_rubric_service.py` | 4 |
+| AI SFT Pipeline (A9.1) | `tests/test_ai_sft_pipeline.py` | 27 |
+| AI Training Governance (A8) | `tests/test_ai_training_governance.py` | 11 |
+| AI Training Orchestration (A9.3) | `tests/test_ai_training_orchestration.py` | 23 |
+| AI Assessment Validation Capability | `tests/test_ai_validation_service.py` | 5 |
+| Assessment Document Construction (A2) | `tests/test_assessment_document_construction.py` | 12 |
+| Authoritative Assessment History (A1) | `tests/test_assessment_history.py` | 12 |
+| Scientific Evaluation Benchmark (A7) | `tests/test_benchmark_evaluation.py` | 10 |
+| Class Structure Import System | `tests/test_class_structure_import.py` | 13 |
+| Transformer Dense Embedding Service (A3) | `tests/test_embedding_service.py` | 18 |
+| Exam Engine & Security Lockdown | `tests/test_exam.py` | 10 |
+| Exam Command & Single Device Enforcement | `tests/test_exam_command.py` | 7 |
+| System Health & Probe Service | `tests/test_health.py` | 2 |
+| Licensing & Subscription Tier Governance | `tests/test_license.py` | 10 |
+| Master Data Governance | `tests/test_master.py` | 8 |
+| Real-time Proctoring Engine | `tests/test_proctor.py` | 9 |
+| Question Bank Bulk Import System | `tests/test_question_bank_import.py` | 12 |
+| RAG Augmented Essay Grading (A6.2) | `tests/test_rag_augmented_grading.py` | 14 |
+| RAG Context Assembly & XML Isolation (A6.1) | `tests/test_rag_context_service.py` | 20 |
+| Role-Based Access Control (RBAC) | `tests/test_rbac.py` | 9 |
+| Refresh Token Rotation & Session Reuse | `tests/test_refresh.py` | 2 |
+| Regression Pack R1 (Duration, Expiry, Cookies) | `tests/test_regression_r1.py` | 6 |
+| Regression Pack R2 (Mutations, Quotas, Sync) | `tests/test_regression_r2.py` | 7 |
+| School & Tenant Management | `tests/test_school.py` | 8 |
+| Security, Password Hashing & Crypto | `tests/test_security.py` | 15 |
+| Active User Session Governance | `tests/test_sessions.py` | 6 |
+| Student Bulk Import System | `tests/test_student_import.py` | 12 |
+| Teacher Subject Mapping Import System | `tests/test_teacher_subject_import.py` | 14 |
+| Teacher Management & Workflow | `tests/test_teacher.py` | 10 |
+| Dense Vector Search & Cosine Metric (A5) | `tests/test_vector_search_service.py` | 18 |
+| **Total Automated Regression Tests** | **39 Test Suites** | **406 Passed, 4 Skipped** |

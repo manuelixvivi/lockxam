@@ -118,12 +118,17 @@ export function TeachersView({ onNavigate }: TeachersViewProps) {
   const [togglingId, setTogglingId] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
 
+  // Pagination State (25 per page by default)
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState<number>(25);
+
   // Load teachers, master subjects, and master classes
   const loadTeachers = useCallback(async () => {
     setIsLoading(true);
     try {
+      const skip = (currentPage - 1) * pageSize;
       const [teachersData, loadedSubjects, loadedClasses] = await Promise.all([
-        teacherApi.listTeachers(),
+        teacherApi.listTeachers(pageSize, skip, searchQuery.trim() || undefined),
         subjectApi.listSubjects(true).catch(() => []),
         classApi.listClasses().catch(() => []),
       ]);
@@ -144,22 +149,15 @@ export function TeachersView({ onNavigate }: TeachersViewProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [showToast]);
+  }, [currentPage, pageSize, searchQuery, showToast]);
 
   useEffect(() => {
     loadTeachers();
   }, [loadTeachers]);
 
-  // Filtered list
+  // Filtered list (client-side status/subject filter on the loaded page)
   const filtered = useMemo(() => {
     return teachers.filter((t) => {
-      const q = searchQuery.toLowerCase();
-      const matchesSearch =
-        (t.name || "").toLowerCase().includes(q) ||
-        t.username.toLowerCase().includes(q) ||
-        (t.nip || "").toLowerCase().includes(q) ||
-        (t.teacher_code || "").toLowerCase().includes(q);
-
       const matchesSubject = filterSubject
         ? (t.subjects_taught || []).includes(filterSubject)
         : true;
@@ -171,9 +169,9 @@ export function TeachersView({ onNavigate }: TeachersViewProps) {
           ? !t.is_active
           : true;
 
-      return matchesSearch && matchesSubject && matchesStatus;
+      return matchesSubject && matchesStatus;
     });
-  }, [teachers, searchQuery, filterSubject, filterStatus]);
+  }, [teachers, filterSubject, filterStatus]);
 
   // Selection handlers
   const handleToggleSelect = (publicId: string) => {
@@ -824,6 +822,31 @@ export function TeachersView({ onNavigate }: TeachersViewProps) {
               },
             ]}
           />
+        </div>
+
+        {/* Pagination Bar */}
+        <div className="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400">
+          <div>
+            Menampilkan halaman <span className="font-semibold text-slate-200">{currentPage}</span> (25 guru per halaman)
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={currentPage <= 1 || isLoading}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            >
+              Sebelumnya
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={filtered.length < pageSize || isLoading}
+              onClick={() => setCurrentPage((p) => p + 1)}
+            >
+              Selanjutnya
+            </Button>
+          </div>
         </div>
       </div>
 

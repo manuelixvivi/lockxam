@@ -44,37 +44,38 @@ class SchoolStaffService:
         if not teachers:
             return []
 
-        active_classes = [c for c in class_repository.list_by_school(db, school_id) if c.is_active]
-        active_class_map = {c.id: c.name for c in active_classes}
-        active_class_names = set(active_class_map.values())
-
-        active_subjects = subject_repository.list_by_school(db, school_id)
-        subject_name_map = {s.id: s.name for s in active_subjects if s.school_id == school_id}
-
         teacher_ids = [t.id for t in teachers]
 
-        # Batch query all CST assignments for these teachers
-        from app.models.academic.class_subject_teacher import ClassSubjectTeacher
-        from app.models.academic.teacher_subject import TeacherSubject
+        # Batch query CST and TS assignments for the paginated teachers via repositories
+        all_csts = class_subject_teacher_repository.list_by_teachers(db, teacher_ids)
+        cst_by_teacher: dict[int, list] = {}
+        relevant_class_ids = set()
+        relevant_subject_ids = set()
 
-        all_csts = (
-            db.query(ClassSubjectTeacher)
-            .filter(ClassSubjectTeacher.teacher_id.in_(teacher_ids))
-            .all()
-        )
-        cst_by_teacher: dict[int, list[ClassSubjectTeacher]] = {}
         for cst in all_csts:
             cst_by_teacher.setdefault(cst.teacher_id, []).append(cst)
+            relevant_class_ids.add(cst.class_id)
+            relevant_subject_ids.add(cst.subject_id)
 
-        # Batch query all direct TeacherSubject mappings
-        all_ts = (
-            db.query(TeacherSubject)
-            .filter(TeacherSubject.teacher_id.in_(teacher_ids))
-            .all()
-        )
-        ts_by_teacher: dict[int, list[TeacherSubject]] = {}
+        all_ts = teacher_subject_repository.list_by_teachers(db, teacher_ids)
+        ts_by_teacher: dict[int, list] = {}
         for ts in all_ts:
             ts_by_teacher.setdefault(ts.teacher_id, []).append(ts)
+            relevant_subject_ids.add(ts.subject_id)
+
+        # Batch fetch only relevant active classes and subjects
+        active_class_map = {}
+        if relevant_class_ids:
+            from app.models.academic.class_entity import Class
+            classes = db.query(Class).filter(Class.id.in_(relevant_class_ids), Class.is_active == True).all()
+            active_class_map = {c.id: c.name for c in classes}
+        active_class_names = set(active_class_map.values())
+
+        subject_name_map = {}
+        if relevant_subject_ids:
+            from app.models.academic.subject import Subject
+            subjects = db.query(Subject).filter(Subject.id.in_(relevant_subject_ids), Subject.school_id == school_id).all()
+            subject_name_map = {s.id: s.name for s in subjects}
 
         for t in teachers:
             # 1. Sync classes_taught

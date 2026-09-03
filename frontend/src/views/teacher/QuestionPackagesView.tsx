@@ -28,7 +28,7 @@ interface QuestionPackagesViewProps {
 }
 
 export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPackagesViewProps) {
-  const { user, refreshProfile } = useAuth();
+  const { user } = useAuth();
   const { showToast } = useToast();
   const [packages, setPackages] = useState<QuestionPackage[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -53,10 +53,9 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
 
   const [isCreating, setIsCreating] = useState(false);
 
-  // Refresh profile on mount to get fresh assigned subjects
-  useEffect(() => {
-    refreshProfile?.();
-  }, []);
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState<number>(25);
 
   // Get subjects strictly assigned to current teacher
   const subjectsTaught = user?.subjects_taught || [];
@@ -76,7 +75,12 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
   const fetchPackages = async () => {
     setIsLoading(true);
     try {
-      const data = await teacherContentApi.listPackages();
+      const skip = (currentPage - 1) * pageSize;
+      const data = await teacherContentApi.listPackages(
+        pageSize,
+        skip,
+        searchQuery.trim() || undefined
+      );
       setPackages(data);
     } catch (err: any) {
       showToast({
@@ -91,7 +95,7 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
 
   useEffect(() => {
     fetchPackages();
-  }, []);
+  }, [currentPage, pageSize, searchQuery]);
 
   const handleOpenAddModal = () => {
     setName("");
@@ -352,6 +356,31 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
             })}
           </div>
         )}
+
+        {/* Pagination Bar */}
+        <div className="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400">
+          <div>
+            Menampilkan halaman <span className="font-semibold text-slate-200">{currentPage}</span> (25 paket per halaman)
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={currentPage <= 1 || isLoading}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            >
+              Sebelumnya
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={packages.length < pageSize || isLoading}
+              onClick={() => setCurrentPage((p) => p + 1)}
+            >
+              Selanjutnya
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Add Modal */}

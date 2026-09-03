@@ -26,6 +26,17 @@ class TeacherSubjectRepository(BaseRepository[TeacherSubject]):
             ).all()
         )
 
+    def list_by_teachers(
+        self, db: Session, teacher_ids: list[int]
+    ) -> list[TeacherSubject]:
+        if not teacher_ids:
+            return []
+        return list(
+            db.scalars(
+                select(TeacherSubject).where(TeacherSubject.teacher_id.in_(teacher_ids))
+            ).all()
+        )
+
     def list_by_subject(
         self, db: Session, school_id: int, subject_id: int
     ) -> list[TeacherSubject]:

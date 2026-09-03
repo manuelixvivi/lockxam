@@ -187,10 +187,20 @@ export function QuestionBankView({}: QuestionBankViewProps) {
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [expandedQuestionId, setExpandedQuestionId] = useState<number | null>(null);
 
+  // Pagination State
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState<number>(25);
+
   const fetchQuestions = async () => {
     setIsLoading(true);
     try {
-      const data = await teacherContentApi.listQuestions();
+      const skip = (currentPage - 1) * pageSize;
+      const data = await teacherContentApi.listQuestions(
+        filterSubject || undefined,
+        pageSize,
+        skip,
+        searchQuery.trim() || undefined
+      );
       setQuestions(data);
     } catch (err: any) {
       showToast({
@@ -205,7 +215,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
 
   useEffect(() => {
     fetchQuestions();
-  }, []);
+  }, [currentPage, pageSize, filterSubject, searchQuery]);
 
   const handleOpenAdd = () => {
     setEditingQuestion(null);
@@ -638,14 +648,9 @@ export function QuestionBankView({}: QuestionBankViewProps) {
   );
 
   const filteredQuestions = questions.filter((q) => {
-    const matchesSearch =
-      q.content.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      q.answer_key.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (q.subject && q.subject.toLowerCase().includes(searchQuery.toLowerCase()));
     const matchesType = filterType ? q.type === filterType : true;
-    const matchesSubject = filterSubject ? q.subject === filterSubject : true;
     const matchesClassLevel = filterClassLevel ? q.class_level === filterClassLevel : true;
-    return matchesSearch && matchesType && matchesSubject && matchesClassLevel;
+    return matchesType && matchesClassLevel;
   });
 
   const getQuestionTypeBadge = (t: QuestionType) => {
@@ -917,6 +922,31 @@ export function QuestionBankView({}: QuestionBankViewProps) {
             })}
           </div>
         )}
+
+        {/* Pagination Bar */}
+        <div className="flex items-center justify-between pt-4 border-t border-slate-800 text-xs text-slate-400">
+          <div>
+            Menampilkan halaman <span className="font-semibold text-slate-200">{currentPage}</span> (25 soal per halaman)
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={currentPage <= 1 || isLoading}
+              onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+            >
+              Sebelumnya
+            </Button>
+            <Button
+              variant="secondary"
+              size="sm"
+              disabled={filteredQuestions.length < pageSize || isLoading}
+              onClick={() => setCurrentPage((p) => p + 1)}
+            >
+              Selanjutnya
+            </Button>
+          </div>
+        </div>
       </div>
 
       {/* Choice Add Data Modal */}

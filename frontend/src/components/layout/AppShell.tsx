@@ -31,7 +31,7 @@ export const AppShell: React.FC<AppShellProps> = ({
   const schoolId = user?.school_id ? Number(user.school_id) : null;
 
   const [license, setLicense] = useState<ActiveLicenseResponse | null>(() => {
-    return schoolId !== null && schoolLicenseCache[schoolId] !== undefined
+    return role === UserRole.SCHOOL_ADMIN && schoolId !== null && schoolLicenseCache[schoolId] !== undefined
       ? schoolLicenseCache[schoolId]
       : null;
   });
@@ -56,13 +56,14 @@ export const AppShell: React.FC<AppShellProps> = ({
   }, [role, schoolId]);
 
   const [logoUrl, setLogoUrl] = useState<string | null>(() => {
-    return schoolId !== null && schoolLogoCache[schoolId] !== undefined
+    return role !== UserRole.SUPER_ADMIN && schoolId !== null && schoolLogoCache[schoolId] !== undefined
       ? schoolLogoCache[schoolId]
       : null;
   });
 
   useEffect(() => {
-    if (schoolId !== null) {
+    // Only fetch tenant school logo for school users, never for central SuperAdmin
+    if (role !== UserRole.SUPER_ADMIN && schoolId !== null) {
       if (schoolLogoCache[schoolId] !== undefined) {
         setLogoUrl(schoolLogoCache[schoolId]);
         return;
@@ -78,7 +79,7 @@ export const AppShell: React.FC<AppShellProps> = ({
         })
         .catch(() => {});
     }
-  }, [schoolId]);
+  }, [role, schoolId]);
 
   const isSuspended = license?.status === "SUSPENDED" || license?.status === "PAUSED";
 
@@ -146,13 +147,13 @@ export const AppShell: React.FC<AppShellProps> = ({
     <div className="h-screen bg-slate-950 text-slate-100 flex relative overflow-hidden">
       {/* Subtle School Logo Watermark Background */}
       {logoUrl && (
-        <div 
+        <div
           className="fixed inset-0 pointer-events-none flex items-center justify-center z-0 select-none overflow-hidden"
           style={{ opacity: 0.025 }}
         >
-          <img 
-            src={logoUrl} 
-            alt="School Logo Watermark" 
+          <img
+            src={logoUrl}
+            alt="School Logo Watermark"
             className="w-[350px] h-[350px] md:w-[480px] md:h-[480px] object-contain filter grayscale contrast-125 brightness-110"
           />
         </div>
@@ -308,4 +309,3 @@ export const AppShell: React.FC<AppShellProps> = ({
     </div>
   );
 };
-

@@ -94,3 +94,19 @@ class AdminCredentials(BaseModel):
 class SchoolCreateResponse(BaseModel):
     school: SchoolResponse
     admin_credentials: AdminCredentials
+
+
+class SuperAdminDashboardSummaryResponse(BaseModel):
+    total_schools: int
+    active_schools: int
+    pending_renewals: int
+    total_licenses: int
+    recent_schools: list[SchoolResponse]
+
+
+class PaginatedSchoolResponse(BaseModel):
+    items: list[SchoolResponse]
+    total: int
+    page: int
+    page_size: int
+

@@ -188,11 +188,127 @@ class SchoolService:
         return SchoolService._enrich_admin_username(db, school)
 
     @staticmethod
+    def _bulk_enrich_schools(db: Session, schools: list[School]) -> list[School]:
+        if not schools:
+            return []
+        school_ids = [s.id for s in schools]
+
+        # 1. Bulk query admins
+        admins = (
+            db.query(AuthAccount)
+            .filter(
+                AuthAccount.school_id.in_(school_ids),
+                AuthAccount.role == UserRole.ADMIN,
+                AuthAccount.is_active == True,
+            )
+            .all()
+        )
+        admin_map = {a.school_id: a.username for a in admins}
+
+        # 2. Bulk query latest licenses
+        from app.models.license.school_license import SchoolLicense
+
+        licenses = (
+            db.query(SchoolLicense)
+            .filter(SchoolLicense.school_id.in_(school_ids))
+            .order_by(SchoolLicense.created_at.desc())
+            .all()
+        )
+        license_map = {}
+        for lic in licenses:
+            if lic.school_id not in license_map:
+                license_map[lic.school_id] = lic
+
+        # 3. Bulk query registered students count via GROUP BY
+        from sqlalchemy import func
+
+        student_counts = (
+            db.query(AuthAccount.school_id, func.count(AuthAccount.id))
+            .filter(
+                AuthAccount.school_id.in_(school_ids),
+                AuthAccount.role == UserRole.STUDENT,
+                AuthAccount.is_active == True,
+            )
+            .group_by(AuthAccount.school_id)
+            .all()
+        )
+        student_count_map = {sc[0]: sc[1] for sc in student_counts}
+
+        # 4. Attach attributes to school objects in memory
+        for s in schools:
+            s.admin_username = admin_map.get(s.id, "-")  # type: ignore[attr-defined]
+            lic = license_map.get(s.id)
+            if lic:
+                s.subscription_status = lic.status  # type: ignore[attr-defined]
+                s.subscription_end_date = lic.end_date  # type: ignore[attr-defined]
+            else:
+                s.subscription_status = "NO_LICENSE"  # type: ignore[attr-defined]
+                s.subscription_end_date = None  # type: ignore[attr-defined]
+            s.registered_students_count = student_count_map.get(s.id, 0)  # type: ignore[attr-defined]
+
+        return schools
+
+    @staticmethod
     def get_all_schools(db: Session) -> list[School]:
         schools = school_repository.get_all_active(db)
-        for s in schools:
-            SchoolService._enrich_admin_username(db, s)
-        return schools
+        return SchoolService._bulk_enrich_schools(db, schools)
+
+    @staticmethod
+    def list_schools_paginated(
+        db: Session,
+        limit: int = 20,
+        skip: int = 0,
+        search: str | None = None,
+    ) -> tuple[list[School], int]:
+        schools, total = school_repository.list_paginated(
+            db, limit=limit, skip=skip, search=search
+        )
+        return SchoolService._bulk_enrich_schools(db, schools), total
+
+    @staticmethod
+    def get_superadmin_dashboard_summary(db: Session) -> dict:
+        from sqlalchemy import func, select
+        from app.models.license.renewal_request import RenewalRequest
+        from app.models.license.school_license import SchoolLicense
+
+        total_schools = (
+            db.scalar(select(func.count(School.id)).where(School.deleted_at.is_(None))) or 0
+        )
+        active_schools = (
+            db.scalar(
+                select(func.count(School.id)).where(
+                    School.deleted_at.is_(None), School.is_active == True
+                )
+            )
+            or 0
+        )
+        pending_renewals = (
+            db.scalar(
+                select(func.count(RenewalRequest.id)).where(
+                    RenewalRequest.status.in_(["PENDING", "REQUESTED"])
+                )
+            )
+            or 0
+        )
+        total_licenses = db.scalar(select(func.count(SchoolLicense.id))) or 0
+
+        recent_schools = list(
+            db.scalars(
+                select(School)
+                .where(School.deleted_at.is_(None))
+                .order_by(School.created_at.desc())
+                .limit(5)
+            ).all()
+        )
+        SchoolService._bulk_enrich_schools(db, recent_schools)
+
+        return {
+            "total_schools": total_schools,
+            "active_schools": active_schools,
+            "pending_renewals": pending_renewals,
+            "total_licenses": total_licenses,
+            "recent_schools": recent_schools,
+        }
 
     @staticmethod
     def reset_school_admin_password(

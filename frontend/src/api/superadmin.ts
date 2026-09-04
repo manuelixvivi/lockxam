@@ -80,9 +80,45 @@ export interface SchoolCreateResponse {
   };
 }
 
+export interface SuperAdminDashboardSummary {
+  total_schools: number;
+  active_schools: number;
+  pending_renewals: number;
+  total_licenses: number;
+  recent_schools: SchoolProfile[];
+}
+
+export interface PaginatedSchoolsResponse {
+  items: SchoolProfile[];
+  total: number;
+  page: number;
+  page_size: number;
+}
+
 export const superadminApi = {
-  getSchools: async (): Promise<SchoolProfile[]> => {
-    return apiClient.get<SchoolProfile[]>("/api/v1/schools");
+  getDashboardSummary: async (): Promise<SuperAdminDashboardSummary> => {
+    return apiClient.get<SuperAdminDashboardSummary>("/api/v1/schools/superadmin/dashboard-summary");
+  },
+
+  getSchools: async (limit?: number, skip?: number, search?: string): Promise<SchoolProfile[]> => {
+    const params = new URLSearchParams();
+    if (limit !== undefined) params.append("limit", limit.toString());
+    if (skip !== undefined) params.append("skip", skip.toString());
+    if (search) params.append("search", search);
+    const queryString = params.toString() ? `?${params.toString()}` : "";
+    return apiClient.get<SchoolProfile[]>(`/api/v1/schools${queryString}`);
+  },
+
+  getSchoolsPaginated: async (
+    page: number = 1,
+    pageSize: number = 20,
+    search?: string
+  ): Promise<PaginatedSchoolsResponse> => {
+    const params = new URLSearchParams();
+    params.append("page", page.toString());
+    params.append("page_size", pageSize.toString());
+    if (search) params.append("search", search);
+    return apiClient.get<PaginatedSchoolsResponse>(`/api/v1/schools/paginated?${params.toString()}`);
   },
 
   getSchoolLevels: async (): Promise<SchoolLevelOption[]> => {

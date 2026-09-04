@@ -21,7 +21,7 @@ import { UserRole } from "../../context/AuthContext";
 import { useToast } from "../../context/ToastContext";
 import { superadminApi } from "../../api/superadmin";
 import type { SchoolProfile } from "../../api/school";
-import type { SuperAdminRenewalItem } from "../../api/superadmin";
+import type { SuperAdminDashboardSummary } from "../../api/superadmin";
 import type { AppApiError } from "../../api/client";
 
 export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => void }> = ({
@@ -29,19 +29,14 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
 }) => {
   const toast = useToast();
 
-  const [schools, setSchools] = useState<SchoolProfile[]>([]);
-  const [renewals, setRenewals] = useState<SuperAdminRenewalItem[]>([]);
+  const [summary, setSummary] = useState<SuperAdminDashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
   const fetchDashboardData = async () => {
     setIsLoading(true);
     try {
-      const [schoolsData, renewalsData] = await Promise.all([
-        superadminApi.getSchools(),
-        superadminApi.getRenewalRequests(),
-      ]);
-      setSchools(schoolsData);
-      setRenewals(renewalsData);
+      const data = await superadminApi.getDashboardSummary();
+      setSummary(data);
     } catch (err: any) {
       const apiErr = err as AppApiError;
       toast.error("Gagal Memuat Dashboard", apiErr.message);
@@ -54,7 +49,10 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
     fetchDashboardData();
   }, []);
 
-  const pendingRenewalsCount = renewals.filter((r) => r.status === "PENDING").length;
+  const totalSchools = summary?.total_schools ?? 0;
+  const activeSchools = summary?.active_schools ?? 0;
+  const pendingRenewalsCount = summary?.pending_renewals ?? 0;
+  const recentSchools = summary?.recent_schools ?? [];
 
   return (
     <AppShell activeHref="/superadmin/dashboard" onNavigate={onNavigate}>
@@ -116,7 +114,7 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
                   <span className="text-xs font-semibold text-slate-400">Total Sekolah Terdaftar</span>
                   <Building2 className="w-5 h-5 text-indigo-400" />
                 </div>
-                <div className="text-3xl font-black text-slate-100">{schools.length}</div>
+                <div className="text-3xl font-black text-slate-100">{totalSchools}</div>
                 <p className="text-[11px] text-slate-500 font-medium">Terverifikasi di database central</p>
               </div>
 
@@ -127,7 +125,7 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
                   <CheckCircle2 className="w-5 h-5 text-emerald-400" />
                 </div>
                 <div className="text-3xl font-black text-emerald-400">
-                  {schools.filter((s) => s.is_active).length}
+                  {activeSchools}
                 </div>
                 <p className="text-[11px] text-slate-500 font-medium">Siap melaksanakan ujian Lockxam</p>
               </div>
@@ -180,19 +178,19 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
                     { key: "phone", header: "Kontak", render: (item: SchoolProfile) => item.phone || "-" },
                     { key: "status", header: "Status", width: "120px", render: (item: SchoolProfile) => <Badge variant={item.is_active ? "emerald" : "amber"}>{item.is_active ? "AKTIF" : "PENDING"}</Badge> },
                   ]}
-                  data={schools.slice(0, 5)}
+                  data={recentSchools}
                   keyExtractor={(item) => item.id.toString()}
                 />
               </div>
 
               {/* Mobile Cards Grid (Visible on mobile/small screens) */}
               <div className="grid grid-cols-1 gap-4 md:hidden">
-                {schools.slice(0, 5).length === 0 ? (
+                {recentSchools.length === 0 ? (
                   <div className="text-center py-6 text-slate-500 text-xs">
                     Belum ada data sekolah terdaftar.
                   </div>
                 ) : (
-                  schools.slice(0, 5).map((item) => (
+                  recentSchools.map((item) => (
                     <div key={item.id} className="p-4 rounded-xl border border-slate-800 bg-slate-900/50 space-y-3">
                       <div className="flex items-start justify-between">
                         <div className="min-w-0">

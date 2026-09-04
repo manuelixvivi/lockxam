@@ -8,15 +8,50 @@ from app.core.rbac import require_authenticated, require_staff, require_superadm
 from app.exceptions.base import BusinessException
 from app.models.security.enums import UserRole
 from app.schemas.school.school import (
+    PaginatedSchoolResponse,
     SchoolCreateRequest,
     SchoolCreateResponse,
     SchoolResponse,
     SchoolUpdateRequest,
+    SuperAdminDashboardSummaryResponse,
 )
 from app.services.school.school_service import SchoolService
 from app.services.security.activity_service import ActivityService
 
 router = APIRouter(prefix="/api/v1/schools", tags=["School Management"])
+
+
+@router.get(
+    "/superadmin/dashboard-summary",
+    response_model=SuperAdminDashboardSummaryResponse,
+    dependencies=[Depends(require_superadmin())],
+)
+def get_superadmin_dashboard_summary(db: Session = Depends(get_db)):
+    return SchoolService.get_superadmin_dashboard_summary(db)
+
+
+@router.get(
+    "/paginated",
+    response_model=PaginatedSchoolResponse,
+    dependencies=[Depends(require_superadmin())],
+)
+def list_schools_paginated(
+    page: int = 1,
+    page_size: int = 20,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+):
+    limit = max(1, min(page_size, 100))
+    skip = (max(1, page) - 1) * limit
+    schools, total = SchoolService.list_schools_paginated(
+        db, limit=limit, skip=skip, search=search
+    )
+    return {
+        "items": schools,
+        "total": total,
+        "page": page,
+        "page_size": limit,
+    }
 
 
 @router.post(
@@ -60,7 +95,17 @@ def create_school(
     response_model=list[SchoolResponse],
     dependencies=[Depends(require_authenticated())],
 )
-def list_schools(db: Session = Depends(get_db)):
+def list_schools(
+    limit: int | None = None,
+    skip: int = 0,
+    search: str | None = None,
+    db: Session = Depends(get_db),
+):
+    if limit is not None or search is not None:
+        schools, _ = SchoolService.list_schools_paginated(
+            db, limit=limit or 50, skip=skip, search=search
+        )
+        return schools
     return SchoolService.get_all_schools(db)
 
 

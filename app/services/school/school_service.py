@@ -279,12 +279,12 @@ class SchoolService:
     def get_dashboard_summary(db: Session, identifier: str) -> dict:
         school = SchoolService.get_school_by_id_or_public_id(db, identifier)
         from sqlalchemy import func
+        from app.models.academic.academic_year import AcademicYear
+        from app.models.academic.class_entity import ClassEntity
+        from app.models.academic.exam_schedule import ExamSchedule
+        from app.models.academic.subject import Subject
         from app.models.security.auth_account import AuthAccount
         from app.models.security.enums import UserRole
-        from app.models.academic.class_entity import Class
-        from app.models.academic.subject import Subject
-        from app.models.academic.academic_year import AcademicYear
-        from app.models.exam.exam_schedule import ExamSchedule
 
         student_count = (
             db.query(func.count(AuthAccount.id))
@@ -299,8 +299,8 @@ class SchoolService:
             or 0
         )
         class_count = (
-            db.query(func.count(Class.id))
-            .filter(Class.school_id == school.id)
+            db.query(func.count(ClassEntity.id))
+            .filter(ClassEntity.school_id == school.id)
             .scalar()
             or 0
         )
@@ -312,12 +312,15 @@ class SchoolService:
         )
         active_year = (
             db.query(AcademicYear)
-            .filter(AcademicYear.school_id == school.id, AcademicYear.is_active == True)
+            .filter(AcademicYear.school_id == school.id, AcademicYear.status == "ACTIVE")
             .first()
         )
         active_exam_schedules = (
             db.query(func.count(ExamSchedule.id))
-            .filter(ExamSchedule.school_id == school.id, ExamSchedule.is_active == True)
+            .filter(
+                ExamSchedule.school_id == school.id,
+                ExamSchedule.status.in_(["ACTIVE", "READY", "PLANNED", "ONGOING"]),
+            )
             .scalar()
             or 0
         )

@@ -66,8 +66,12 @@ class SchoolStaffService:
         # Batch fetch only relevant active classes and subjects
         active_class_map = {}
         if relevant_class_ids:
-            from app.models.academic.class_entity import Class
-            classes = db.query(Class).filter(Class.id.in_(relevant_class_ids), Class.is_active == True).all()
+            from app.models.academic.class_entity import ClassEntity
+            classes = (
+                db.query(ClassEntity)
+                .filter(ClassEntity.id.in_(relevant_class_ids), ClassEntity.is_active == True)
+                .all()
+            )
             active_class_map = {c.id: c.name for c in classes}
         active_class_names = set(active_class_map.values())
 

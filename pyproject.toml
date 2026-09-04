@@ -1,25 +1,19 @@
 [project]
-name = "equigrade-lockxam"
-version = "0.1.0"
-description = "Equigrade x Lockxam Backend API"
-readme = "README.md"
-requires-python = ">=3.12"
+name = "equigrade-api-cf-test"
+version = "1.0.0"
+description = "EquiGrade FastAPI Backend for Cloudflare Workers"
+requires-python = ">=3.11"
 dependencies = [
-    "fastapi>=0.100.0,<1.0.0",
-    "uvicorn>=0.20.0,<1.0.0",
-    "pydantic>=2.0.0,<3.0.0",
+    "fastapi>=0.100.0",
+    "pydantic>=2.0.0",
     "pydantic-settings>=2.0.0",
-    "SQLAlchemy>=2.0.0,<3.0.0",
-    "psycopg2-binary>=2.9.0",
-    "alembic>=1.11.0",
-    "bcrypt>=4.0.0",
-    "python-jose>=3.3.0",
-    "python-multipart>=0.0.6",
-    "python-dotenv>=1.0.0",
-    "openpyxl>=3.1.0",
-    "requests>=2.31.0",
     "httpx>=0.27.0",
-    "boto3>=1.34.0"
+]
+
+[dependency-groups]
+dev = [
+    "workers-py",
+    "workers-runtime-sdk",
 ]
 
 [tool.black]

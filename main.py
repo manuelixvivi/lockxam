@@ -124,11 +124,19 @@ app.include_router(admin_class_router)
 app.include_router(admin_exam_schedule_router)
 app.include_router(superadmin_ai_router)
 
-# Mount Built Frontend Dist static files for Single-Port Production Serving
-from fastapi.responses import FileResponse
+
+@app.get("/")
+async def root():
+    return {"status": "ok", "service": "EquiGrade API", "version": "1.0.0"}
+
+
+# Mount Built Frontend Dist static files for Single-Port Production Serving only if explicitly enabled
+from fastapi.responses import FileResponse  # noqa: E402
+
+serve_spa_enabled = os.getenv("SERVE_SPA", "false").lower() in ("true", "1", "yes")
 
 dist_path = os.path.join(os.path.dirname(__file__), "frontend", "dist")
-if os.path.exists(dist_path):
+if serve_spa_enabled and os.path.exists(dist_path):
     assets_path = os.path.join(dist_path, "assets")
     if os.path.exists(assets_path):
         app.mount("/assets", StaticFiles(directory=assets_path), name="dist_assets")

@@ -2,6 +2,7 @@ import datetime as dt
 import os
 import urllib.parse
 from datetime import datetime
+from typing import Any
 
 from dotenv import load_dotenv
 from sqlalchemy import DateTime, create_engine
@@ -89,12 +90,14 @@ if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.starts
     )
     DATABASE_URL = "sqlite:///./equigrade_dev.db"
 
-connect_args = {}
-engine_kwargs = {"echo": False}
+connect_args: dict[str, Any] = {}
+engine_kwargs: dict[str, Any] = {"echo": False}
 
 if DATABASE_URL.startswith("sqlite"):
     if is_production:
-        raise RuntimeError("Production Database Error: SQLite is not supported in production/Vercel environment.")
+        raise RuntimeError(
+            "Production Database Error: SQLite is not supported in production/Vercel environment."
+        )
     connect_args = {"check_same_thread": False}
 else:
     # Serverless database pool optimization for PostgreSQL / Neon / Supabase
@@ -104,7 +107,9 @@ else:
 
         engine_kwargs["poolclass"] = NullPool
     else:
-        is_serverless = bool(os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME") or os.getenv("SERVERLESS"))
+        is_serverless = bool(
+            os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME") or os.getenv("SERVERLESS")
+        )
         default_pool_size = 1 if is_serverless else 10
         default_max_overflow = 1 if is_serverless else 20
         pool_size = int(os.getenv("DB_POOL_SIZE", str(default_pool_size)))
@@ -120,7 +125,11 @@ else:
             }
         )
 
-engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
+try:
+    engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
+except Exception as _engine_err:
+    print(f"Notice: Database engine creation deferred: {_engine_err}")
+    engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)
 

@@ -208,19 +208,27 @@ class SchoolService:
         )
         admin_map = {a.school_id: a.username for a in admins}
 
-        # 2. Bulk query latest licenses
+        # 2. Bulk query latest licenses (using max ID subquery per school)
+        from sqlalchemy import func
+
         from app.models.license.school_license import SchoolLicense
+
+        latest_lic_subq = (
+            db.query(
+                SchoolLicense.school_id,
+                func.max(SchoolLicense.id).label("max_id"),
+            )
+            .filter(SchoolLicense.school_id.in_(school_ids))
+            .group_by(SchoolLicense.school_id)
+            .subquery()
+        )
 
         licenses = (
             db.query(SchoolLicense)
-            .filter(SchoolLicense.school_id.in_(school_ids))
-            .order_by(SchoolLicense.created_at.desc())
+            .join(latest_lic_subq, SchoolLicense.id == latest_lic_subq.c.max_id)
             .all()
         )
-        license_map = {}
-        for lic in licenses:
-            if lic.school_id not in license_map:
-                license_map[lic.school_id] = lic
+        license_map = {lic.school_id: lic for lic in licenses}
 
         # 3. Bulk query registered students count via GROUP BY
         from sqlalchemy import func
@@ -263,14 +271,13 @@ class SchoolService:
         skip: int = 0,
         search: str | None = None,
     ) -> tuple[list[School], int]:
-        schools, total = school_repository.list_paginated(
-            db, limit=limit, skip=skip, search=search
-        )
+        schools, total = school_repository.list_paginated(db, limit=limit, skip=skip, search=search)
         return SchoolService._bulk_enrich_schools(db, schools), total
 
     @staticmethod
     def get_superadmin_dashboard_summary(db: Session) -> dict:
         from sqlalchemy import func, select
+
         from app.models.license.renewal_request import RenewalRequest
         from app.models.license.school_license import SchoolLicense
 
@@ -397,6 +404,7 @@ class SchoolService:
     def get_dashboard_summary(db: Session, identifier: str) -> dict:
         school = SchoolService.get_school_by_id_or_public_id(db, identifier)
         from sqlalchemy import func
+
         from app.models.academic.academic_year import AcademicYear
         from app.models.academic.class_entity import ClassEntity
         from app.models.academic.exam_schedule import ExamSchedule
@@ -417,16 +425,11 @@ class SchoolService:
             or 0
         )
         class_count = (
-            db.query(func.count(ClassEntity.id))
-            .filter(ClassEntity.school_id == school.id)
-            .scalar()
+            db.query(func.count(ClassEntity.id)).filter(ClassEntity.school_id == school.id).scalar()
             or 0
         )
         subject_count = (
-            db.query(func.count(Subject.id))
-            .filter(Subject.school_id == school.id)
-            .scalar()
-            or 0
+            db.query(func.count(Subject.id)).filter(Subject.school_id == school.id).scalar() or 0
         )
         active_year = (
             db.query(AcademicYear)

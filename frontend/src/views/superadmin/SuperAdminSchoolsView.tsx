@@ -84,11 +84,11 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
   const fetchData = async () => {
     setIsLoading(true);
     try {
-      const [schoolsData, levelsData] = await Promise.all([
-        superadminApi.getSchools(),
+      const [paginatedRes, levelsData] = await Promise.all([
+        superadminApi.getSchoolsPaginated(1, 100),
         superadminApi.getSchoolLevels(),
       ]);
-      setSchools(schoolsData);
+      setSchools(paginatedRes.items);
       setLevels(levelsData);
       if (levelsData.length > 0) {
         setSchoolLevelId(levelsData[0].id.toString());

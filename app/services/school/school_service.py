@@ -120,9 +120,12 @@ class SchoolService:
 
         db.commit()
         db.refresh(school)
-        enriched = SchoolService._enrich_admin_username(db, school)
-        enriched.temporary_password = admin_password  # type: ignore[attr-defined]
-        return enriched
+        school.admin_username = admin_username  # type: ignore[attr-defined]
+        school.subscription_status = "ACTIVE"  # type: ignore[attr-defined]
+        school.subscription_end_date = None  # type: ignore[attr-defined]
+        school.registered_students_count = 0  # type: ignore[attr-defined]
+        school.temporary_password = admin_password  # type: ignore[attr-defined]
+        return school
 
     @staticmethod
     def _enrich_admin_username(db: Session, school: School) -> School:
@@ -300,7 +303,6 @@ class SchoolService:
                 .limit(5)
             ).all()
         )
-        SchoolService._bulk_enrich_schools(db, recent_schools)
 
         return {
             "total_schools": total_schools,

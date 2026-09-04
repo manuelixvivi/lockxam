@@ -69,11 +69,15 @@ class ApiClient {
       reqHeaders["Authorization"] = `Bearer ${token}`;
     }
 
+    const isAuthEndpoint = endpoint.includes("/auth/");
+    const credentialsMode: RequestCredentials =
+      restOptions.credentials || (isAuthEndpoint ? "include" : "same-origin");
+
     try {
       const response = await fetch(url, {
         ...restOptions,
         headers: reqHeaders,
-        credentials: "include", // Required for HttpOnly Refresh Cookie
+        credentials: credentialsMode,
       });
 
       // Handle HTTP 401 Unauthorized -> Attempt Silent Refresh once via HttpOnly Cookie

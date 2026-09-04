@@ -93,7 +93,7 @@ def create_school(
 @router.get(
     "",
     response_model=list[SchoolResponse],
-    dependencies=[Depends(require_authenticated())],
+    dependencies=[Depends(require_superadmin())],
 )
 def list_schools(
     limit: int | None = None,

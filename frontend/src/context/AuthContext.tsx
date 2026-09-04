@@ -95,7 +95,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         const refreshRes = await apiClient.post<{ access_token: string; user_profile?: any }>("/api/v1/auth/refresh");
         if (refreshRes && refreshRes.access_token) {
           apiClient.setAccessToken(refreshRes.access_token);
-          token = refreshRes.access_token;
           if (refreshRes.user_profile) {
             const me = refreshRes.user_profile;
             const normalizedUser: UserProfile = {
@@ -115,6 +114,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setIsLoading(false);
         return;
       }
+    }
+
+    if (user && token) {
+      setIsLoading(false);
+      return;
     }
 
     try {

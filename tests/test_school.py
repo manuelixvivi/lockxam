@@ -158,8 +158,12 @@ def test_school_api_rbac(client, test_superadmin, test_teacher, db: Session):
     assert res.status_code == 200
     assert res.json()["name"] == "API School"
 
-    # 5. List Schools as Teacher
+    # 5. List Global Schools as Teacher -> 403 Forbidden (RBAC Protected)
     res = client.get("/api/v1/schools", headers={"Authorization": f"Bearer {teacher_token}"})
+    assert res.status_code == 403
+
+    # 5b. List Global Schools as Superadmin -> 200 OK
+    res = client.get("/api/v1/schools", headers={"Authorization": f"Bearer {super_token}"})
     assert res.status_code == 200
     assert len(res.json()) > 0
 

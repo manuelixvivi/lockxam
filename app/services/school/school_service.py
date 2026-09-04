@@ -281,26 +281,27 @@ class SchoolService:
         from app.models.license.renewal_request import RenewalRequest
         from app.models.license.school_license import SchoolLicense
 
-        total_schools = (
-            db.scalar(select(func.count(School.id)).where(School.deleted_at.is_(None))) or 0
+        # Execute all 4 aggregate counts in a single database round-trip
+        stats_query = select(
+            select(func.count(School.id))
+            .where(School.deleted_at.is_(None))
+            .scalar_subquery()
+            .label("total_schools"),
+            select(func.count(School.id))
+            .where(School.deleted_at.is_(None), School.is_active.is_(True))
+            .scalar_subquery()
+            .label("active_schools"),
+            select(func.count(RenewalRequest.id))
+            .where(RenewalRequest.status.in_(["PENDING", "REQUESTED"]))
+            .scalar_subquery()
+            .label("pending_renewals"),
+            select(func.count(SchoolLicense.id)).scalar_subquery().label("total_licenses"),
         )
-        active_schools = (
-            db.scalar(
-                select(func.count(School.id)).where(
-                    School.deleted_at.is_(None), School.is_active == True
-                )
-            )
-            or 0
-        )
-        pending_renewals = (
-            db.scalar(
-                select(func.count(RenewalRequest.id)).where(
-                    RenewalRequest.status.in_(["PENDING", "REQUESTED"])
-                )
-            )
-            or 0
-        )
-        total_licenses = db.scalar(select(func.count(SchoolLicense.id))) or 0
+        stats_row = db.execute(stats_query).one()
+        total_schools = stats_row[0] or 0
+        active_schools = stats_row[1] or 0
+        pending_renewals = stats_row[2] or 0
+        total_licenses = stats_row[3] or 0
 
         recent_schools = list(
             db.scalars(

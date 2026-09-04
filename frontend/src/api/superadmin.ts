@@ -95,9 +95,19 @@ export interface PaginatedSchoolsResponse {
   page_size: number;
 }
 
+let inFlightDashboardPromise: Promise<SuperAdminDashboardSummary> | null = null;
+
 export const superadminApi = {
   getDashboardSummary: async (): Promise<SuperAdminDashboardSummary> => {
-    return apiClient.get<SuperAdminDashboardSummary>("/api/v1/schools/superadmin/dashboard-summary");
+    if (inFlightDashboardPromise) {
+      return inFlightDashboardPromise;
+    }
+    inFlightDashboardPromise = apiClient
+      .get<SuperAdminDashboardSummary>("/api/v1/schools/superadmin/dashboard-summary")
+      .finally(() => {
+        inFlightDashboardPromise = null;
+      });
+    return inFlightDashboardPromise;
   },
 
   getSchools: async (limit?: number, skip?: number, search?: string): Promise<SchoolProfile[]> => {

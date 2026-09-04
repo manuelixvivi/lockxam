@@ -32,21 +32,30 @@ export const SuperAdminDashboardView: React.FC<{ onNavigate?: (href: string) => 
   const [summary, setSummary] = useState<SuperAdminDashboardSummary | null>(null);
   const [isLoading, setIsLoading] = useState<boolean>(true);
 
-  const fetchDashboardData = async () => {
-    setIsLoading(true);
-    try {
-      const data = await superadminApi.getDashboardSummary();
-      setSummary(data);
-    } catch (err: any) {
-      const apiErr = err as AppApiError;
-      toast.error("Gagal Memuat Dashboard", apiErr.message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
-
   useEffect(() => {
-    fetchDashboardData();
+    let isMounted = true;
+    const load = async () => {
+      setIsLoading(true);
+      try {
+        const data = await superadminApi.getDashboardSummary();
+        if (isMounted) {
+          setSummary(data);
+        }
+      } catch (err: any) {
+        if (isMounted) {
+          const apiErr = err as AppApiError;
+          toast.error("Gagal Memuat Dashboard", apiErr.message);
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false);
+        }
+      }
+    };
+    load();
+    return () => {
+      isMounted = false;
+    };
   }, []);
 
   const totalSchools = summary?.total_schools ?? 0;

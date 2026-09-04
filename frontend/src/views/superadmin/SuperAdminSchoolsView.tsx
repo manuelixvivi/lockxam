@@ -19,6 +19,8 @@ import {
   Play,
   Calendar,
   RefreshCw,
+  ChevronLeft,
+  ChevronRight,
 } from "lucide-react";
 
 import { AppShell } from "../../components/layout/AppShell";
@@ -50,6 +52,9 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
   const [levels, setLevels] = useState<SchoolLevelOption[]>([]);
   const [isLoading, setIsLoading] = useState<boolean>(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [totalSchools, setTotalSchools] = useState<number>(0);
+  const pageSize = 20;
 
   // Modal States
   const [isCreateModalOpen, setIsCreateModalOpen] = useState<boolean>(false);
@@ -81,18 +86,13 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
   const [domain, setDomain] = useState<string>("");
   const [initialSubscriptionPreset, setInitialSubscriptionPreset] = useState<string>("ONE_MONTH");
 
-  const fetchData = async () => {
+  const fetchSchools = async (page: number = 1, search: string = searchQuery) => {
     setIsLoading(true);
     try {
-      const [paginatedRes, levelsData] = await Promise.all([
-        superadminApi.getSchoolsPaginated(1, 100),
-        superadminApi.getSchoolLevels(),
-      ]);
+      const paginatedRes = await superadminApi.getSchoolsPaginated(page, pageSize, search || undefined);
       setSchools(paginatedRes.items);
-      setLevels(levelsData);
-      if (levelsData.length > 0) {
-        setSchoolLevelId(levelsData[0].id.toString());
-      }
+      setTotalSchools(paginatedRes.total);
+      setCurrentPage(paginatedRes.page);
     } catch (err: any) {
       const apiErr = err as AppApiError;
       toast.error("Gagal Memuat Sekolah", apiErr.message);
@@ -101,9 +101,26 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
     }
   };
 
+  const ensureLevelsLoaded = async () => {
+    if (levels.length > 0) return levels;
+    try {
+      const levelsData = await superadminApi.getSchoolLevels();
+      setLevels(levelsData);
+      if (levelsData.length > 0 && !schoolLevelId) {
+        setSchoolLevelId(levelsData[0].id.toString());
+      }
+      return levelsData;
+    } catch {
+      return [];
+    }
+  };
+
   useEffect(() => {
-    fetchData();
-  }, []);
+    const timer = setTimeout(() => {
+      fetchSchools(1, searchQuery);
+    }, 300);
+    return () => clearTimeout(timer);
+  }, [searchQuery]);
 
   const resetForm = () => {
     setNpsn("");
@@ -120,13 +137,14 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
     setSelectedSchool(null);
   };
 
-  const handleOpenCreate = () => {
+  const handleOpenCreate = async () => {
     resetForm();
     setCode(`SCH_${Math.floor(1000 + Math.random() * 9000)}`);
+    await ensureLevelsLoaded();
     setIsCreateModalOpen(true);
   };
 
-  const handleOpenEdit = (school: SchoolProfile) => {
+  const handleOpenEdit = async (school: SchoolProfile) => {
     resetForm();
     setSelectedSchool(school);
     setNpsn(school.npsn || "");
@@ -139,6 +157,7 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
     setWebsite(school.website || "");
     setLogoUrl(school.logo_url || "");
     setDomain(school.domain || "");
+    await ensureLevelsLoaded();
     setIsEditModalOpen(true);
   };
 
@@ -171,7 +190,7 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
       toast.success("Sekolah Terdaftar", `Sekolah ${name} berhasil didaftarkan ke sistem.`);
       setIsCreateModalOpen(false);
       resetForm();
-      fetchData();
+      fetchSchools(currentPage);
       setResetResult({
         schoolName: res.school.name,
         username: res.admin_credentials.username,
@@ -211,7 +230,7 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
       toast.success("Profil Sekolah Diperbarui", `Data ${name} berhasil disimpan.`);
       setIsEditModalOpen(false);
       resetForm();
-      fetchData();
+      fetchSchools(currentPage);
     } catch (err: any) {
       const apiErr = err as AppApiError;
       setFormError(apiErr.message || "Gagal memperbarui profil sekolah.");
@@ -272,22 +291,16 @@ export const SuperAdminSchoolsView: React.FC<{ onNavigate?: (href: string) => vo
     try {
       await superadminApi.deleteSchool(school.public_id);
       toast.success("Sekolah Dihapus", `Sekolah ${school.name} berhasil dinonaktifkan.`);
-      fetchData();
+      fetchSchools(currentPage);
     } catch (err: any) {
       const apiErr = err as AppApiError;
       toast.error("Gagal Menghapus", apiErr.message);
     }
   };
 
-  const filteredSchools = schools.filter(
-    (s) =>
-      s.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.npsn.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      s.code.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      (s as any).admin_username?.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const totalPages = Math.max(1, Math.ceil(totalSchools / pageSize));
 
-const levelOptions: SelectOption[] = levels.map((l) => ({
+  const levelOptions: SelectOption[] = levels.map((l) => ({
     value: l.id,
     label: `${l.name} (${l.code})`,
   }));
@@ -300,7 +313,7 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
         isSuspended ? "Subscription Dijeda ⏸️" : "Subscription Aktif ▶️",
         `Subscription ${school.name} berhasil ${isSuspended ? "dijeda / ditangguhkan" : "diaktifkan kembali"}.`
       );
-      fetchData();
+      fetchSchools(currentPage);
     } catch (err: any) {
       const apiErr = err as AppApiError;
       toast.error("Gagal Mengubah Subscription", apiErr.message);
@@ -314,7 +327,7 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
           items={[{ label: "SuperAdmin Workspace", href: "/superadmin/dashboard" }, { label: "Manajemen Sekolah" }]}
         />
 
-        {isLoading ? (
+        {isLoading && schools.length === 0 ? (
           <div className="glass-panel p-12 flex justify-center items-center">
             <Spinner size="lg" label="Memuat data sekolah central..." />
           </div>
@@ -325,7 +338,7 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
               <div>
                 <div className="flex items-center gap-2 mb-2">
                   <Badge variant="indigo">CENTRAL MANAGEMENT</Badge>
-                  <Badge variant="emerald">{schools.length} SEKOLAH TERDAFTAR</Badge>
+                  <Badge variant="emerald">{totalSchools} SEKOLAH TERDAFTAR</Badge>
                 </div>
                 <h2 className="text-2xl font-black text-slate-100">Manajemen Sekolah Central</h2>
                 <p className="text-xs text-slate-400 mt-1">
@@ -361,7 +374,7 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                   variant="ghost"
                   size="md"
                   leftIcon={<RefreshCw className={`w-3.5 h-3.5 ${isLoading ? "animate-spin" : ""}`} />}
-                  onClick={fetchData}
+                  onClick={() => fetchSchools(currentPage, searchQuery)}
                   isLoading={isLoading}
                   title="Muat ulang data"
                   className="shrink-0"
@@ -370,7 +383,7 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                 </Button>
               </div>
               <ImportExportBar<Record<string, unknown>>
-                exportData={filteredSchools.map((s) => ({
+                exportData={schools.map((s) => ({
                   NPSN: s.npsn,
                   Kode: s.code,
                   "Nama Sekolah": s.name,
@@ -424,7 +437,7 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                     return err?.message || "Gagal mendaftarkan sekolah.";
                   }
                 }}
-                onImportDone={fetchData}
+                onImportDone={() => fetchSchools(1, "")}
               />
             </div>
 
@@ -632,19 +645,19 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                       },
                     },
                   ]}
-                  data={filteredSchools}
+                  data={schools}
                   keyExtractor={(item) => item.id.toString()}
                 />
               </div>
 
               {/* Mobile Cards Grid (Visible on mobile/small screens) */}
               <div className="grid grid-cols-1 gap-4 md:hidden">
-                {filteredSchools.length === 0 ? (
+                {schools.length === 0 ? (
                   <div className="glass-panel p-8 text-center text-slate-500">
                     Tidak ada sekolah tersedia.
                   </div>
                 ) : (
-                  filteredSchools.map((item) => {
+                  schools.map((item) => {
                     const isSuspended = (item as any).subscription_status === "SUSPENDED";
                     const subStatus = (item as any).subscription_status || "NO_LICENSE";
                     const endDateStr = (item as any).subscription_end_date;
@@ -806,6 +819,41 @@ const levelOptions: SelectOption[] = levels.map((l) => ({
                   })
                 )}
               </div>
+
+              {/* Server-Side Pagination Bar */}
+              {totalSchools > 0 && (
+                <div className="glass-panel p-4 flex flex-col sm:flex-row items-center justify-between gap-4">
+                  <div className="text-xs text-slate-400">
+                    Menampilkan <span className="text-slate-100 font-bold">{schools.length}</span> dari{" "}
+                    <span className="text-slate-100 font-bold">{totalSchools}</span> sekolah (Halaman{" "}
+                    <span className="text-indigo-400 font-semibold">{currentPage}</span> dari{" "}
+                    <span className="text-indigo-400 font-semibold">{totalPages}</span>)
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      leftIcon={<ChevronLeft className="w-4 h-4" />}
+                      disabled={currentPage <= 1 || isLoading}
+                      onClick={() => fetchSchools(currentPage - 1, searchQuery)}
+                    >
+                      Sebelumnya
+                    </Button>
+                    <div className="px-3 py-1 rounded bg-slate-900 border border-slate-800 text-xs font-mono text-indigo-400 font-bold">
+                      {currentPage} / {totalPages}
+                    </div>
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      rightIcon={<ChevronRight className="w-4 h-4" />}
+                      disabled={currentPage >= totalPages || isLoading}
+                      onClick={() => fetchSchools(currentPage + 1, searchQuery)}
+                    >
+                      Selanjutnya
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

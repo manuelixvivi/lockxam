@@ -1,12 +1,8 @@
-import json
 import logging
-import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
-from uuid import UUID
 
-from sqlalchemy import func, text
 from sqlalchemy.orm import Session
 
 from app.core.database import engine
@@ -15,7 +11,6 @@ from app.models.ai.ai_system_setting import AiConfigHistory, AiSystemSetting
 from app.models.ai.assessment_history import AssessmentHistory
 from app.models.ai.dataset_version import DatasetVersion
 from app.models.ai.model_version import ModelVersion, ModelVersionStatus
-from app.models.ai.registered_model import RegisteredModel
 from app.models.ai.training_candidate import TrainingCandidate
 from app.models.ai.training_job import TrainingJob, TrainingJobStatus
 from app.models.school.school import School
@@ -102,21 +97,35 @@ class AiManagementService:
     @classmethod
     def get_effective_api_key(cls, db: Session) -> str:
         """Reads and decrypts current active API key from central DB or falls back to env."""
-        setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
-        if setting and setting.encrypted_secret:
-            decrypted = decrypt_secret(setting.encrypted_secret)
-            if decrypted:
-                return decrypted
+        try:
+            setting = (
+                db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+            )
+            if setting and setting.encrypted_secret:
+                decrypted = decrypt_secret(str(setting.encrypted_secret))
+                if decrypted:
+                    return decrypted
+        except Exception as ex:
+            logger.warning(f"Could not read effective API key from DB: {ex}")
+            db.rollback()
         return AiConfig.GROQ_API_KEY
 
     @classmethod
     def get_active_config(cls, db: Session) -> AiProviderConfigResponse:
         """Retrieves active AI provider configuration from DB or env fallback."""
-        setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
-        
         effective_key = cls.get_effective_api_key(db)
 
-        config_data = setting.value_json if setting and setting.value_json else {}
+        setting = None
+        config_data: Dict[str, Any] = {}
+        try:
+            setting = (
+                db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+            )
+            if setting and setting.value_json:
+                config_data = dict(setting.value_json)
+        except Exception as ex:
+            logger.warning(f"Could not query AiSystemSetting from DB: {ex}")
+            db.rollback()
 
         model_name = config_data.get("model_name", AiConfig.MODEL_NAME)
         eval_model_name = config_data.get("eval_model_name", AiConfig.EVAL_MODEL_NAME)
@@ -151,7 +160,7 @@ class AiManagementService:
             last_tested_at=last_tested_at,
             last_test_status=config_data.get("last_test_status"),
             last_test_latency_ms=config_data.get("last_test_latency_ms"),
-            updated_at=setting.updated_at if setting else None,
+            updated_at=setting.updated_at if setting else None,  # type: ignore[arg-type]
             updated_by_name=updated_by_name,
         )
 
@@ -163,12 +172,14 @@ class AiManagementService:
         Persists updated AI provider configuration, synchronizes AiConfig runtime cache,
         and logs an immutable audit trail into AiConfigHistory.
         """
-        setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+        setting = (
+            db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+        )
         if not setting:
             setting = AiSystemSetting(key=CONFIG_SETTING_KEY, value_json={})
             db.add(setting)
 
-        old_config = setting.value_json or {}
+        old_config: Dict[str, Any] = dict(setting.value_json) if setting.value_json else {}
         old_model = old_config.get("model_name", AiConfig.MODEL_NAME)
         changes: List[str] = []
 
@@ -176,7 +187,7 @@ class AiManagementService:
             changes.append(f"Model diubah: {old_model} → {payload.model_name}")
 
         if payload.api_key and payload.api_key.strip():
-            setting.encrypted_secret = encrypt_secret(payload.api_key.strip())
+            setting.encrypted_secret = encrypt_secret(payload.api_key.strip())  # type: ignore[assignment]
             AiConfig.GROQ_API_KEY = payload.api_key.strip()
             changes.append("API Key diperbarui")
 
@@ -191,19 +202,25 @@ class AiManagementService:
 
         # Update JSON config
         new_config = dict(old_config)
-        new_config.update({
-            "provider": payload.provider,
-            "model_name": payload.model_name,
-            "eval_model_name": payload.model_name,
-            "fallback_model": payload.fallback_model or "openai/gpt-oss-20b",
-            "temperature": payload.temperature,
-            "max_output_tokens": payload.max_output_tokens,
-            "rag_enabled": payload.rag_enabled if payload.rag_enabled is not None else old_config.get("rag_enabled", False),
-        })
+        new_config.update(
+            {
+                "provider": payload.provider,
+                "model_name": payload.model_name,
+                "eval_model_name": payload.model_name,
+                "fallback_model": payload.fallback_model or "openai/gpt-oss-20b",
+                "temperature": payload.temperature,
+                "max_output_tokens": payload.max_output_tokens,
+                "rag_enabled": (
+                    payload.rag_enabled
+                    if payload.rag_enabled is not None
+                    else old_config.get("rag_enabled", False)
+                ),
+            }
+        )
 
-        setting.value_json = new_config
-        setting.updated_by_id = user_id
-        setting.updated_at = datetime.now(timezone.utc)
+        setting.value_json = new_config  # type: ignore[assignment]
+        setting.updated_by_id = user_id  # type: ignore[assignment]
+        setting.updated_at = datetime.now(timezone.utc)  # type: ignore[assignment]
 
         # Apply runtime updates to AiConfig class properties and invalidate process cache
         AiConfig.MODEL_NAME = payload.model_name
@@ -239,11 +256,17 @@ class AiManagementService:
         """
         Performs a lightweight probe to the target provider/model and records test latency.
         """
-        setting = db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
-        effective_key = payload.api_key.strip() if payload.api_key else cls.get_effective_api_key(db)
+        setting = (
+            db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+        )
+        effective_key = (
+            payload.api_key.strip() if payload.api_key else cls.get_effective_api_key(db)
+        )
 
         target_model = payload.model_name or (
-            setting.value_json.get("model_name") if setting and setting.value_json else AiConfig.MODEL_NAME
+            setting.value_json.get("model_name")
+            if setting and setting.value_json
+            else AiConfig.MODEL_NAME
         )
 
         if not effective_key:
@@ -257,14 +280,14 @@ class AiManagementService:
 
         t_start = time.perf_counter()
         try:
-            # Lightweight probe with 1 max token
-            response = LlmClient.chat_completion(
-                messages=[{"role": "user", "content": "ping"}],
+            # Lightweight probe with 5 max tokens
+            LlmClient.call_chat_completion(
+                system_prompt="ping",
+                user_prompt="ping",
                 model=target_model,
                 temperature=0.1,
                 max_tokens=5,
                 api_key=effective_key,
-                enable_cache=False,
                 timeout=10,
             )
             latency_ms = round((time.perf_counter() - t_start) * 1000, 1)
@@ -275,7 +298,7 @@ class AiManagementService:
                 val["last_tested_at"] = datetime.now(timezone.utc).isoformat()
                 val["last_test_status"] = "CONNECTED"
                 val["last_test_latency_ms"] = latency_ms
-                setting.value_json = val
+                setting.value_json = val  # type: ignore[assignment]
                 db.commit()
 
             return AiTestConnectionResponse(
@@ -294,7 +317,7 @@ class AiManagementService:
                 val["last_tested_at"] = datetime.now(timezone.utc).isoformat()
                 val["last_test_status"] = "ERROR"
                 val["last_test_latency_ms"] = latency_ms
-                setting.value_json = val
+                setting.value_json = val  # type: ignore[assignment]
                 db.commit()
 
             return AiTestConnectionResponse(
@@ -318,10 +341,12 @@ class AiManagementService:
 
         if effective_key:
             try:
-                live_ids = LlmClient.get_live_available_models(effective_key)
+                live_ids = LlmClient.get_live_models(effective_key)
                 existing_ids = {m.id for m in models}
                 for lid in live_ids:
-                    if lid not in existing_ids and ("llama" in lid or "gpt" in lid or "mixtral" in lid or "gemma" in lid):
+                    if lid not in existing_ids and (
+                        "llama" in lid or "gpt" in lid or "mixtral" in lid or "gemma" in lid
+                    ):
                         models.append(
                             AvailableModelItem(
                                 id=lid,
@@ -340,35 +365,45 @@ class AiManagementService:
     @classmethod
     def get_config_history(cls, db: Session, limit: int = 50) -> List[AiConfigHistoryResponse]:
         """Returns chronological list of AI configuration mutations."""
-        histories = (
-            db.query(AiConfigHistory)
-            .order_by(AiConfigHistory.created_at.desc())
-            .limit(limit)
-            .all()
-        )
-        return [AiConfigHistoryResponse.model_validate(h) for h in histories]
+        try:
+            histories = (
+                db.query(AiConfigHistory)
+                .order_by(AiConfigHistory.created_at.desc())
+                .limit(limit)
+                .all()
+            )
+            return [AiConfigHistoryResponse.model_validate(h) for h in histories]
+        except Exception as ex:
+            logger.warning(f"Could not query AI config history: {ex}")
+            db.rollback()
+            return []
 
     @classmethod
     def get_overview(cls, db: Session) -> AiSystemOverviewResponse:
         """Aggregates comprehensive AI and System metrics for SuperAdmin."""
         # 1. Production Model from A9.4
-        prod_model_version = (
-            db.query(ModelVersion)
-            .filter(ModelVersion.status == ModelVersionStatus.PRODUCTION)
-            .order_by(ModelVersion.created_at.desc())
-            .first()
-        )
+        prod_model_version = None
+        try:
+            prod_model_version = (
+                db.query(ModelVersion)
+                .filter(ModelVersion.status == ModelVersionStatus.PRODUCTION.value)
+                .order_by(ModelVersion.created_at.desc())
+                .first()
+            )
+        except Exception:
+            db.rollback()
+
         prod_summary = None
         if prod_model_version:
             prod_summary = ProductionModelSummary(
                 version_tag=f"v{prod_model_version.version_number}",
-                status=prod_model_version.status.value,
-                base_model_name=prod_model_version.base_model_name,
-                adapter_type=prod_model_version.adapter_type or "LoRA",
-                dataset_version=prod_model_version.dataset_version.version_tag if prod_model_version.dataset_version else "dataset-v2026.08",
-                trained_at=prod_model_version.created_at,
-                artifact_verified=bool(prod_model_version.manifest_hash),
-                manifest_hash=prod_model_version.manifest_hash,
+                status=str(prod_model_version.status),
+                base_model_name=str(prod_model_version.base_model_name),
+                adapter_type=str(prod_model_version.adapter_type or "LoRA"),
+                dataset_version=str(prod_model_version.dataset_version_tag or "dataset-v2026.08"),
+                trained_at=prod_model_version.created_at,  # type: ignore[arg-type]
+                artifact_verified=bool(prod_model_version.artifact_manifest_hash),
+                manifest_hash=str(prod_model_version.artifact_manifest_hash or ""),
             )
         else:
             # Fallback default production descriptor
@@ -394,26 +429,47 @@ class AiManagementService:
 
         # 3. Entity Counts
         counts = {
-            "assessment_histories": db.query(AssessmentHistory).count(),
-            "training_candidates": db.query(TrainingCandidate).count(),
-            "dataset_versions": db.query(DatasetVersion).count(),
-            "model_versions": db.query(ModelVersion).count(),
-            "schools": db.query(School).count(),
-            "users": db.query(AuthAccount).count(),
+            "assessment_histories": 0,
+            "training_candidates": 0,
+            "dataset_versions": 0,
+            "model_versions": 0,
+            "schools": 0,
+            "users": 0,
         }
+        try:
+            counts["schools"] = db.query(School).count()
+            counts["users"] = db.query(AuthAccount).count()
+            counts["assessment_histories"] = db.query(AssessmentHistory).count()
+            counts["training_candidates"] = db.query(TrainingCandidate).count()
+            counts["dataset_versions"] = db.query(DatasetVersion).count()
+            counts["model_versions"] = db.query(ModelVersion).count()
+        except Exception:
+            db.rollback()
 
         # 4. Training Jobs Stats from A9.3
-        running_jobs = db.query(TrainingJob).filter(TrainingJob.status == TrainingJobStatus.RUNNING).count()
-        completed_jobs = db.query(TrainingJob).filter(TrainingJob.status == TrainingJobStatus.COMPLETED).count()
-        failed_jobs = db.query(TrainingJob).filter(TrainingJob.status == TrainingJobStatus.FAILED).count()
-        total_jobs = db.query(TrainingJob).count()
-
         training_stats = {
-            "running": running_jobs,
-            "completed": completed_jobs,
-            "failed": failed_jobs,
-            "total": total_jobs,
+            "running": 0,
+            "completed": 0,
+            "failed": 0,
+            "total": 0,
         }
+        try:
+            training_stats["running"] = (
+                db.query(TrainingJob)
+                .filter(TrainingJob.status == TrainingJobStatus.RUNNING)
+                .count()
+            )
+            training_stats["completed"] = (
+                db.query(TrainingJob)
+                .filter(TrainingJob.status == TrainingJobStatus.COMPLETED)
+                .count()
+            )
+            training_stats["failed"] = (
+                db.query(TrainingJob).filter(TrainingJob.status == TrainingJobStatus.FAILED).count()
+            )
+            training_stats["total"] = db.query(TrainingJob).count()
+        except Exception:
+            db.rollback()
 
         # 5. AI Provider status
         active_config = cls.get_active_config(db)

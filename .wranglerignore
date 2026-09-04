@@ -1,0 +1,17 @@
+.venv/
+.venv-workers/
+frontend/
+tests/
+docs/
+documentation/
+backend_ai/
+uploads/
+tmp_s3_staging/
+runs/
+node_modules/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+*.sqlite
+*.db
+*.log

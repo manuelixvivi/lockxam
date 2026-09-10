@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.core.database import get_db
 from app.core.rbac import normalize_role, require_academic_staff
+from app.logging.logger import logger
 from app.models.academic.grading_run import GradingRun
 from app.models.security.enums import UserRole
 from app.schemas.ai.training_governance import (
@@ -66,7 +67,10 @@ def generate_rubric(
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal generate rubrik AI: {e}")
+        logger.exception(f"Gagal generate rubrik AI: {e}")
+        raise HTTPException(
+            status_code=500, detail="Terjadi kesalahan internal pada layanan AI. Silakan coba beberapa saat lagi."
+        )
 
 
 @router.post(
@@ -88,7 +92,10 @@ def validate_rubric(
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal validasi rubrik AI: {e}")
+        logger.exception(f"Gagal validasi rubrik AI: {e}")
+        raise HTTPException(
+            status_code=500, detail="Terjadi kesalahan internal pada layanan AI. Silakan coba beberapa saat lagi."
+        )
 
 
 @router.post(
@@ -111,7 +118,10 @@ def evaluate_grading(
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal evaluasi penilaian AI: {e}")
+        logger.exception(f"Gagal evaluasi penilaian AI: {e}")
+        raise HTTPException(
+            status_code=500, detail="Terjadi kesalahan internal pada layanan AI. Silakan coba beberapa saat lagi."
+        )
 
 
 @router.post(
@@ -152,7 +162,10 @@ def batch_grade_question(
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal batch grading soal AI: {e}")
+        logger.exception(f"Gagal batch grading soal AI: {e}")
+        raise HTTPException(
+            status_code=500, detail="Terjadi kesalahan internal pada layanan AI. Silakan coba beberapa saat lagi."
+        )
 
 
 @router.post(
@@ -216,7 +229,10 @@ def start_post_exam_grading(
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal memulai post-exam grading: {e}")
+        logger.exception(f"Gagal memulai post-exam grading: {e}")
+        raise HTTPException(
+            status_code=500, detail="Terjadi kesalahan internal pada layanan AI. Silakan coba beberapa saat lagi."
+        )
 
 
 @router.get(
@@ -419,7 +435,10 @@ def build_dataset_version(
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal membangun dataset training: {e}")
+        logger.exception(f"Gagal membangun dataset training: {e}")
+        raise HTTPException(
+            status_code=500, detail="Terjadi kesalahan internal pada layanan AI. Silakan coba beberapa saat lagi."
+        )
 
 
 @router.get(
@@ -474,4 +493,7 @@ def export_dataset_split(
     except ValueError as ve:
         raise HTTPException(status_code=404, detail=str(ve))
     except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Gagal export dataset split: {e}")
+        logger.exception(f"Gagal export dataset split: {e}")
+        raise HTTPException(
+            status_code=500, detail="Terjadi kesalahan internal pada layanan AI. Silakan coba beberapa saat lagi."
+        )

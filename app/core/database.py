@@ -10,6 +10,7 @@ from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
 from app.core.environment import is_production_environment, is_serverless_environment
+from app.logging.logger import logger
 
 load_dotenv()
 
@@ -58,7 +59,7 @@ if ".neon.tech" in DATABASE_URL and "-pooler" not in DATABASE_URL:
             if len(host_parts) == 2 and not host_parts[0].endswith("-pooler"):
                 DATABASE_URL = f"{parts[0]}@{host_parts[0]}-pooler.{host_parts[1]}"
     except Exception as _neon_err:
-        print(f"Neon pooler parse notice: {_neon_err}")
+        logger.warning("Neon pooler parse notice: %s", _neon_err)
 
 # Auto-encode '@' in password if multiple '@' exist in DATABASE_URL
 if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:
@@ -70,7 +71,7 @@ if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:
             encoded_password = urllib.parse.quote_plus(password)
             DATABASE_URL = f"{scheme}://{user}:{encoded_password}@{host_and_db}"
     except Exception as _parse_err:
-        print(f"URL parse notice: {_parse_err}")
+        logger.warning("URL parse notice: %s", _parse_err)
 
 # Production fail-fast verification
 is_production = is_production_environment()
@@ -82,8 +83,9 @@ if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.starts
             f"Production Database Error: Valid PostgreSQL DATABASE_URL must be configured in production/Vercel. "
             f"Received: '{DATABASE_URL}'"
         )
-    print(
-        f"WARNING: Invalid or missing DATABASE_URL in dev ('{DATABASE_URL}'). Falling back to temporary SQLite DB."
+    logger.warning(
+        "Invalid or missing DATABASE_URL in dev ('%s'). Falling back to temporary SQLite DB.",
+        DATABASE_URL,
     )
     DATABASE_URL = "sqlite:///./equigrade_dev.db"
 
@@ -123,7 +125,7 @@ else:
 try:
     engine = create_engine(DATABASE_URL, connect_args=connect_args, **engine_kwargs)
 except Exception as _engine_err:
-    print(f"Notice: Database engine creation deferred: {_engine_err}")
+    logger.warning("Database engine creation deferred: %s", _engine_err)
     engine = create_engine("sqlite:///:memory:", connect_args={"check_same_thread": False})
 
 SessionLocal = sessionmaker(bind=engine, autocommit=False, autoflush=False)

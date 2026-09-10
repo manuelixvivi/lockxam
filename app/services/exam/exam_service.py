@@ -646,7 +646,7 @@ class ExamService:
                     ExamService.submit_attempt(db, att.id, student_id=att.student_id)
                     submitted_count += 1
                 except Exception as e:
-                    print(f"Auto-submit error for attempt {att.id}: {e}")
+                    logger.warning("Auto-submit error for attempt %s: %s", att.id, e)
 
         return submitted_count
 

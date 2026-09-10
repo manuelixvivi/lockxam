@@ -18,9 +18,9 @@ services:
     build: .
     container_name: equigrade_web
     restart: always
-    command: uvicorn main:app --host 0.0.0.0 --port 1409 --reload
+    command: uvicorn main:app --host 0.0.0.0 --port 8000 --reload
     ports:
-      - "1409:1409"
+      - "8000:8000"
     volumes:
       - .:/app
     environment:

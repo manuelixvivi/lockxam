@@ -1,33 +1,48 @@
 @echo off
+setlocal enabledelayedexpansion
 title LOCKXAM x EQUIGRADE AI SYSTEM LAUNCHER
 color 0A
 cls
 
-echo ===============================================================================
-echo            LOCKXAM x EQUIGRADE AI - 1-CLICK AUTOMATIC LAUNCHER
-echo ===============================================================================
-echo [1/3] Menyalakan equigradeAI Engine (Port 5000)...
-start "EquiGrade AI Engine" cmd /k "cd /d C:\Users\irul2\Downloads\equigradeAI 2\equigradeAI && python sandbox_app.py"
+set "ROOT=%~dp0"
+cd /d "%ROOT%"
 
-timeout /t 2 /nobreak >nul
+echo ===============================================================================
+echo            LOCKXAM x EQUIGRADE AI - UNIFIED SYSTEM LAUNCHER
+echo ===============================================================================
 
-echo [2/3] Menyalakan Lockxam Main Server (Port 1409)...
-start "Lockxam Server" cmd /k "cd /d C:\Users\irul2\Downloads\Equigrade_x_Lockxam && python main.py"
+REM Detect Python executable in local .venv or system PATH
+if exist "%ROOT%.venv\Scripts\python.exe" (
+    set "PY_CMD=%ROOT%.venv\Scripts\python.exe"
+    echo [*] Menggunakan virtualenv lokal: .venv\Scripts\python.exe
+) else (
+    set "PY_CMD=python"
+    echo [*] Menggunakan sistem python: python
+)
+
+echo [1/2] Menyalakan Unified FastAPI Backend (Port 8000)...
+start "Lockxam Unified Backend" "%PY_CMD%" -m uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 timeout /t 3 /nobreak >nul
 
-echo [3/3] Menyalakan Cloudflare HTTPS Tunnel Publik...
-start "Cloudflare Tunnel" cmd /k "cloudflared tunnel --url http://localhost:1409"
+REM Optional: Start Cloudflare Tunnel if installed
+where cloudflared >nul 2>nul
+if %errorlevel% equ 0 (
+    echo [2/2] Menyalakan Cloudflare HTTPS Tunnel Publik...
+    start "Cloudflare Tunnel" cmd /k "cloudflared tunnel --url http://localhost:8000"
+) else (
+    echo [2/2] Cloudflare tunnel tidak terdeteksi di PATH, melewati tunnel publik.
+)
 
 echo ===============================================================================
-echo   SEMUA SERVICE BERHASIL DIJALANKAN!
+echo   SERVICE BERHASIL DIJALANKAN!
 echo   -----------------------------------------------------------------------------
-echo   1. equigradeAI Microservice : http://127.0.0.1:5000 (GPT-OSS 120B Engine)
-echo   2. Lockxam Single-Port App  : http://127.0.0.1:1409 (Frontend + Backend)
-echo   3. Cloudflare HTTPS Tunnel  : Lihat jendela 'Cloudflare Tunnel' untuk URL!
+echo   FastAPI Unified Backend : http://127.0.0.1:8000
+echo   API Documentation       : http://127.0.0.1:8000/docs
+echo   Health Check            : http://127.0.0.1:8000/health
 echo ===============================================================================
 
 timeout /t 2 /nobreak >nul
-start http://127.0.0.1:1409
+start http://127.0.0.1:8000
 
 echo Selesai! Seluruh service telah dinyalakan.

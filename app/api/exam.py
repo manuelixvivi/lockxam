@@ -15,6 +15,7 @@ from starlette import status
 
 from app.core.database import get_db
 from app.core.rbac import normalize_role, require_academic_staff, require_role
+from app.logging.logger import logger
 from app.models.exam.enums import ExamSessionStatus
 from app.models.exam.exam_session import ExamSession
 from app.models.security.enums import UserRole
@@ -180,7 +181,7 @@ def list_my_schedules(
     try:
         ExamService.auto_submit_expired_attempts(db, student_id=student_id)
     except Exception as sweep_err:
-        print(f"Sweep error in get_my_schedules: {sweep_err}")
+        logger.warning("Sweep error in get_my_schedules: %s", sweep_err)
 
     res = []
     now_wib = ensure_wib(datetime.now(timezone.utc))
@@ -568,7 +569,7 @@ def student_checkin(
 
             ProctorService.auto_mark_student_present(db, schedule_id, student_id)
         except Exception as _bau_err:
-            print(f"[Checkin BAP Sync Warning] {_bau_err}")
+            logger.warning("[Checkin BAP Sync Warning] %s", _bau_err)
 
     except Exception as e:
         db.rollback()
@@ -624,7 +625,7 @@ def start_attempt(
             try:
                 snapshot = ExamService._lazy_create_package_snapshot(db, session)
             except Exception as e:
-                print(f"Lazy snapshot creation error: {e}")
+                logger.warning("Lazy snapshot creation error: %s", e)
 
     questions_data = []
 

@@ -72,6 +72,16 @@
     - Fungsi terpusat `normalize_role()` memetakan string varian (`SCHOOL_ADMIN`, `SUPER_ADMIN`) ke enum kanonikal `UserRole` (`SUPERADMIN`, `ADMIN`, `TEACHER`, `STUDENT`).
 14. **`TELEMETRY-AUTHORITATIVE-001` (Authoritative Telemetry DB Batch Query)**:
     - Dashboard guru dan pengawas menarik data telemetri secara batch langsung dari tabel PostgreSQL `AttemptTelemetry` sebagai sumber kebenaran utama multi-instance.
+15. **`PRODUCTION-SCHEMA-001` (`AUTO_CREATE_TABLES=false`)**:
+    - Default fail-safe dimatikan di `main.py` untuk mencegah race condition atau perubahan skema otomatis tak terkendali di production/kontainer.
+16. **`CORS-HARDENING-001` (Strict Production Origin Allowlist)**:
+    - Di environment production, CORS hanya mengizinkan domain eksplisit dari `ALLOWED_ORIGINS`, memblokir wildcard regex secara default.
+17. **`AI-ERROR-MASKING-001` (Client-Safe AI Error Response & Server-Side Logging)**:
+    - Seluruh endpoint AI di `/api/v1/ai/*` menyembunyikan detail stack trace dari response HTTP 500 ke klien dan mencatat exception penuh ke log internal via `logger.exception()`.
+18. **`STRUCTURED-LOGGING-001` (Structured Logging Migration)**:
+    - Menghapus pemanggilan `print()` liar di seluruh alur error backend (`exam.py`, `exam_service.py`, `database.py`, `exam_schedule_service.py`) dan menggantinya dengan structured contextual `logger`.
+19. **`PORTABLE-LAUNCHER-001` (Portable Launcher & Port 8000 Alignment)**:
+    - `JALANKAN_LOCKXAM.bat` telah diperbarui dengan `%~dp0`, deteksi otomatis virtualenv, port 8000 terpadu, dan eliminasi microservice lama `equigradeAI 5000`.
 
 ---
 

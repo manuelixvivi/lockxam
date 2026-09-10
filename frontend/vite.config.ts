@@ -80,7 +80,7 @@ export default defineConfig({
     https: httpsConfig,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:1409',
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },
@@ -92,7 +92,7 @@ export default defineConfig({
     https: httpsConfig,
     proxy: {
       '/api': {
-        target: 'http://127.0.0.1:1409',
+        target: process.env.VITE_BACKEND_URL || 'http://127.0.0.1:8000',
         changeOrigin: true,
       },
     },

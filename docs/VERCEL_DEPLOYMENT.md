@@ -159,8 +159,8 @@ alembic upgrade head
 Run frontend and backend simultaneously for local development:
 
 ```bash
-# Terminal 1: Backend API (Port 1409)
-uvicorn main:app --host 0.0.0.0 --port 1409 --reload
+# Terminal 1: Backend API (Port 8000)
+uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 
 # Terminal 2: Frontend Vite Dev Server (Port 5173)
 cd frontend

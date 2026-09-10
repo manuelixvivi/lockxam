@@ -4,6 +4,7 @@ from uuid import UUID
 from sqlalchemy.orm import Session
 
 from app.exceptions.base import BusinessException
+from app.logging.logger import logger
 from app.models.academic.enums import ExamScheduleStatus
 from app.models.academic.exam_schedule import ExamSchedule
 from app.models.academic.exam_schedule_package import ExamSchedulePackage
@@ -594,7 +595,7 @@ class ExamScheduleService:
 
             BatchGradingService.start_post_exam_grading(db, schedule.id)
         except Exception as e:
-            print(f"Post-exam grading launch notice: {e}")
+            logger.info("Post-exam grading launch notice: %s", e)
 
         return schedule
 

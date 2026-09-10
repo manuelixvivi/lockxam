@@ -13,7 +13,7 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && rm -rf /var/lib/apt/lists/*
 
 # Install python dependencies
-COPY requirements.txt .
+COPY requirements-api.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy project files

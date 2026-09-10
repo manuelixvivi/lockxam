@@ -23,23 +23,6 @@ TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engin
 def setup_db():
     # Ensure all tables exist without dropping existing development data
     Base.metadata.create_all(bind=engine)
-    with engine.connect() as conn:
-        try:
-            from sqlalchemy import text
-
-            conn.execute(
-                text(
-                    "ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS target_type VARCHAR(20) DEFAULT 'ALL_CLASS';"
-                )
-            )
-            conn.execute(
-                text(
-                    "ALTER TABLE exam_schedules ADD COLUMN IF NOT EXISTS allowed_student_ids JSON;"
-                )
-            )
-            conn.commit()
-        except Exception:
-            pass
     from app.database.seed_master import seed_master_data
 
     db = TestingSessionLocal()
@@ -159,5 +142,3 @@ def test_teacher(db, test_school):
 from tests.test_academic_administration_api import (  # noqa: E402
     api_test_data as api_test_data,
 )
-
-

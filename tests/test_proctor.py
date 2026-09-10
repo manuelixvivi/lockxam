@@ -273,6 +273,7 @@ def test_proctor_command_endpoints(client, test_teacher, db, test_school, monkey
         class_id=cls.id,
         subject_id=subj.id,
         teacher_id=test_teacher["account"].id,
+        proctor_id=test_teacher["account"].id,
         title="Proctor Test Schedule",
         start_time=datetime.now(timezone.utc),
         end_time=datetime.now(timezone.utc) + timedelta(hours=2),

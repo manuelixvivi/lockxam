@@ -293,8 +293,12 @@ class ProctorService:
         if user_role in ("SUPERADMIN", "SCHOOL_ADMIN"):
             return schedule
 
-        # Allow assigned proctor or teacher pengampu who created the schedule
-        if schedule.proctor_id != user_id and schedule.teacher_id != user_id:
+        # STRICT PROCTOR ENFORCEMENT:
+        # Hanya pengawas yang secara eksplisit ditugaskan (schedule.proctor_id == user_id)
+        # yang diizinkan mengontrol sesi ujian atau aksi proctoring.
+        # Guru pengampu/pembuat jadwal (schedule.teacher_id) TIDAK memiliki otoritas proctor
+        # kecuali jika ia secara eksplisit juga ditugaskan sebagai proctor_id.
+        if schedule.proctor_id != user_id:
             raise BusinessException(
                 "Akses ditolak: Anda bukan pengawas yang ditugaskan untuk sesi ujian ini.",
                 status_code=403,

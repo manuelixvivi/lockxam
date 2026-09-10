@@ -1,5 +1,4 @@
 import os
-import uuid
 from datetime import datetime
 from typing import Any, Dict, List, Optional
 from uuid import UUID
@@ -43,6 +42,7 @@ dashboard_router = APIRouter(prefix="/api/v1/teacher", tags=["Teacher Dashboard 
 
 def require_internal_token(x_internal_service_token: str = Header(None)):
     from app.core.security.keys import get_internal_service_token
+
     secret = get_internal_service_token()
     if not x_internal_service_token or x_internal_service_token != secret:
         raise HTTPException(
@@ -67,6 +67,7 @@ def get_teacher_dashboard_summary(
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
     from sqlalchemy import func
+
     from app.models.teacher.question_package import QuestionPackage
 
     total_packages = (
@@ -1145,7 +1146,6 @@ def list_class_students_for_teacher(
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
     from app.repositories.academic.class_repository import class_repository
-    from app.repositories.security.auth_repository import auth_repository
     from app.services.academic.class_structure_service import ClassStructureService
 
     cls = class_repository.get_by_id(db, class_id)
@@ -1296,8 +1296,23 @@ def list_session_attempts(
             device_session = device_session_map.get(a.id)
 
             from app.api.exam import TELEMETRY_STORE
+            from app.models.exam.attempt_telemetry import AttemptTelemetry
 
-            telem = TELEMETRY_STORE.get(a.id, {})
+            db_telem = (
+                db.query(AttemptTelemetry).filter(AttemptTelemetry.attempt_id == a.id).first()
+            )
+            if db_telem:
+                telem = {
+                    "battery_level": db_telem.battery_level,
+                    "is_charging": db_telem.is_charging,
+                    "ping_ms": db_telem.ping_ms,
+                    "is_offline": db_telem.is_offline,
+                    "violation_type": db_telem.violation_type,
+                    "violation_reason": db_telem.violation_reason,
+                    "updated_at": db_telem.updated_at.isoformat() if db_telem.updated_at else None,
+                }
+            else:
+                telem = TELEMETRY_STORE.get(a.id, {})
             bat = telem.get("battery_level")
             ping = telem.get("ping_ms")
             reason = telem.get("violation_reason")
@@ -1410,6 +1425,7 @@ def list_teacher_exam_history(
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
     from sqlalchemy import or_
+
     from app.models.academic.class_entity import ClassEntity
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.academic.subject import Subject
@@ -1573,7 +1589,9 @@ def get_student_answers_for_schedule(
         else {}
     )
 
-    all_answers = db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id.in_(attempt_ids)).all()
+    all_answers = (
+        db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id.in_(attempt_ids)).all()
+    )
     all_evals = (
         db.query(ExamAnswerEvaluation)
         .filter(ExamAnswerEvaluation.exam_attempt_id.in_(attempt_ids))
@@ -1592,9 +1610,7 @@ def get_student_answers_for_schedule(
 
     q_ids = {ans.question_id for ans in all_answers} | {ev.question_id for ev in all_evals}
     questions_map = (
-        {q.id: q for q in db.query(Question).filter(Question.id.in_(q_ids)).all()}
-        if q_ids
-        else {}
+        {q.id: q for q in db.query(Question).filter(Question.id.in_(q_ids)).all()} if q_ids else {}
     )
 
     results = []
@@ -1743,6 +1759,8 @@ def list_grading_evaluations(
     if not school_id:
         raise HTTPException(status_code=400, detail="User account is not bound to a school tenant")
 
+    from sqlalchemy import and_, or_
+
     from app.models.academic.class_subject_teacher import ClassSubjectTeacher
     from app.models.academic.exam_schedule import ExamSchedule
     from app.models.academic.exam_schedule_package import ExamSchedulePackage
@@ -1752,10 +1770,6 @@ def list_grading_evaluations(
     from app.models.exam.exam_session import ExamSession
     from app.models.exam.student_answer import StudentAnswer
     from app.models.teacher.question import Question
-    from app.repositories.academic.class_repository import class_repository
-    from app.repositories.security.auth_repository import auth_repository
-
-    from sqlalchemy import and_, or_
 
     # 1. Fetch teacher's assigned subjects and classes from ClassSubjectTeacher
     teacher_csts = (
@@ -1821,11 +1835,7 @@ def list_grading_evaluations(
     )
     package_map = {p.id: p.title for p in packages}
 
-    subjects = (
-        db.query(Subject).filter(Subject.id.in_(subject_ids)).all()
-        if subject_ids
-        else []
-    )
+    subjects = db.query(Subject).filter(Subject.id.in_(subject_ids)).all() if subject_ids else []
     subject_map = {sub.id: sub.name for sub in subjects}
 
     # 2. Get sessions for these schedules
@@ -1855,18 +1865,27 @@ def list_grading_evaluations(
         return []
 
     # Bulk prefetch related entities to completely eliminate N+1 queries
+    from app.models.academic.class_entity import ClassEntity
+    from app.models.security.auth_account import AuthAccount
+
     q_ids = list({ev.question_id for ev in evaluations})
     questions = db.query(Question).filter(Question.id.in_(q_ids)).all() if q_ids else []
     question_map = {q.id: q for q in questions}
 
-    student_ids = list({attempt_map[ev.exam_attempt_id].student_id for ev in evaluations if ev.exam_attempt_id in attempt_map})
-    students = db.query(AuthAccount).filter(AuthAccount.id.in_(student_ids)).all() if student_ids else []
+    student_ids = list(
+        {
+            attempt_map[ev.exam_attempt_id].student_id
+            for ev in evaluations
+            if ev.exam_attempt_id in attempt_map
+        }
+    )
+    students = (
+        db.query(AuthAccount).filter(AuthAccount.id.in_(student_ids)).all() if student_ids else []
+    )
     student_map = {s.id: s for s in students}
 
     student_answers = (
-        db.query(StudentAnswer)
-        .filter(StudentAnswer.exam_attempt_id.in_(attempt_ids))
-        .all()
+        db.query(StudentAnswer).filter(StudentAnswer.exam_attempt_id.in_(attempt_ids)).all()
     )
     answer_map = {(a.exam_attempt_id, a.question_id): a for a in student_answers}
 

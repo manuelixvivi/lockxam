@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import DOMPurify from "dompurify";
 import katex from "katex";
 import "katex/dist/katex.min.css";
 import { Modal } from "./Modal";
@@ -28,7 +29,7 @@ export const LaTeXText: React.FC<LaTeXTextProps> = ({ content, className = "", i
 
     const parts = text.split(mathRegex);
 
-    return parts
+    const rawHtml = parts
       .map((part) => {
         if (!part) return "";
 
@@ -65,6 +66,21 @@ export const LaTeXText: React.FC<LaTeXTextProps> = ({ content, className = "", i
         return part;
       })
       .join("");
+
+    // Sanitize HTML strictly against XSS attacks while allowing KaTeX, images, and math formatting
+    return DOMPurify.sanitize(rawHtml, {
+      ALLOWED_TAGS: [
+        "span", "div", "p", "b", "i", "em", "strong", "br", "sub", "sup",
+        "img", "svg", "path", "line", "rect", "circle", "polygon", "polyline",
+        "table", "thead", "tbody", "tr", "th", "td", "ul", "ol", "li", "code", "pre",
+        "annotation", "semantics", "math", "mrow", "mi", "mo", "mn", "msup", "msub", "mfrac", "msqrt"
+      ],
+      ALLOWED_ATTR: [
+        "class", "style", "src", "alt", "data-zoom-src", "width", "height",
+        "xmlns", "viewBox", "d", "fill", "stroke", "stroke-width", "aria-hidden", "aria-label", "role"
+      ],
+      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+    });
   }, [content]);
 
   if (!content) return null;

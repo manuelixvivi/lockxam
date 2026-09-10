@@ -615,3 +615,280 @@ def test_ai_endpoints_rbac_lockdown(client):
             assert res.status_code == 403, f"Expected 403 for student {path}, got {res.status_code}"
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Boundary 9: Strict Proctor Separation (Teacher Pengampu != Proctor Authority)
+# ─────────────────────────────────────────────────────────────────────────────
+def test_teacher_pengampu_cannot_proctor_unless_assigned(db, client):
+    """Memastikan bahwa guru pengampu/pembuat jadwal (teacher_id) TIDAK memiliki
+    otoritas proctor/broadcast jika schedule.proctor_id ditugaskan ke guru lain."""
+    ctx = _create_school_hierarchy(db)
+    session = ctx["session"]
+    schedule = ctx["schedule"]
+
+    teacher_pengampu = ctx["teacher"]
+
+    # Buat guru proctor resmi yang ditugaskan ke jadwal
+    assigned_proctor = AuthAccount(
+        school_id=ctx["school"].id,
+        username=f"real_proctor_{uuid4().hex[:8]}",
+        name="Pengawas Resmi",
+        password_hash="fake_hash",
+        role=UserRole.TEACHER.value,
+        is_active=True,
+    )
+    db.add(assigned_proctor)
+    db.flush()
+
+    schedule.teacher_id = teacher_pengampu.id
+    schedule.proctor_id = assigned_proctor.id
+    db.commit()
+
+    # 1. Guru Pengampu (bukan proctor_id) mencoba validasi -> MUST 403
+    with pytest.raises(BusinessException) as exc_info:
+        ProctorService.validate_proctor_session_authorization(
+            db=db,
+            exam_session_id=session.id,
+            user_id=teacher_pengampu.id,
+            user_role="TEACHER",
+        )
+    assert exc_info.value.status_code == 403
+    assert "bukan pengawas yang ditugaskan" in str(exc_info.value)
+
+    # 2. Guru Pengampu mencoba broadcast via API -> MUST 403
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(teacher_pengampu.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res = client.post(
+            "/api/v1/proctor/commands/broadcast",
+            json={"exam_session_id": session.id, "message": "Pesan ilegal", "extra_minutes": 0},
+        )
+        assert res.status_code == 403
+        assert "bukan pengawas yang ditugaskan" in res.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 3. Pengawas Resmi yang ditugaskan (assigned_proctor) -> MUST 200 OK
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(assigned_proctor.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res = client.post(
+            "/api/v1/proctor/commands/broadcast",
+            json={"exam_session_id": session.id, "message": "Pesan resmi", "extra_minutes": 0},
+        )
+        assert res.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Boundary 10: Strict JWT 'kid' Rejection
+# ─────────────────────────────────────────────────────────────────────────────
+def test_jwt_unknown_and_missing_kid_rejected():
+    """Memastikan token JWT dengan 'kid' tidak dikenal atau hilang langsung ditolak."""
+    from jose import jwt
+
+    from app.core.security.jwt import verify_token
+    from app.core.security.keys import ALGORITHM, SECRET_KEY
+
+    payload = {"sub": "123", "role": "STUDENT", "exp": int(time.time()) + 3600}
+
+    # 1. Valid token dengan active Key ID ('v1') -> PASS
+    valid_token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM, headers={"kid": "v1"})
+    assert verify_token(valid_token) is not None
+
+    # 2. Token dengan forged/unknown kid -> MUST BE REJECTED (None)
+    forged_kid_token = jwt.encode(
+        payload, SECRET_KEY, algorithm=ALGORITHM, headers={"kid": "unknown_forged_key"}
+    )
+    assert verify_token(forged_kid_token) is None
+
+    # 3. Token tanpa kid header -> MUST BE REJECTED (None)
+    no_kid_token = jwt.encode(payload, SECRET_KEY, algorithm=ALGORITHM)
+    assert verify_token(no_kid_token) is None
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Boundary 11: Extra Time Attempt-Level Audit Trail
+# ─────────────────────────────────────────────────────────────────────────────
+def test_extra_time_audit_trail_logging(db, client):
+    """Memastikan penambahan waktu ujian mencatat old_deadline dan new_deadline per attempt."""
+    from app.models.teacher.proctor_event import ProctorAuditEvent
+
+    ctx = _create_school_hierarchy(db)
+    session = ctx["session"]
+    proctor = ctx["teacher"]
+    student = ctx["student1"]
+
+    now = datetime.now(timezone.utc)
+    initial_deadline = now + timedelta(minutes=45)
+
+    attempt = ExamAttempt(
+        exam_session_id=session.id,
+        student_id=student.id,
+        status=ExamAttemptStatus.IN_PROGRESS,
+        randomized_order=[ctx["question"].id],
+        deadline_at=initial_deadline,
+        remaining_seconds=2700,
+    )
+    db.add(attempt)
+    db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(proctor.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res = client.post(
+            "/api/v1/proctor/commands/broadcast",
+            json={
+                "exam_session_id": session.id,
+                "message": "Tambahan waktu listrik padam",
+                "extra_minutes": 15,
+            },
+        )
+        assert res.status_code == 200
+
+        # Verifikasi event audit per attempt di database
+        audit_events = (
+            db.query(ProctorAuditEvent)
+            .filter(
+                ProctorAuditEvent.proctor_assignment_id == session.id,
+                ProctorAuditEvent.student_id == student.id,
+                ProctorAuditEvent.event_type == "EXTRA_TIME",
+            )
+            .all()
+        )
+        assert len(audit_events) >= 1
+        ev = audit_events[0]
+        assert ev.action_taken == "EXTRA_TIME_ADDED"
+        assert f"Attempt ID: {attempt.id}" in ev.reason
+        assert "Old Deadline:" in ev.reason
+        assert "New Deadline:" in ev.reason
+        assert "Tambahan waktu listrik padam" in ev.reason
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Boundary 12: Serverless Cross-Instance PIN & Telemetry Persistence
+# ─────────────────────────────────────────────────────────────────────────────
+def test_serverless_cross_instance_pin_and_telemetry_persistence(db, client):
+    """Memastikan PIN dan Telemetry tersimpan di database sehingga tidak split-brain
+    saat request masuk ke instance serverless yang berbeda."""
+    from app.api.exam import ACTIVE_PIN_CACHE, TELEMETRY_STORE
+    from app.models.exam.attempt_telemetry import AttemptTelemetry
+    from app.models.exam.exam_checkin_pin import ExamCheckinPin
+
+    ctx = _create_school_hierarchy(db)
+    schedule = ctx["schedule"]
+    teacher = ctx["teacher"]
+    student = ctx["student1"]
+    session = ctx["session"]
+
+    # 1. Guru generate QR/PIN di Instance A
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(teacher.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        qr_res = client.get(f"/api/v1/exam/schedules/{schedule.id}/qr-token")
+        assert qr_res.status_code == 200
+        pin_code = qr_res.json()["pin_code"]
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # Verifikasi tersimpan di tabel exam_checkin_pins
+    db_pin = db.query(ExamCheckinPin).filter(ExamCheckinPin.pin_code == pin_code).first()
+    assert db_pin is not None
+
+    # Simulasikan Instance B: Bersihkan in-memory cache total
+    ACTIVE_PIN_CACHE.clear()
+    assert pin_code not in ACTIVE_PIN_CACHE
+
+    # Siswa check-in menggunakan PIN di Instance B -> DB fallback MUST SUCCEED
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(student.id),
+        "role": "STUDENT",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        checkin_res = client.post(
+            f"/api/v1/exam/checkin?token={pin_code}&expected_schedule_id={schedule.id}",
+            headers={"X-Device-Id": "device_srvless_1"},
+        )
+        assert checkin_res.status_code == 200
+        assert (
+            checkin_res.json().get("success") is True
+            or checkin_res.json().get("status") == "SUCCESS"
+        )
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 2. Siswa mengirim Telemetry di Instance A
+    attempt = ExamAttempt(
+        exam_session_id=session.id,
+        student_id=student.id,
+        status=ExamAttemptStatus.IN_PROGRESS,
+        randomized_order=[ctx["question"].id],
+        deadline_at=datetime.now(timezone.utc) + timedelta(minutes=30),
+    )
+    db.add(attempt)
+    db.commit()
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(student.id),
+        "role": "STUDENT",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        telem_res = client.post(
+            f"/api/v1/exam/attempts/{attempt.id}/telemetry",
+            json={
+                "battery_level": 15,
+                "is_charging": False,
+                "ping_ms": 42,
+                "is_offline": False,
+                "violation_type": None,
+            },
+        )
+        assert telem_res.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # Verifikasi tersimpan di tabel attempt_telemetry
+    db_telem = db.query(AttemptTelemetry).filter(AttemptTelemetry.attempt_id == attempt.id).first()
+    assert db_telem is not None
+    assert db_telem.battery_level == 15
+
+    # Simulasikan Instance B: Bersihkan in-memory TELEMETRY_STORE total
+    TELEMETRY_STORE.clear()
+    assert attempt.id not in TELEMETRY_STORE
+
+    # Pengawas membaca monitoring di Instance B -> DB fallback MUST SUCCEED
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(teacher.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        mon_res = client.get(f"/api/v1/teacher/sessions/{session.id}/attempts")
+        assert mon_res.status_code == 200
+        data = mon_res.json()
+        student_cards = [c for c in data if c.get("student_id") == student.id]
+        assert len(student_cards) == 1
+        card = student_cards[0]
+        assert card["battery_level"] == 15
+        assert card["ping_ms"] == 42
+        assert card["monitoring_card_state"] == "YELLOW"  # battery <= 20%
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

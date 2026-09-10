@@ -230,18 +230,38 @@ def send_proctor_broadcast(
         )
 
         for a in attempts:
+            old_deadline = a.deadline_at
             if a.deadline_at:
                 a.deadline_at = a.deadline_at + timedelta(minutes=payload.extra_minutes)
             if a.remaining_seconds is not None:
                 a.remaining_seconds += payload.extra_minutes * 60
 
+            old_str = old_deadline.isoformat() if old_deadline else "None"
+            new_str = a.deadline_at.isoformat() if a.deadline_at else "None"
+            # Explicit attempt-level audit event for traceability
+            db.add(
+                ProctorAuditEvent(
+                    proctor_assignment_id=sess_id,
+                    student_id=a.student_id,
+                    event_type="EXTRA_TIME",
+                    reason=(
+                        f"Pengawas (ID: {proctor_id}) menambahkan waktu +{payload.extra_minutes} menit. "
+                        f"Attempt ID: {a.id}, Old Deadline: {old_str}, New Deadline: {new_str}. "
+                        f"Catatan: {payload.message or 'Perpanjangan waktu massal oleh pengawas'}"
+                    ),
+                    proctor_id=proctor_id,
+                    action_taken="EXTRA_TIME_ADDED",
+                )
+            )
+
+        # Broadcast summary event
         evt = ProctorAuditEvent(
             proctor_assignment_id=sess_id,
             student_id=0,
             event_type="EXTRA_TIME",
-            reason=f"⏱️ Pengawas menambahkan waktu ujian sebesar +{payload.extra_minutes} Menit!",
+            reason=f"⏱️ Pengawas menambahkan waktu ujian sebesar +{payload.extra_minutes} Menit untuk {len(attempts)} peserta.",
             proctor_id=proctor_id,
-            action_taken="EXTRA_TIME_ADDED",
+            action_taken="EXTRA_TIME_BROADCAST",
         )
         db.add(evt)
 

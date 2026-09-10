@@ -9,6 +9,8 @@ from sqlalchemy import DateTime, create_engine
 from sqlalchemy.orm import DeclarativeBase, sessionmaker
 from sqlalchemy.types import TypeDecorator
 
+from app.core.environment import is_production_environment, is_serverless_environment
+
 load_dotenv()
 
 DATABASE_URL = os.getenv("DATABASE_URL", "").strip()
@@ -71,12 +73,7 @@ if DATABASE_URL.count("@") > 1 and "://" in DATABASE_URL:
         print(f"URL parse notice: {_parse_err}")
 
 # Production fail-fast verification
-is_production = (
-    os.getenv("ENV", "").lower() in ("prod", "production")
-    or os.getenv("ENVIRONMENT", "").lower() in ("prod", "production")
-    or bool(os.getenv("VERCEL"))
-    or bool(os.getenv("AWS_LAMBDA_FUNCTION_NAME"))
-)
+is_production = is_production_environment()
 
 # Fallback if DATABASE_URL is empty, invalid, or incorrectly set to https://...
 if not DATABASE_URL or DATABASE_URL.startswith("http://") or DATABASE_URL.startswith("https://"):
@@ -107,9 +104,7 @@ else:
 
         engine_kwargs["poolclass"] = NullPool
     else:
-        is_serverless = bool(
-            os.getenv("VERCEL") or os.getenv("AWS_LAMBDA_FUNCTION_NAME") or os.getenv("SERVERLESS")
-        )
+        is_serverless = is_serverless_environment()
         default_pool_size = 1 if is_serverless else 10
         default_max_overflow = 1 if is_serverless else 20
         pool_size = int(os.getenv("DB_POOL_SIZE", str(default_pool_size)))

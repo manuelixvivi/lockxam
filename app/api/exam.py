@@ -77,6 +77,25 @@ def update_attempt_telemetry(
         "updated_at": datetime.now(timezone.utc).isoformat(),
     }
 
+    # Persist telemetry to database to survive serverless instance switching
+    from app.models.exam.attempt_telemetry import AttemptTelemetry
+
+    telemetry_record = (
+        db.query(AttemptTelemetry).filter(AttemptTelemetry.attempt_id == attempt_id).first()
+    )
+    if not telemetry_record:
+        telemetry_record = AttemptTelemetry(attempt_id=attempt_id)
+        db.add(telemetry_record)
+
+    telemetry_record.battery_level = payload.battery_level
+    telemetry_record.is_charging = payload.is_charging
+    telemetry_record.ping_ms = payload.ping_ms
+    telemetry_record.is_offline = payload.is_offline
+    telemetry_record.violation_type = payload.violation_type
+    telemetry_record.violation_reason = payload.violation_reason
+    telemetry_record.updated_at = datetime.now(timezone.utc)
+    db.commit()
+
     if payload.violation_type in ["SPLIT_SCREEN", "APP_SWITCH", "UNPINNED"]:
         from app.models.exam.enums import ExamAttemptStatus
 
@@ -361,6 +380,24 @@ def get_qr_checkin_token(
         "expires_ts": expires_ts,
     }
 
+    # Persist PIN in database for cross-instance serverless resilience
+    from app.models.exam.exam_checkin_pin import ExamCheckinPin
+
+    pin_record = db.query(ExamCheckinPin).filter(ExamCheckinPin.pin_code == pin_code).first()
+    if not pin_record:
+        pin_record = ExamCheckinPin(
+            pin_code=pin_code,
+            schedule_id=schedule_id,
+            token=token,
+            expires_ts=expires_ts,
+        )
+        db.add(pin_record)
+    else:
+        pin_record.schedule_id = schedule_id
+        pin_record.token = token
+        pin_record.expires_ts = expires_ts
+    db.commit()
+
     return {
         "schedule_id": schedule_id,
         "schedule_title": title,
@@ -410,6 +447,25 @@ def student_checkin(
         cached = ACTIVE_PIN_CACHE[clean_pin]
         if int(time.time()) <= cached["expires_ts"]:
             raw_token = cached["token"]
+    elif len(clean_pin) == 6 and clean_pin.isdigit():
+        # Cross-instance serverless DB fallback
+        from app.models.exam.exam_checkin_pin import ExamCheckinPin
+
+        db_pin = (
+            db.query(ExamCheckinPin)
+            .filter(
+                ExamCheckinPin.pin_code == clean_pin,
+                ExamCheckinPin.expires_ts >= int(time.time()),
+            )
+            .first()
+        )
+        if db_pin:
+            raw_token = db_pin.token
+            ACTIVE_PIN_CACHE[clean_pin] = {
+                "schedule_id": db_pin.schedule_id,
+                "token": db_pin.token,
+                "expires_ts": db_pin.expires_ts,
+            }
 
     # Validasi token
     from app.core.security.keys import SECRET_KEY

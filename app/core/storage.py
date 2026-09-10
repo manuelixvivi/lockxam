@@ -13,15 +13,14 @@ import os
 import uuid
 from typing import Dict, Optional
 
+from app.core.environment import is_production_environment, is_serverless_environment
+
 
 class StorageService:
     @staticmethod
     def get_backend() -> str:
         """Returns the active storage backend."""
-        is_serverless = bool(os.getenv("VERCEL") or os.getenv("SERVERLESS"))
-        is_production = (
-            os.getenv("ENVIRONMENT", "").lower() in ("production", "prod") or is_serverless
-        )
+        is_production = is_production_environment()
 
         explicit = os.getenv("STORAGE_BACKEND", "").lower().strip()
         if explicit:
@@ -53,7 +52,7 @@ class StorageService:
         """Enforces magic byte checking to prevent polyglot / script injection attacks."""
         if not content or len(content) < 8:
             raise ValueError("File is empty or corrupted.")
-        
+
         # Check standard image magic bytes
         if ext in (".jpg", ".jpeg"):
             if not content.startswith(b"\xff\xd8\xff"):
@@ -81,7 +80,7 @@ class StorageService:
         """Save file content and return URL and filename identifier."""
         backend = cls.get_backend()
         ext = os.path.splitext(filename)[1].lower()
-        
+
         cls.validate_image_bytes(content, ext)
 
         if not content_type:

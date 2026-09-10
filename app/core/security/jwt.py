@@ -42,8 +42,15 @@ def verify_token(token: str) -> dict | None:
     try:
         # Retrieve "kid" header to pick correct key
         headers = jwt.get_unverified_header(token)
-        kid = headers.get("kid", "v1")
-        secret = SECRETS.get(kid, SECRET_KEY)
+        kid = headers.get("kid")
+        if not kid:
+            logger.warning("JWT verification failed: missing 'kid' header")
+            return None
+
+        secret = SECRETS.get(kid)
+        if not secret:
+            logger.warning("JWT verification failed: unknown 'kid' header: %s", kid)
+            return None
 
         payload = jwt.decode(token, secret, algorithms=[ALGORITHM])
         return payload

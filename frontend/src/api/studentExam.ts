@@ -74,7 +74,11 @@ export const getDeviceId = (): string => {
       activeDeviceId = sessionStorage.getItem("equigrade_device_id");
     } catch {}
     if (!activeDeviceId) {
-      activeDeviceId = `DEV_${Math.random().toString(36).substring(2, 10)}`;
+      const randomUuid =
+        typeof crypto !== "undefined" && typeof crypto.randomUUID === "function"
+          ? crypto.randomUUID()
+          : Math.random().toString(36).substring(2, 15);
+      activeDeviceId = `DEV_${randomUuid}`;
       try {
         sessionStorage.setItem("equigrade_device_id", activeDeviceId);
       } catch {}

@@ -195,6 +195,15 @@ def send_proctor_broadcast(
 
     sess_id = payload.exam_session_id
     proctor_id = int(current_user["sub"])
+    user_role = current_user.get("role")
+
+    # Authoritative validation: Proctors can ONLY broadcast to their assigned exam session
+    ProctorService.validate_proctor_session_authorization(
+        db=db,
+        exam_session_id=sess_id,
+        user_id=proctor_id,
+        user_role=user_role,
+    )
 
     if payload.message:
         evt = ProctorAuditEvent(

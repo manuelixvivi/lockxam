@@ -81,6 +81,7 @@ class ExamAttemptResponse(BaseModel):
     randomized_order: list[int] | None = None
     questions: list[StudentQuestionItemResponse] | None = None
     answers: dict[int, dict] | list[Any] | None = None
+    device_session_token: str | None = None
 
     model_config = {"from_attributes": True}
 

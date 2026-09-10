@@ -115,7 +115,7 @@ def test_candidate_ingestion_from_assessment_history(db: Session):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(
         db, school_name="SMA Labschool Governance 1"
     )
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = (
         db.query(ExamAnswerEvaluation)
@@ -154,7 +154,7 @@ def test_leakage_free_group_split_dataset_building(db: Session):
         attempt, questions, teacher, student, school, subj = setup_exam_environment(
             db, school_name=f"SMA Group Split School {q_idx}"
         )
-        ExamService.submit_attempt(db, attempt.id)
+        ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
         evals = (
             db.query(ExamAnswerEvaluation)
@@ -221,7 +221,7 @@ def test_dataset_version_true_immutability_and_hash_identity(db: Session):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(
         db, school_name="SMA Immutability School"
     )
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = (
         db.query(ExamAnswerEvaluation)
@@ -276,7 +276,7 @@ def test_split_strategy_strict_validation_and_ratio_guard(db: Session):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(
         db, school_name="SMA Ratio Validation School"
     )
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = (
         db.query(ExamAnswerEvaluation)
@@ -322,7 +322,7 @@ def test_api_governance_endpoints(db: Session):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(
         db, school_name="SMA API Gov School"
     )
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = (
         db.query(ExamAnswerEvaluation)
@@ -410,7 +410,7 @@ def test_api_governance_cross_tenant_isolation_rejected(db: Session):
         db, school_name="SMA Tenant Beta"
     )
 
-    ExamService.submit_attempt(db, attempt_b.id)
+    ExamService.submit_attempt(db, attempt_b.id, student_id=attempt_b.student_id)
     evals_b = (
         db.query(ExamAnswerEvaluation)
         .filter(ExamAnswerEvaluation.exam_attempt_id == attempt_b.id)

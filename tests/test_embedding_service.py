@@ -218,7 +218,7 @@ def setup_assessment_history_fixture(db, school_name="SMA Labschool AI"):
     db.add(ans)
     db.flush()
 
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
     eval_item = ExamService.finalize_evaluation(
         db=db,
         evaluation_id=attempt.evaluations[0].id,

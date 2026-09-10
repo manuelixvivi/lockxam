@@ -289,7 +289,7 @@ def setup_exam_environment(db, school_name="SMA Labschool AI", with_essay=True, 
 # ── TEST 1: FINALIZED teacher evaluation creates history v1 ──────────────────
 def test_finalized_teacher_evaluation_creates_history_v1(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
@@ -322,7 +322,7 @@ def test_finalized_teacher_evaluation_creates_history_v1(db):
 # ── TEST 2: AI_DRAFT does not create history ─────────────────────────────────
 def test_ai_draft_does_not_create_history(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
@@ -343,7 +343,7 @@ def test_ai_draft_does_not_create_history(db):
 # ── TEST 3: Non-essay evaluation (PG) does not create history ────────────────
 def test_non_essay_evaluation_does_not_create_history(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     pg_eval = next(ev for ev in evals if ev.question_id == questions[0].id)
@@ -359,7 +359,7 @@ def test_empty_student_answer_does_not_create_history(db):
     ans.text_answer = "   "
     db.flush()
 
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
 
@@ -374,7 +374,7 @@ def test_empty_student_answer_does_not_create_history(db):
 # ── TEST 5: Snapshot content is used instead of mutable Question content ─────
 def test_snapshot_content_used_instead_of_mutable_question(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     questions[1].content = "PERTANYAAN SUDAH BERUBAH TOTAL!"
     questions[1].answer_key = "KUNCI JAWABAN BARU"
@@ -399,7 +399,7 @@ def test_snapshot_content_used_instead_of_mutable_question(db):
 # ── TEST 6, 7, 8, 9: Teacher correction creates v2, v1 superseded, payload intact ─
 def test_teacher_correction_versioning_lifecycle(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
@@ -453,7 +453,7 @@ def test_teacher_correction_versioning_lifecycle(db):
 # ── TEST 10: UNIQUE(evaluation_id, version) constraint ───────────────────────
 def test_unique_evaluation_version_constraint(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
@@ -497,7 +497,7 @@ def test_unique_evaluation_version_constraint(db):
 # ── TEST 11: Duplicate finalize with identical values is idempotent ─────────
 def test_duplicate_finalize_is_idempotent(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
@@ -529,7 +529,7 @@ def test_tenant_isolation(db):
     attempt_a, q_a, t_a, s_a, sch_a, sub_a = setup_exam_environment(
         db, school_name="SMA Negeri 1 A"
     )
-    ExamService.submit_attempt(db, attempt_a.id)
+    ExamService.submit_attempt(db, attempt_a.id, student_id=attempt_a.student_id)
     eval_a = next(
         ev
         for ev in evaluation_repository.get_all_by_attempt(db, attempt_a.id)
@@ -543,7 +543,7 @@ def test_tenant_isolation(db):
     attempt_b, q_b, t_b, s_b, sch_b, sub_b = setup_exam_environment(
         db, school_name="SMA Negeri 2 B"
     )
-    ExamService.submit_attempt(db, attempt_b.id)
+    ExamService.submit_attempt(db, attempt_b.id, student_id=attempt_b.student_id)
     eval_b = next(
         ev
         for ev in evaluation_repository.get_all_by_attempt(db, attempt_b.id)
@@ -567,7 +567,7 @@ def test_tenant_isolation(db):
 # ── TEST 13: Delete safety RESTRICT prevents accidental cascading data loss ─
 def test_delete_safety_restrict(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
@@ -588,7 +588,7 @@ def test_delete_safety_restrict(db):
 # ── TEST 14: Missing snapshot data fails safely ──────────────────────────────
 def test_missing_snapshot_fails_safely(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)
@@ -604,7 +604,7 @@ def test_missing_snapshot_fails_safely(db):
 # ── TEST 15: Missing AI provenance does not crash or fabricate values ────────
 def test_missing_ai_provenance_handles_gracefully(db):
     attempt, questions, teacher, student, school, subj = setup_exam_environment(db)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)
     essay_eval = next(ev for ev in evals if ev.question_id == questions[1].id)

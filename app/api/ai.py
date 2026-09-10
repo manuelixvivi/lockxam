@@ -4,6 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
+from app.core.rbac import require_academic_staff
 from app.models.academic.grading_run import GradingRun
 from app.schemas.ai.training_governance import (
     BuildDatasetVersionRequest,
@@ -50,7 +51,10 @@ def get_ai_health() -> Dict[str, Any]:
     response_model=RubricGenerateResponse,
     summary="Generate Assessment Rubric",
 )
-def generate_rubric(payload: RubricGenerateRequest) -> RubricGenerateResponse:
+def generate_rubric(
+    payload: RubricGenerateRequest,
+    current_user: dict = Depends(require_academic_staff()),
+) -> RubricGenerateResponse:
     """
     Capability 1: Rubric Generation AI.
     Generates structured assessment rubrics from question text and answer key.
@@ -69,7 +73,10 @@ def generate_rubric(payload: RubricGenerateRequest) -> RubricGenerateResponse:
     response_model=RubricValidateResponse,
     summary="Validate Rubric and Answer Key Consistency",
 )
-def validate_rubric(payload: RubricValidateRequest) -> RubricValidateResponse:
+def validate_rubric(
+    payload: RubricValidateRequest,
+    current_user: dict = Depends(require_academic_staff()),
+) -> RubricValidateResponse:
     """
     Capability 2: Rubric & Answer Key Validation AI.
     Performs AI-assisted consistency checks between Question, Answer Key, and Rubric.
@@ -89,7 +96,9 @@ def validate_rubric(payload: RubricValidateRequest) -> RubricValidateResponse:
     summary="Evaluate Single Student Answer",
 )
 def evaluate_grading(
-    payload: GradingEvaluateRequest, db: Session = Depends(get_db)
+    payload: GradingEvaluateRequest,
+    current_user: dict = Depends(require_academic_staff()),
+    db: Session = Depends(get_db),
 ) -> GradingEvaluateResponse:
     """
     Capability 3: Grading AI (with optional RAG).
@@ -110,7 +119,9 @@ def evaluate_grading(
     summary="Batch Grade Student Submissions for a Single Question",
 )
 def batch_grade_question(
-    payload: BatchGradingQuestionRequest, db: Session = Depends(get_db)
+    payload: BatchGradingQuestionRequest,
+    current_user: dict = Depends(require_academic_staff()),
+    db: Session = Depends(get_db),
 ) -> BatchGradingQuestionResponse:
     """
     Production Batch Grading: Evaluates multiple student essay answers for a single question.
@@ -130,7 +141,9 @@ def batch_grade_question(
     summary="Start Post-Exam Batch Grading Workflow",
 )
 def start_post_exam_grading(
-    payload: PostExamGradingStartRequest, db: Session = Depends(get_db)
+    payload: PostExamGradingStartRequest,
+    current_user: dict = Depends(require_academic_staff()),
+    db: Session = Depends(get_db),
 ) -> PostExamGradingStatusResponse:
     """
     Initiates post-exam batch grading workflow for a locked exam schedule.
@@ -168,7 +181,9 @@ def start_post_exam_grading(
     summary="Get Post-Exam Grading Status",
 )
 def get_post_exam_grading_status(
-    schedule_id: int, db: Session = Depends(get_db)
+    schedule_id: int,
+    current_user: dict = Depends(require_academic_staff()),
+    db: Session = Depends(get_db),
 ) -> PostExamGradingStatusResponse:
     """Returns the latest GradingRun status for the specified exam schedule."""
     run = (

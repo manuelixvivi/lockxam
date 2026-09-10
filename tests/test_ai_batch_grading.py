@@ -400,6 +400,13 @@ def test_extend_exam_schedule_on_time_ended(db):
 
 
 def test_api_batch_grade_question_endpoint():
+    from app.core.dependencies import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "1",
+        "role": "TEACHER",
+        "school_id": 1,
+    }
     mock_llm_data = {
         "results": [
             {
@@ -410,29 +417,36 @@ def test_api_batch_grade_question_endpoint():
         ]
     }
 
-    with patch(
-        "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
-        return_value={"status": "success", "data": mock_llm_data, "model": "openai/gpt-oss-120b"},
-    ):
-        response = client.post(
-            "/api/v1/ai/grading/batch-question",
-            json={
-                "question_id": 99,
-                "question_text": "Jelaskan hukum gravitasi!",
-                "answer_key": "Gaya tarik berbanding terbalik kuadrat jarak.",
-                "rubric": [{"ku_id": "C1", "text": "Hukum gravitasi", "weight": 100.0}],
-                "submissions": [
-                    {
-                        "student_id": "std_1",
-                        "student_answer": "Gaya tarik antara dua massa berbanding terbalik kuadrat jarak.",
-                    }
-                ],
+    try:
+        with patch(
+            "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
+            return_value={
+                "status": "success",
+                "data": mock_llm_data,
+                "model": "openai/gpt-oss-120b",
             },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "success"
-        assert data["total_evaluated"] == 1
+        ):
+            response = client.post(
+                "/api/v1/ai/grading/batch-question",
+                json={
+                    "question_id": 99,
+                    "question_text": "Jelaskan hukum gravitasi!",
+                    "answer_key": "Gaya tarik berbanding terbalik kuadrat jarak.",
+                    "rubric": [{"ku_id": "C1", "text": "Hukum gravitasi", "weight": 100.0}],
+                    "submissions": [
+                        {
+                            "student_id": "std_1",
+                            "student_answer": "Gaya tarik antara dua massa berbanding terbalik kuadrat jarak.",
+                        }
+                    ],
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+            assert data["total_evaluated"] == 1
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
         assert data["results"][0]["final_score"] == 100.0
 
 

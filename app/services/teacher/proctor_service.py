@@ -272,6 +272,37 @@ class ProctorService:
             raise
 
     @staticmethod
+    def validate_proctor_session_authorization(
+        db: Session,
+        exam_session_id: int,
+        user_id: int,
+        user_role: str | None = None,
+    ):
+        """Authoritatively verifies that user is assigned as proctor (or teacher pengampu/admin) for the exam session."""
+        from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+        from app.repositories.exam.exam_session_repository import exam_session_repository
+
+        session = exam_session_repository.get_by_id(db, exam_session_id)
+        if not session:
+            raise BusinessException("Sesi ujian tidak ditemukan.", status_code=404)
+
+        schedule = exam_schedule_repository.get_by_id(db, session.schedule_id)
+        if not schedule:
+            raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
+
+        if user_role in ("SUPERADMIN", "SCHOOL_ADMIN"):
+            return schedule
+
+        # Allow assigned proctor or teacher pengampu who created the schedule
+        if schedule.proctor_id != user_id and schedule.teacher_id != user_id:
+            raise BusinessException(
+                "Akses ditolak: Anda bukan pengawas yang ditugaskan untuk sesi ujian ini.",
+                status_code=403,
+            )
+
+        return schedule
+
+    @staticmethod
     def dispatch_internal_proctor_command(
         db: Session,
         endpoint: str,
@@ -287,14 +318,21 @@ class ProctorService:
         from app.repositories.security.auth_repository import auth_repository
 
         teacher = auth_repository.get_by_id(db, proctor_id)
-        if not teacher or teacher.role not in ["TEACHER", UserRole.TEACHER]:
+        if not teacher or teacher.role not in [
+            "TEACHER",
+            UserRole.TEACHER,
+            "SUPERADMIN",
+            "SCHOOL_ADMIN",
+        ]:
             raise BusinessException("Akses ditolak: Pengawas tidak terdaftar.", status_code=403)
 
-        # 2. Validasi Hubungan Kepengawasan Sesi (Mock/Placeholder Check karena tabel penjadwalan belum dimodelkan)
-        if proctor_assignment_id <= 0 or exam_session_id <= 0:
-            raise BusinessException(
-                "Akses ditolak: Penugasan pengawas tidak valid.", status_code=403
-            )
+        # 2. Validasi Hubungan Kepengawasan Sesi Secara Authoritative
+        ProctorService.validate_proctor_session_authorization(
+            db=db,
+            exam_session_id=exam_session_id,
+            user_id=proctor_id,
+            user_role=teacher.role,
+        )
 
         # 3. Direct Execution via ExamService (avoiding HTTP loopback connection failures in Serverless)
         from app.schemas.exam.exam import ProctorCommandRequest

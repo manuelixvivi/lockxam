@@ -21,6 +21,7 @@ import logging
 import random
 import uuid
 from datetime import datetime, timedelta, timezone
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -193,6 +194,68 @@ class ExamService:
         return new_snapshot
 
     # ──────────────────────────────────────────────────
+    # UC-1.5: Authoritative Student Exam Eligibility
+    # ──────────────────────────────────────────────────
+
+    @staticmethod
+    def validate_student_exam_eligibility(
+        db: Session,
+        schedule_or_id: Any,
+        student_id: int,
+    ) -> Any:
+        from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+        from app.repositories.academic.student_enrollment_repository import (
+            student_enrollment_repository,
+        )
+        from app.repositories.security.auth_repository import auth_repository
+
+        if isinstance(schedule_or_id, (int, str)):
+            schedule = exam_schedule_repository.get_by_id(db, int(schedule_or_id))
+        else:
+            schedule = schedule_or_id
+
+        if not schedule:
+            raise BusinessException("Jadwal ujian tidak ditemukan.", status_code=404)
+
+        student = auth_repository.get_by_id(db, student_id)
+        if not student:
+            raise BusinessException("Data siswa tidak ditemukan.", status_code=404)
+
+        # 1. Validasi tenant sekolah
+        if student.school_id != schedule.school_id:
+            raise BusinessException(
+                "Akses ditolak: Anda tidak terdaftar pada sekolah penyelenggara ujian ini.",
+                status_code=403,
+            )
+
+        # 2. Validasi enrollment aktif di kelas jadwal
+        active_enrollments = student_enrollment_repository.list_active_by_student(db, student_id)
+        is_enrolled = any(
+            e.class_id == schedule.class_id
+            and (
+                schedule.academic_year_id is None or e.academic_year_id == schedule.academic_year_id
+            )
+            for e in active_enrollments
+        )
+        if not is_enrolled:
+            raise BusinessException(
+                "Akses ditolak: Anda tidak terdaftar aktif di kelas jadwal ujian ini.",
+                status_code=403,
+            )
+
+        # 3. Validasi target peserta (ALL_CLASS vs SELECTED)
+        target_type = getattr(schedule, "target_type", "ALL_CLASS")
+        if target_type == "SELECTED":
+            allowed = schedule.allowed_student_ids or []
+            if student_id not in allowed and str(student_id) not in [str(x) for x in allowed]:
+                raise BusinessException(
+                    "Akses ditolak: Anda tidak terdaftar dalam daftar peserta yang diizinkan untuk ujian ini.",
+                    status_code=403,
+                )
+
+        return schedule
+
+    # ──────────────────────────────────────────────────
     # UC-2: Mulai / Resume Pengerjaan Siswa
     # ──────────────────────────────────────────────────
 
@@ -208,6 +271,9 @@ class ExamService:
             session = exam_session_repository.get_with_lock(db, session_id)
             if not session:
                 raise BusinessException("Ujian tidak ditemukan.", status_code=404)
+
+            # Authoritative eligibility check at domain service layer
+            ExamService.validate_student_exam_eligibility(db, session.schedule_id, student_id)
 
             # Auto-activate session if start time has arrived or session was PLANNED / DRAFT
             if session.status not in [ExamSessionStatus.ACTIVE, "ACTIVE"]:
@@ -251,10 +317,11 @@ class ExamService:
                         db.flush()
 
                     now = datetime.now(timezone.utc)
+                    new_token = uuid.uuid4().hex
                     new_device = DeviceSession(
                         exam_attempt_id=existing.id,
                         device_id=device_id,
-                        session_token=uuid.uuid4().hex,
+                        session_token=new_token,
                         ip_address=ip_address,
                         status=DeviceSessionStatus.ACTIVE,
                         last_active_at=now,
@@ -266,7 +333,24 @@ class ExamService:
                     existing.remaining_seconds = None
                     existing.status = ExamAttemptStatus.IN_PROGRESS
                     db.commit()
+                    existing.device_session_token = new_token
+                    return existing
 
+                # Active / in-progress attempt resume: bind or return active device session token
+                act_dev = device_session_repository.get_active_by_attempt(db, existing.id)
+                if not act_dev:
+                    act_token = uuid.uuid4().hex
+                    act_dev = DeviceSession(
+                        exam_attempt_id=existing.id,
+                        device_id=device_id,
+                        session_token=act_token,
+                        ip_address=ip_address,
+                        status=DeviceSessionStatus.ACTIVE,
+                        last_active_at=datetime.now(timezone.utc),
+                    )
+                    device_session_repository.create(db, act_dev)
+                    db.commit()
+                existing.device_session_token = act_dev.session_token
                 return existing
 
             # Buat attempt baru
@@ -343,6 +427,7 @@ class ExamService:
             )
             device_session_repository.create(db, device)
             db.commit()
+            attempt.device_session_token = device.session_token
             return attempt
         except Exception:
             db.rollback()
@@ -372,30 +457,26 @@ class ExamService:
 
             now = datetime.now(timezone.utc)
 
-            # Auto-extend deadline if attempt is IN_PROGRESS and student is answering
+            # Strict timer: Check if deadline has passed. If expired, submit atomically and reject.
             if attempt.deadline_at and now > attempt.deadline_at:
-                sess = exam_session_repository.get_by_id(db, attempt.exam_session_id)
-                dur = sess.duration_minutes if sess and sess.duration_minutes else 30
-                attempt.deadline_at = now + timedelta(minutes=dur)
-                db.flush()
+                ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
+                db.commit()
+                raise BusinessException(
+                    "Waktu ujian telah berakhir. Jawaban Anda telah dikumpulkan secara otomatis.",
+                    status_code=400,
+                )
 
-            # Ensure active device session exists & token synchronized
+            # Ensure active device session exists & validate session token strictly
             active_device = device_session_repository.get_active_by_attempt(db, attempt_id)
             if not active_device:
-                active_device = DeviceSession(
-                    exam_attempt_id=attempt.id,
-                    device_id="autosave_auto_device",
-                    session_token=token or "autosave_auto_token",
-                    ip_address="127.0.0.1",
-                    status=DeviceSessionStatus.ACTIVE,
-                    last_active_at=now,
+                raise BusinessException("Sesi perangkat tidak ditemukan.", status_code=403)
+            if not token or active_device.session_token != token:
+                raise BusinessException(
+                    "Akses ditolak: Token perangkat tidak valid.", status_code=403
                 )
-                device_session_repository.create(db, active_device)
-                db.flush()
-            elif token and active_device.session_token != token:
-                active_device.session_token = token
-                active_device.last_active_at = now
-                db.flush()
+
+            active_device.last_active_at = now
+            db.flush()
 
             snapshot = snapshot_repository.get_by_session(db, attempt.exam_session_id)
             if not snapshot:
@@ -548,15 +629,21 @@ class ExamService:
                             is_expired = True
 
                     if not is_expired and sess.schedule_id:
+                        from app.repositories.academic.exam_schedule_repository import (
+                            exam_schedule_repository,
+                        )
+                        from app.utils.timezone import ensure_wib
+
                         sch = exam_schedule_repository.get_by_id(db, sess.schedule_id)
                         if sch and sch.end_time:
                             sch_end_wib = ensure_wib(sch.end_time)
+                            now_wib = ensure_wib(now_utc)
                             if now_wib >= sch_end_wib:
                                 is_expired = True
 
             if is_expired:
                 try:
-                    ExamService.submit_attempt(db, att.id)
+                    ExamService.submit_attempt(db, att.id, student_id=att.student_id)
                     submitted_count += 1
                 except Exception as e:
                     print(f"Auto-submit error for attempt {att.id}: {e}")
@@ -568,11 +655,16 @@ class ExamService:
     # ──────────────────────────────────────────────────
 
     @staticmethod
-    def submit_attempt(db: Session, attempt_id: int) -> ExamAttempt:
+    def submit_attempt(db: Session, attempt_id: int, student_id: int) -> ExamAttempt:
         try:
             attempt = attempt_repository.get_with_lock(db, attempt_id)
             if not attempt:
                 raise BusinessException("Attempt tidak ditemukan.", status_code=404)
+
+            if attempt.student_id != student_id:
+                raise BusinessException(
+                    "Akses ditolak: Anda bukan pemilik attempt ini.", status_code=403
+                )
 
             if attempt.status in [
                 ExamAttemptStatus.SUBMITTED,

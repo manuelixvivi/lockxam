@@ -93,11 +93,14 @@ export const studentExamApi = {
   // Start or resume exam attempt
   startAttempt: async (sessionId: number): Promise<ExamAttemptData> => {
     const deviceId = getDeviceId();
-    const res = await apiClient.post<ExamAttemptData>(
+    const res = await apiClient.post<ExamAttemptData & { device_session_token?: string }>(
       `/api/v1/exam/sessions/${sessionId}/start-attempt`,
       {},
       { "X-Device-Id": deviceId }
     );
+    if (res.device_session_token) {
+      activeDeviceToken = res.device_session_token;
+    }
     return res;
   },
 
@@ -109,7 +112,7 @@ export const studentExamApi = {
     textAnswer?: string,
     deviceToken?: string
   ) => {
-    const token = deviceToken || activeDeviceToken || "autosave_auto_token";
+    const token = deviceToken || activeDeviceToken || "";
 
     const payload: any = { question_id: questionId };
     if (selectedOption !== undefined && selectedOption !== null) {

@@ -84,6 +84,13 @@ def test_rubric_weight_normalization_and_deduplication():
 
 
 def test_api_rubric_generate_endpoint():
+    from app.core.dependencies import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "1",
+        "role": "TEACHER",
+        "school_id": 1,
+    }
     mock_llm_data = {
         "question_type": "PROSEDURAL",
         "bloom_level": "C4",
@@ -99,21 +106,28 @@ def test_api_rubric_generate_endpoint():
         ],
     }
 
-    with patch(
-        "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
-        return_value={"status": "success", "data": mock_llm_data, "model": "openai/gpt-oss-120b"},
-    ):
-        response = client.post(
-            "/api/v1/ai/rubric/generate",
-            json={
-                "question": "Jelaskan bunyi Hukum Ohm dan tuliskan persamaan matematisnya!",
-                "answer_key": "Hukum Ohm menyatakan bahwa arus berbanding lurus dengan tegangan: V = I x R.",
-                "subject": "Fisika",
-                "grade_level": "SMA",
+    try:
+        with patch(
+            "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
+            return_value={
+                "status": "success",
+                "data": mock_llm_data,
+                "model": "openai/gpt-oss-120b",
             },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "success"
-        assert len(data["rubric"]) == 1
-        assert data["rubric"][0]["weight"] == 100.0
+        ):
+            response = client.post(
+                "/api/v1/ai/rubric/generate",
+                json={
+                    "question": "Jelaskan bunyi Hukum Ohm dan tuliskan persamaan matematisnya!",
+                    "answer_key": "Hukum Ohm menyatakan bahwa arus berbanding lurus dengan tegangan: V = I x R.",
+                    "subject": "Fisika",
+                    "grade_level": "SMA",
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+            assert len(data["rubric"]) == 1
+            assert data["rubric"][0]["weight"] == 100.0
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

@@ -344,6 +344,7 @@ def get_qr_checkin_token(
 
     # Token: base64url( schedule_id | expires_ts | hmac )
     from app.core.security.keys import SECRET_KEY
+
     expires_ts = int(time.time()) + 180  # 3 menit (180 detik)
     payload_str = f"{schedule_id}:{expires_ts}"
     sig = hmac.new(SECRET_KEY.encode(), payload_str.encode(), hashlib.sha256).hexdigest()[:16]
@@ -412,6 +413,7 @@ def student_checkin(
 
     # Validasi token
     from app.core.security.keys import SECRET_KEY
+
     secret = SECRET_KEY
     try:
         parts = raw_token.split(":")
@@ -451,12 +453,9 @@ def student_checkin(
     if not hmac.compare_digest(sig_received, sig_expected):
         raise HTTPException(status_code=400, detail="Token QR tidak valid atau telah dimodifikasi.")
 
-    # Cek jadwal ada
-    schedule = exam_schedule_repository.get_by_id(db, schedule_id)
-    if not schedule:
-        raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan.")
-
+    # Cek jadwal ada dan validasi eligibility siswa secara terpusat
     student_id = int(current_user["sub"])
+    schedule = ExamService.validate_student_exam_eligibility(db, schedule_id, student_id)
 
     # Upsert ExamCheckin
     try:
@@ -620,6 +619,7 @@ def start_attempt(
         randomized_order=attempt.randomized_order,
         questions=questions_data,
         answers=answers_map,
+        device_session_token=getattr(attempt, "device_session_token", None),
     )
 
 
@@ -733,7 +733,8 @@ def submit_attempt(
     current_user=Depends(require_role(UserRole.STUDENT)),
     db: Session = Depends(get_db),
 ):
-    attempt = ExamService.submit_attempt(db=db, attempt_id=attempt_id)
+    student_id = int(current_user["sub"])
+    attempt = ExamService.submit_attempt(db=db, attempt_id=attempt_id, student_id=student_id)
     status_str = attempt.status.value if hasattr(attempt.status, "value") else str(attempt.status)
 
     if status_str == "GRADING":

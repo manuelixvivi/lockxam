@@ -308,7 +308,7 @@ def test_submit_exam_pg_only(db):
     attempt, questions, student = setup_exam_environment(db, with_essay=False, with_pg=True)
 
     # Submit attempt
-    updated_attempt = ExamService.submit_attempt(db, attempt.id)
+    updated_attempt = ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     assert updated_attempt.status == ExamAttemptStatus.GRADED
     assert updated_attempt.final_score == 100.0
@@ -319,7 +319,7 @@ def test_submit_exam_with_essay(db):
     attempt, questions, student = setup_exam_environment(db, with_essay=True, with_pg=True)
 
     # Submit attempt
-    updated_attempt = ExamService.submit_attempt(db, attempt.id)
+    updated_attempt = ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     # State must be GRADING
     assert updated_attempt.status == ExamAttemptStatus.GRADING
@@ -334,7 +334,7 @@ def test_submit_exam_with_essay(db):
 # ── TEST 3: AI callback success -> evaluation becomes AI_DRAFT, score & feedback stored ──
 def test_ai_callback_success(client, db):
     attempt, questions, student = setup_exam_environment(db, with_essay=True, with_pg=True)
-    updated_attempt = ExamService.submit_attempt(db, attempt.id)
+    updated_attempt = ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     # Set up AI mock and run background task
     with patch("app.services.ai.ai_grading_service.AiGradingService.grade_essay") as mock_grade:
@@ -360,7 +360,7 @@ def test_ai_callback_success(client, db):
 # ── TEST 4: Duplicate callback → must not corrupt evaluation ──
 def test_duplicate_callback(db):
     attempt, questions, student = setup_exam_environment(db, with_essay=True, with_pg=True)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     event_id = str(uuid4())
     essay_q_id = questions[1].id
@@ -406,7 +406,7 @@ def test_duplicate_callback(db):
 # ── TEST 5: AI service failure -> student answers remain persisted, teacher can manually grade ──
 def test_ai_service_failure(db):
     attempt, questions, student = setup_exam_environment(db, with_essay=True, with_pg=True)
-    ExamService.submit_attempt(db, attempt.id)
+    ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     # Set up AI mock to fail
     with patch("app.services.ai.ai_grading_service.AiGradingService.grade_essay") as mock_grade:
@@ -448,11 +448,11 @@ def test_duplicate_submit_retry(db):
     attempt, questions, student = setup_exam_environment(db, with_essay=True, with_pg=True)
 
     # Submit first time
-    updated_attempt1 = ExamService.submit_attempt(db, attempt.id)
+    updated_attempt1 = ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
     assert updated_attempt1.status == ExamAttemptStatus.GRADING
 
     # Attempt duplicate submit
-    updated_attempt2 = ExamService.submit_attempt(db, attempt.id)
+    updated_attempt2 = ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
     # Must be idempotent and return attempt immediately
     assert updated_attempt2.id == updated_attempt1.id
     assert updated_attempt2.status == ExamAttemptStatus.GRADING
@@ -461,7 +461,7 @@ def test_duplicate_submit_retry(db):
 # ── TEST 7: Exam with PG + Essay -> PG graded immediately, Essay sent to AI, overall attempt eventually leaves GRADING ──
 def test_pg_plus_essay_full_flow(db):
     attempt, questions, student = setup_exam_environment(db, with_essay=True, with_pg=True)
-    updated_attempt = ExamService.submit_attempt(db, attempt.id)
+    updated_attempt = ExamService.submit_attempt(db, attempt.id, student_id=attempt.student_id)
 
     db.expire_all()
     evals = evaluation_repository.get_all_by_attempt(db, attempt.id)

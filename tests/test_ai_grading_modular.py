@@ -208,27 +208,41 @@ def test_backward_compatibility_facade():
 
 
 def test_api_grading_evaluate_endpoint():
+    from app.core.dependencies import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "1",
+        "role": "TEACHER",
+        "school_id": 1,
+    }
     mock_llm_data = {
         "feedback": "Jawaban sangat tepat.",
         "rubric_scores": [{"ku_id": "C1", "achieved": 100}],
     }
 
-    with patch(
-        "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
-        return_value={"status": "success", "data": mock_llm_data, "model": "openai/gpt-oss-120b"},
-    ):
-        response = client.post(
-            "/api/v1/ai/grading/evaluate",
-            json={
-                "question": "Jelaskan definisi Hukum Newton I!",
-                "answer_key": "Benda diam tetap diam jika gaya total nol.",
-                "student_answer": "Benda akan tetap diam jika tidak ada gaya luar yang bekerja.",
-                "rubrics": [{"ku_id": "C1", "text": "Kelembaman benda", "weight": 100.0}],
-                "max_score": 10.0,
+    try:
+        with patch(
+            "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
+            return_value={
+                "status": "success",
+                "data": mock_llm_data,
+                "model": "openai/gpt-oss-120b",
             },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "success"
-        assert data["final_score"] == 100.0
-        assert data["score"] == 10.0
+        ):
+            response = client.post(
+                "/api/v1/ai/grading/evaluate",
+                json={
+                    "question": "Jelaskan definisi Hukum Newton I!",
+                    "answer_key": "Benda diam tetap diam jika gaya total nol.",
+                    "student_answer": "Benda akan tetap diam jika tidak ada gaya luar yang bekerja.",
+                    "rubrics": [{"ku_id": "C1", "text": "Kelembaman benda", "weight": 100.0}],
+                    "max_score": 10.0,
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "success"
+            assert data["final_score"] == 100.0
+            assert data["score"] == 10.0
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

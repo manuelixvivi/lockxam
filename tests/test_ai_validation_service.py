@@ -134,6 +134,13 @@ def test_validation_contradiction_invalid():
 
 
 def test_api_rubric_validate_endpoint():
+    from app.core.dependencies import get_current_user
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "1",
+        "role": "TEACHER",
+        "school_id": 1,
+    }
     mock_llm_data = {
         "status": "VALID",
         "confidence": 0.96,
@@ -142,20 +149,27 @@ def test_api_rubric_validate_endpoint():
         "suggested_review": False,
     }
 
-    with patch(
-        "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
-        return_value={"status": "success", "data": mock_llm_data, "model": "openai/gpt-oss-120b"},
-    ):
-        response = client.post(
-            "/api/v1/ai/rubric/validate",
-            json={
-                "question": "Berapa hasil dari 2 + 2?",
-                "answer_key": "4",
-                "subject": "Matematika",
+    try:
+        with patch(
+            "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
+            return_value={
+                "status": "success",
+                "data": mock_llm_data,
+                "model": "openai/gpt-oss-120b",
             },
-        )
-        assert response.status_code == 200
-        data = response.json()
-        assert data["status"] == "VALID"
-        assert data["confidence"] == 0.96
-        assert data["suggested_review"] is False
+        ):
+            response = client.post(
+                "/api/v1/ai/rubric/validate",
+                json={
+                    "question": "Berapa hasil dari 2 + 2?",
+                    "answer_key": "4",
+                    "subject": "Matematika",
+                },
+            )
+            assert response.status_code == 200
+            data = response.json()
+            assert data["status"] == "VALID"
+            assert data["confidence"] == 0.96
+            assert data["suggested_review"] is False
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

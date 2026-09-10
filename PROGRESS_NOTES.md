@@ -4,15 +4,16 @@
 
 ---
 
-## 📌 Status Terakhir: 🟡 IMPORT INTEGRITY REMEDIATION IN PROGRESS (Batch 1 & 2 Frozen, Batch 3 Remediated & Verified)
+## 📌 Status Terakhir: ✅ P0 SECURITY & INTEGRITY REMEDIATION COMPLETED (312/312 Tests Pass — 100% Green)
 
 ```text
 [FASE 1 & 2: Database Models & Domain Services]        ──> ✅ SELESAI & LULUS UJI
 [FASE 3: Academic Administration API & Contract Layer] ──> ✅ SELESAI & LULUS UJI (10/10 PASS) 🔒
-[FASE 4: School Admin UI & Import Integrity Audit]     ──> 🟡 REMEDIATION IN PROGRESS (Student & Class structure FROZEN, Teacher & Subject implemented & tested)
+[FASE 4: School Admin UI & Import Integrity Audit]     ──> ✅ SELESAI & FROZEN
+[P0 REMEDIATION: Security, RBAC, Timer & Device Locks]  ──> ✅ SELESAI (8 Boundaries Enforced & Tested) 🔒
                                                                │
                                                                ▼
-[FASE 5: Teacher Exam Selection, Proctor BAU & CBT UI] ──> ⏳ PENDING UNTIL ALL IMPORTS FROZEN
+[FASE 5: Teacher Exam Selection, Proctor BAU & CBT UI] ──> 🚀 READY FOR PHASE 5
 ```
 
 ---
@@ -55,6 +56,33 @@
    - Status `SCHEDULED` / `LOCKED` / `ACTIVE` / `COMPLETED`: Dilindungi (*read-only* & terkunci, tidak dapat dihapus).
 6. **`EXAM-HISTORY-001/002/003` (Snapshot Kekal & Tak Berubah)**:
    - Ujian yang berjalan menggunakan snapshot beku `ExamSnapshot` sehingga perubahan data master di masa depan tidak mempengaruhi nilai & histori masa lalu.
+7. **`SUBMIT-OWNERSHIP-001` (Submit Attempt Ownership Binding)**:
+   - `ExamService.submit_attempt` wajib menerima `student_id: int` dan memvalidasi `attempt.student_id == student_id`. Siswa lain yang mencoba mengumpulkan attempt akan ditolak 403 di service layer & API layer.
+8. **`ELIGIBILITY-EXAM-001` (Authoritative Student Exam Eligibility)**:
+   - `ExamService.validate_student_exam_eligibility` menegakkan tenant match (`student.school_id == schedule.school_id`), enrollment aktif di kelas rombel ujian (`schedule.class_id`), dan seleksi khusus peserta jika `target_type == "SELECTED"`. Ditegakkan konsisten di QR checkin dan start attempt.
+9. **`TIMER-STRICT-001` (Strict Timer & Anti-Perpanjangan Ilegal)**:
+   - Deadline tidak pernah diperpanjang otomatis di autosave. Jika `now > attempt.deadline_at`, attempt disubmit secara atomik dan request autosave ditolak dengan 400.
+10. **`PROCTOR-AUTH-001` (Proctor Assignment & Broadcast Isolation)**:
+    - Pengawas diverifikasi secara otoritatif terhadap `schedule.proctor_id` / `schedule.teacher_id` / Admin. Broadcast darurat terisolasi ketat hanya ke sesi ujian yang ditugaskan.
+11. **`AI-RBAC-001` (Lockdown Endpoint AI Engine)**:
+    - Endpoint evaluasi dan rubrik AI di `/api/v1/ai/*` dilindungi `require_academic_staff()`. Permintaan tanpa otentikasi ditolak 401, dan role siswa ditolak 403.
+12. **`DEVICE-TOKEN-001` (Lifecycle & Integritas Token Perangkat)**:
+    - `device_session_token` diterbitkan pada `start_attempt`, disimpan in-memory di frontend klien, dan divalidasi ketat pada setiap autosave tanpa penulisan/pemalsuan token baru.
+
+---
+
+## 🧪 Quality Gate Verification
+
+```bash
+# Frontend Build Verification:
+cd frontend && npm run build
+✓ 1871 modules transformed.
+✓ built in 3.32s (dist/assets/index.js & index.css) — 0 ERRORS
+
+# Full Backend Pytest Suite (Domain, Security, API, AI, Contracts):
+$env:PYTHONPATH="."; python -m pytest -q
+================ 312 passed, 961 warnings in 39.47s — 100% GREEN ================
+```
 
 ---
 

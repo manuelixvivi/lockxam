@@ -4,13 +4,13 @@
 
 ---
 
-## 📌 Status Terakhir: ✅ P0 SECURITY & INTEGRITY REMEDIATION COMPLETED (312/312 Tests Pass — 100% Green)
+## 📌 Status Terakhir: ✅ P0 & P1 SECURITY HARDENING COMPLETED (321/321 Tests Pass — 100% Green)
 
 ```text
 [FASE 1 & 2: Database Models & Domain Services]        ──> ✅ SELESAI & LULUS UJI
 [FASE 3: Academic Administration API & Contract Layer] ──> ✅ SELESAI & LULUS UJI (10/10 PASS) 🔒
 [FASE 4: School Admin UI & Import Integrity Audit]     ──> ✅ SELESAI & FROZEN
-[P0 REMEDIATION: Security, RBAC, Timer & Device Locks]  ──> ✅ SELESAI (8 Boundaries Enforced & Tested) 🔒
+[P0 & P1 REMEDIATION: Security, RBAC, Timer & Device]  ──> ✅ SELESAI (17 Boundaries Enforced & Tested) 🔒
                                                                │
                                                                ▼
 [FASE 5: Teacher Exam Selection, Proctor BAU & CBT UI] ──> 🚀 READY FOR PHASE 5
@@ -62,12 +62,16 @@
    - `ExamService.validate_student_exam_eligibility` menegakkan tenant match (`student.school_id == schedule.school_id`), enrollment aktif di kelas rombel ujian (`schedule.class_id`), dan seleksi khusus peserta jika `target_type == "SELECTED"`. Ditegakkan konsisten di QR checkin dan start attempt.
 9. **`TIMER-STRICT-001` (Strict Timer & Anti-Perpanjangan Ilegal)**:
    - Deadline tidak pernah diperpanjang otomatis di autosave. Jika `now > attempt.deadline_at`, attempt disubmit secara atomik dan request autosave ditolak dengan 400.
-10. **`PROCTOR-AUTH-001` (Proctor Assignment & Broadcast Isolation)**:
-    - Pengawas diverifikasi secara otoritatif terhadap `schedule.proctor_id` / `schedule.teacher_id` / Admin. Broadcast darurat terisolasi ketat hanya ke sesi ujian yang ditugaskan.
-11. **`AI-RBAC-001` (Lockdown Endpoint AI Engine)**:
-    - Endpoint evaluasi dan rubrik AI di `/api/v1/ai/*` dilindungi `require_academic_staff()`. Permintaan tanpa otentikasi ditolak 401, dan role siswa ditolak 403.
+10. **`PROCTOR-AUTH-001` (Strict Proctor Assignment & Broadcast Isolation)**:
+    - Pengawas diverifikasi secara otoritatif terhadap `schedule.proctor_id`. Pembuat/guru pengampu (`teacher_id`) tidak memiliki wewenang proctor/broadcast/QR token jika sudah ditugaskan ke proctor lain.
+11. **`AI-RBAC-001` (Lockdown Endpoint AI Engine & Cross-School Defense)**:
+    - Endpoint evaluasi dan rubrik AI di `/api/v1/ai/*` dilindungi `require_academic_staff()`. Memvalidasi object riil (`Question.school_id`, `ExamSchedule.school_id`) dan menolak manipulasi cross-school (403) meskipun payload dipalsukan.
 12. **`DEVICE-TOKEN-001` (Lifecycle & Integritas Token Perangkat)**:
     - `device_session_token` diterbitkan pada `start_attempt`, disimpan in-memory di frontend klien, dan divalidasi ketat pada setiap autosave tanpa penulisan/pemalsuan token baru.
+13. **`ROLE-NORMALIZE-001` (Canonical Role Normalization)**:
+    - Fungsi terpusat `normalize_role()` memetakan string varian (`SCHOOL_ADMIN`, `SUPER_ADMIN`) ke enum kanonikal `UserRole` (`SUPERADMIN`, `ADMIN`, `TEACHER`, `STUDENT`).
+14. **`TELEMETRY-AUTHORITATIVE-001` (Authoritative Telemetry DB Batch Query)**:
+    - Dashboard guru dan pengawas menarik data telemetri secara batch langsung dari tabel PostgreSQL `AttemptTelemetry` sebagai sumber kebenaran utama multi-instance.
 
 ---
 
@@ -76,12 +80,12 @@
 ```bash
 # Frontend Build Verification:
 cd frontend && npm run build
-✓ 1871 modules transformed.
-✓ built in 3.32s (dist/assets/index.js & index.css) — 0 ERRORS
+✓ 1872 modules transformed.
+✓ built in 2.02s (dist/assets/index.js & index.css) — 0 ERRORS
 
 # Full Backend Pytest Suite (Domain, Security, API, AI, Contracts):
 $env:PYTHONPATH="."; python -m pytest -q
-================ 312 passed, 961 warnings in 39.47s — 100% GREEN ================
+================ 321 passed, 997 warnings in 38.67s — 100% GREEN ================
 ```
 
 ---

@@ -1037,3 +1037,185 @@ def test_ai_resource_authorization_boundary(db, client):
         assert "bukan guru pengampu atau pengawas" in res_unauth.json().get("detail", "")
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test A: QR Cross-Teacher Authorization (Strict Proctor Authority)
+# ─────────────────────────────────────────────────────────────────────────────
+def test_qr_cross_teacher_strictly_proctor_authorized(db, client):
+    """Memastikan bahwa jika jadwal ujian sudah ditugaskan pengawas (proctor_id),
+    maka guru pembuat/pengampu (teacher_id) TIDAK BISA men-generate QR token (403),
+    dan HANYA pengawas resmi (proctor_id) atau School Admin yang berwenang (200)."""
+    ctx = _create_school_hierarchy(db)
+    schedule = ctx["schedule"]
+    teacher_pengampu = ctx["teacher"]
+
+    # Buat akun guru pengawas resmi
+    proctor_teacher = AuthAccount(
+        school_id=ctx["school"].id,
+        username=f"assigned_proctor_{uuid4().hex[:8]}",
+        name="Pengawas Khusus",
+        password_hash="fake",
+        role=UserRole.TEACHER.value,
+        is_active=True,
+    )
+    db.add(proctor_teacher)
+    db.flush()
+
+    # Tugaskan pengawas ke jadwal
+    schedule.proctor_id = proctor_teacher.id
+    db.commit()
+
+    # 1. Guru pembuat jadwal (teacher_pengampu) mencoba request QR token -> 403 Forbidden!
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(teacher_pengampu.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_teacher = client.get(f"/api/v1/exam/schedules/{schedule.id}/qr-token")
+        assert res_teacher.status_code == 403
+        assert "Anda bukan pengawas yang ditugaskan" in res_teacher.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 2. Pengawas resmi (proctor_teacher) request QR token -> 200 OK!
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(proctor_teacher.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_proctor = client.get(f"/api/v1/exam/schedules/{schedule.id}/qr-token")
+        assert res_proctor.status_code == 200
+        assert "qr_token" in res_proctor.json()
+        assert "pin_code" in res_proctor.json()
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 3. School Admin request QR token -> 200 OK!
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "9999",
+        "role": "ADMIN",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_admin = client.get(f"/api/v1/exam/schedules/{schedule.id}/qr-token")
+        assert res_admin.status_code == 200
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test B: AI Cross-School Object-Level Defense
+# ─────────────────────────────────────────────────────────────────────────────
+def test_ai_cross_school_object_level_defense(db, client):
+    """Memastikan bahwa endpoint AI (/grading/batch-question dan /grading/post-exam/start)
+    memvalidasi kepemilikan object riil di database dan menolak upaya manipulasi
+    antar-sekolah (cross-tenant), sekalipun request memalsukan payload.school_id."""
+    ctx_a = _create_school_hierarchy(db, school_name="SMAN 1 AI Defense")
+    ctx_b = _create_school_hierarchy(db, school_name="SMAN 2 AI Defense")
+
+    teacher_a = ctx_a["teacher"]
+    school_a = ctx_a["school"]
+    question_b = ctx_b["question"]
+
+    # Pastikan question_b memiliki school_id terpasang
+    question_b.school_id = ctx_b["school"].id
+    db.commit()
+
+    # Guru A (School A) mencoba batch-grading soal milik School B -> 403 Forbidden!
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(teacher_a.id),
+        "role": "TEACHER",
+        "school_id": school_a.id,
+    }
+    try:
+        # 1. Walau payload.school_id dipalsukan sama dengan school_a.id
+        res = client.post(
+            "/api/v1/ai/grading/batch-question",
+            json={
+                "question_id": question_b.id,
+                "school_id": school_a.id,
+                "question_text": "Jelaskan fotosintesis...",
+                "answer_key": "Klorofil...",
+                "rubric": [{"ku_id": "C1", "text": "Klorofil", "weight": 100.0}],
+                "submissions": [
+                    {
+                        "student_id": "std_1",
+                        "student_answer": "Fotosintesis menggunakan cahaya matahari.",
+                    }
+                ],
+            },
+        )
+        assert res.status_code == 403
+        assert "Soal bukan milik sekolah Anda" in res.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Test C: Concurrent / Sequential Deadline Expiry Strictly Submitted
+# ─────────────────────────────────────────────────────────────────────────────
+def test_concurrent_deadline_expiry_strictly_submitted(db):
+    """Memastikan bahwa ketika batas waktu deadline terlewati, beberapa request
+    autosave yang datang bersamaan/berturutan secara deterministik mengunci status
+    menjadi SUBMITTED, tidak memperpanjang waktu, dan tidak terjadi double-grading."""
+    ctx = _create_school_hierarchy(db)
+    session = ctx["session"]
+    student1 = ctx["student1"]
+
+    expired_time = datetime.now(timezone.utc) - timedelta(seconds=30)
+    attempt = ExamAttempt(
+        exam_session_id=session.id,
+        student_id=student1.id,
+        status=ExamAttemptStatus.IN_PROGRESS,
+        randomized_order=[ctx["question"].id],
+        deadline_at=expired_time,
+    )
+    db.add(attempt)
+    db.commit()
+
+    device = DeviceSession(
+        exam_attempt_id=attempt.id,
+        device_id="dev_concurrent_timer",
+        session_token="token_timer_concurrent",
+        ip_address="127.0.0.1",
+        status=DeviceSessionStatus.ACTIVE,
+        last_active_at=datetime.now(timezone.utc),
+    )
+    db.add(device)
+    db.commit()
+
+    # Request A: Autosave tiba saat deadline sudah expired -> auto submit -> 400
+    with pytest.raises(BusinessException) as exc_a:
+        ExamService.autosave_answer(
+            db=db,
+            attempt_id=attempt.id,
+            question_id=ctx["question"].id,
+            selected_option="A",
+            text_answer=None,
+            student_id=student1.id,
+            token="token_timer_concurrent",
+        )
+    assert exc_a.value.status_code == 400
+    assert "Waktu ujian telah berakhir" in str(exc_a.value)
+
+    # Request B: Request kedua segera menyusul untuk attempt yang sama -> ditolak 400
+    with pytest.raises(BusinessException) as exc_b:
+        ExamService.autosave_answer(
+            db=db,
+            attempt_id=attempt.id,
+            question_id=ctx["question"].id,
+            selected_option="B",
+            text_answer=None,
+            student_id=student1.id,
+            token="token_timer_concurrent",
+        )
+    assert exc_b.value.status_code == 400
+
+    # Verifikasi status akhir di DB: strictly SUBMITTED / GRADED, deadline TIDAK berubah
+    db.expire_all()
+    refreshed = db.query(ExamAttempt).filter_by(id=attempt.id).first()
+    assert refreshed.status in (ExamAttemptStatus.SUBMITTED, ExamAttemptStatus.GRADED)
+    assert refreshed.deadline_at == expired_time

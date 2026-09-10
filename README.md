@@ -89,7 +89,9 @@ python -m venv .venv
 source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # 2. Install dependencies
-pip install -r requirements.txt
+pip install -r requirements-api.txt
+# Optional: for running the automated test suite and developer tools:
+pip install -r requirements-dev.txt
 
 # 3. Setup environment configuration
 cp .env.example .env
@@ -97,20 +99,11 @@ cp .env.example .env
 # 4. Run database migrations
 alembic upgrade head
 
-# 5. Start Backend Server
+# 5. Start Backend Server (includes unified AI grading and CBT engine)
 uvicorn main:app --host 0.0.0.0 --port 8000 --reload
 ```
 
-### 2. AI Microservice Setup (`backend_ai`)
-
-```bash
-cd backend_ai
-cp .env.example .env
-pip install -r requirements.txt
-python sandbox_app.py
-```
-
-### 3. Frontend Setup (`frontend`)
+### 2. Frontend Setup (`frontend`)
 
 ```bash
 cd frontend
@@ -122,11 +115,14 @@ npm run dev
 
 ## 🧪 Running Automated Test Suite
 
-EquiGrade maintains an automated test suite with 100% pass rate (343 passed, 2 skipped / 345 total):
+EquiGrade maintains an automated test suite with 100% pass rate (**321 passed, 0 failed / 321 total** in ~38s):
 
 ```bash
-# Run complete test suite (345 tests)
-pytest -v
+# Run complete test suite (321 tests)
+pytest -q
+
+# Run security & exam boundary test suite (17 tests)
+pytest tests/test_exam_security_boundaries.py -v
 
 # Run specific AI milestones & modular services
 pytest tests/test_assessment_history.py -v               # Milestone A1 (12 tests)

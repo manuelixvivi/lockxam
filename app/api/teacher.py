@@ -1283,6 +1283,19 @@ def list_session_attempts(
         if ds.exam_attempt_id not in device_session_map:
             device_session_map[ds.exam_attempt_id] = ds
 
+    from app.api.exam import TELEMETRY_STORE
+    from app.models.exam.attempt_telemetry import AttemptTelemetry
+
+    # Batch query AttemptTelemetry from DB as authoritative source of truth
+    telemetry_records = (
+        db.query(AttemptTelemetry)
+        .filter(AttemptTelemetry.attempt_id.in_(attempt_ids))
+        .all()
+        if attempt_ids
+        else []
+    )
+    telemetry_map = {t.attempt_id: t for t in telemetry_records}
+
     for sid in all_student_ids:
         student = student_map.get(sid)
         if not student:
@@ -1295,12 +1308,7 @@ def list_session_attempts(
         if a:
             device_session = device_session_map.get(a.id)
 
-            from app.api.exam import TELEMETRY_STORE
-            from app.models.exam.attempt_telemetry import AttemptTelemetry
-
-            db_telem = (
-                db.query(AttemptTelemetry).filter(AttemptTelemetry.attempt_id == a.id).first()
-            )
+            db_telem = telemetry_map.get(a.id)
             if db_telem:
                 telem = {
                     "battery_level": db_telem.battery_level,

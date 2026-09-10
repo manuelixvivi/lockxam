@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette import status
 
 from app.core.database import get_db
-from app.core.rbac import require_academic_staff, require_role
+from app.core.rbac import normalize_role, require_academic_staff, require_role
 from app.models.exam.enums import ExamSessionStatus
 from app.models.exam.exam_session import ExamSession
 from app.models.security.enums import UserRole
@@ -359,23 +359,28 @@ def get_qr_checkin_token(
         raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan.")
 
     user_id = int(current_user["sub"])
-    role = current_user.get("role")
+    role = normalize_role(current_user.get("role"))
     user_school_id = current_user.get("school_id")
 
     # Authoritative QR token generation checks:
     # 1. Tenant boundary
-    if role not in ("SUPERADMIN", UserRole.SUPERADMIN):
+    if role != UserRole.SUPERADMIN:
         if user_school_id and schedule.school_id != user_school_id:
             raise HTTPException(
                 status_code=403,
                 detail="Akses ditolak: Jadwal ujian bukan milik sekolah Anda.",
             )
-        # 2. Resource authority: must be School Admin, assigned proctor, or schedule teacher
-        if role not in ("SCHOOL_ADMIN", "ADMIN", UserRole.ADMIN):
-            if schedule.proctor_id != user_id and schedule.teacher_id != user_id:
+        # 2. Resource authority: strict proctor authority
+        # If a proctor is assigned, only that proctor (or admin) can generate QR token.
+        # If no proctor is assigned, fallback to the schedule teacher.
+        if role != UserRole.ADMIN:
+            authorized_proctor_id = (
+                schedule.proctor_id if schedule.proctor_id is not None else schedule.teacher_id
+            )
+            if user_id != authorized_proctor_id:
                 raise HTTPException(
                     status_code=403,
-                    detail="Akses ditolak: Anda bukan pengawas atau guru pengampu yang berwenang untuk jadwal ujian ini.",
+                    detail="Akses ditolak: Anda bukan pengawas yang ditugaskan untuk jadwal ujian ini.",
                 )
 
     title = getattr(

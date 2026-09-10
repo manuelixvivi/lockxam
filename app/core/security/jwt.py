@@ -29,10 +29,14 @@ def create_access_token(data: dict, expires_delta: timedelta | None = None) -> s
         expire = datetime.now(UTC) + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
     to_encode.update({"exp": expire})
 
+    active_secret = SECRETS.get(ACTIVE_KEY_ID)
+    if not active_secret:
+        raise RuntimeError(f"Active JWT signing key '{ACTIVE_KEY_ID}' is not configured in SECRETS.")
+
     # Sign with active Key ID and attach to header
     return jwt.encode(
         to_encode,
-        SECRETS.get(ACTIVE_KEY_ID, SECRET_KEY),
+        active_secret,
         algorithm=ALGORITHM,
         headers={"kid": ACTIVE_KEY_ID},
     )
@@ -85,6 +89,10 @@ def create_refresh_token(
     user_id: int, role: str, school_id: int | None, session_id: str, refresh_jti: str
 ) -> str:
     expire = datetime.now(UTC) + timedelta(days=REFRESH_TOKEN_EXPIRE_DAYS)
+    active_secret = SECRETS.get(ACTIVE_KEY_ID)
+    if not active_secret:
+        raise RuntimeError(f"Active JWT signing key '{ACTIVE_KEY_ID}' is not configured in SECRETS.")
+
     return jwt.encode(
         {
             "sub": str(user_id),
@@ -96,7 +104,7 @@ def create_refresh_token(
             "ver": 1,  # Token Version
             "exp": expire,
         },
-        SECRETS.get(ACTIVE_KEY_ID, SECRET_KEY),
+        active_secret,
         algorithm=ALGORITHM,
         headers={"kid": ACTIVE_KEY_ID},
     )

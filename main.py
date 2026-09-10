@@ -88,7 +88,16 @@ app.add_middleware(
     allow_origin_regex=allow_origin_regex,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
-    allow_headers=["*"],
+    allow_headers=[
+        "Authorization",
+        "Content-Type",
+        "X-Device-Id",
+        "X-Device-Token",
+        "X-Request-ID",
+        "Accept",
+        "Origin",
+        "X-Requested-With",
+    ],
 )
 
 # Register global exception handlers for application exceptions

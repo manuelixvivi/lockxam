@@ -716,6 +716,13 @@ async def upload_question_image(
             detail=f"Format file '{ext}' tidak didukung. Hanya file gambar (.jpg, .png, .webp, .gif) yang diizinkan.",
         )
 
+    allowed_mimes = {"image/jpeg", "image/png", "image/webp", "image/gif"}
+    if file.content_type and file.content_type.lower() not in allowed_mimes:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Content-Type '{file.content_type}' tidak diizinkan. Hanya file gambar (.jpg, .png, .webp, .gif) yang diperbolehkan.",
+        )
+
     content = await file.read()
     if len(content) > 5 * 1024 * 1024:
         raise HTTPException(status_code=400, detail="Ukuran gambar maksimal 5 MB.")
@@ -1283,7 +1290,6 @@ def list_session_attempts(
         if ds.exam_attempt_id not in device_session_map:
             device_session_map[ds.exam_attempt_id] = ds
 
-    from app.api.exam import TELEMETRY_STORE
     from app.models.exam.attempt_telemetry import AttemptTelemetry
 
     # Batch query AttemptTelemetry from DB as authoritative source of truth
@@ -1320,7 +1326,7 @@ def list_session_attempts(
                     "updated_at": db_telem.updated_at.isoformat() if db_telem.updated_at else None,
                 }
             else:
-                telem = TELEMETRY_STORE.get(a.id, {})
+                telem = {}
             bat = telem.get("battery_level")
             ping = telem.get("ping_ms")
             reason = telem.get("violation_reason")

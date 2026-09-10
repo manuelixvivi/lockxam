@@ -469,13 +469,8 @@ def student_checkin(
 
     clean_pin = raw_token.replace("-", "").replace(" ", "").upper()
 
-    # Resolution from 6-digit PIN cache if student typed PIN
-    if clean_pin in ACTIVE_PIN_CACHE:
-        cached = ACTIVE_PIN_CACHE[clean_pin]
-        if int(time.time()) <= cached["expires_ts"]:
-            raw_token = cached["token"]
-    elif len(clean_pin) == 6 and clean_pin.isdigit():
-        # Cross-instance serverless DB fallback
+    # Authoritative database resolution for 6-digit short PIN
+    if len(clean_pin) == 6 and clean_pin.isdigit():
         from app.models.exam.exam_checkin_pin import ExamCheckinPin
 
         db_pin = (
@@ -488,11 +483,10 @@ def student_checkin(
         )
         if db_pin:
             raw_token = db_pin.token
-            ACTIVE_PIN_CACHE[clean_pin] = {
-                "schedule_id": db_pin.schedule_id,
-                "token": db_pin.token,
-                "expires_ts": db_pin.expires_ts,
-            }
+        elif clean_pin in ACTIVE_PIN_CACHE:
+            cached = ACTIVE_PIN_CACHE[clean_pin]
+            if int(time.time()) <= cached.get("expires_ts", 0):
+                raw_token = cached["token"]
 
     # Validasi token
     from app.core.security.keys import SECRET_KEY

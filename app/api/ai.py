@@ -44,7 +44,16 @@ router = APIRouter(prefix="/api/v1/ai", tags=["AI Engine"])
 
 @router.get("/health", summary="AI Engine Health Check")
 def get_ai_health() -> Dict[str, Any]:
-    """Returns AI capability status and configured LLM models."""
+    """Returns safe AI capability status without exposing internal model or provider topologies."""
+    health_info = LlmClient.check_health()
+    return {"status": "ok" if health_info.get("status") in ("ok", "healthy") else "degraded"}
+
+
+@router.get("/diagnostics", summary="AI Engine Diagnostics")
+def get_ai_diagnostics(
+    current_user: dict = Depends(require_academic_staff()),
+) -> Dict[str, Any]:
+    """Returns detailed AI model topology and provider status (Academic Staff only)."""
     return LlmClient.check_health()
 
 

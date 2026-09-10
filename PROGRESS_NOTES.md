@@ -82,6 +82,16 @@
     - Menghapus pemanggilan `print()` liar di seluruh alur error backend (`exam.py`, `exam_service.py`, `database.py`, `exam_schedule_service.py`) dan menggantinya dengan structured contextual `logger`.
 19. **`PORTABLE-LAUNCHER-001` (Portable Launcher & Port 8000 Alignment)**:
     - `JALANKAN_LOCKXAM.bat` telah diperbarui dengan `%~dp0`, deteksi otomatis virtualenv, port 8000 terpadu, dan eliminasi microservice lama `equigradeAI 5000`.
+20. **`UPLOAD-SECURITY-001` (Strict Upload File Extension & MIME Validation)**:
+    - Endpoint upload gambar soal memvalidasi ganda ekstensi (`.jpg, .jpeg, .png, .webp, .gif`) dan MIME type (`image/jpeg, image/png, image/webp, image/gif`) serta verifikasi magic bytes di storage. SVG/HTML/JS ditolak keras.
+21. **`JWT-SIGNING-001` (Fail-Closed JWT Signing Key Enforcement)**:
+    - `create_access_token` dan `create_refresh_token` wajib menemukan `ACTIVE_KEY_ID` di `SECRETS`, melempar `RuntimeError` seketika jika tidak terkonfigurasi tanpa fallback ke default `SECRET_KEY`.
+22. **`CORS-HEADERS-001` (Explicit CORS Allow Headers)**:
+    - Menghapus wildcard `allow_headers=["*"]`, digantikan daftar eksplisit: `Authorization`, `Content-Type`, `X-Device-Id`, `X-Device-Token`, `X-Request-ID`, `Accept`, `Origin`, `X-Requested-With`.
+23. **`NOSNIFF-SECURITY-001` (X-Content-Type-Options Protection)**:
+    - Middleware menambahkan header `X-Content-Type-Options: nosniff` pada semua respons untuk mencegah eksekusi MIME-sniffing.
+24. **`AI-HEALTH-MASKING-001` (Public AI Health Sanitization & Diagnostics Split)**:
+    - Endpoint publik `/api/v1/ai/health` hanya mengembalikan `{"status": "ok"}` tanpa mengekspos topologi model/provider. Rincian internal dipindahkan ke endpoint terautentikasi `/api/v1/ai/diagnostics`.
 
 ---
 

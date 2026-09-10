@@ -36,9 +36,10 @@ class RequestContextMiddleware(BaseHTTPMiddleware):
                 f"Status: {response.status_code} Time: {process_time:.4f}s"
             )
 
-            # 5. Attach tracking headers to response
+            # 5. Attach tracking and security headers to response
             response.headers["X-Request-ID"] = req_id
             response.headers["X-Process-Time"] = f"{process_time:.4f}s"
+            response.headers["X-Content-Type-Options"] = "nosniff"
             return response
 
         except Exception as e:

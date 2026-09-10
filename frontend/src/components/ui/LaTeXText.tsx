@@ -67,19 +67,19 @@ export const LaTeXText: React.FC<LaTeXTextProps> = ({ content, className = "", i
       })
       .join("");
 
-    // Sanitize HTML strictly against XSS attacks while allowing KaTeX, images, and math formatting
+    // Sanitize HTML strictly against XSS attacks with minimal whitelist
     return DOMPurify.sanitize(rawHtml, {
       ALLOWED_TAGS: [
         "span", "div", "p", "b", "i", "em", "strong", "br", "sub", "sup",
-        "img", "svg", "path", "line", "rect", "circle", "polygon", "polyline",
+        "img", "svg", "path",
         "table", "thead", "tbody", "tr", "th", "td", "ul", "ol", "li", "code", "pre",
         "annotation", "semantics", "math", "mrow", "mi", "mo", "mn", "msup", "msub", "mfrac", "msqrt"
       ],
       ALLOWED_ATTR: [
         "class", "style", "src", "alt", "data-zoom-src", "width", "height",
-        "xmlns", "viewBox", "d", "fill", "stroke", "stroke-width", "aria-hidden", "aria-label", "role"
+        "xmlns", "viewBox", "d", "aria-hidden", "aria-label", "role"
       ],
-      ALLOWED_URI_REGEXP: /^(?:(?:(?:f|ht)tps?|mailto|tel|callto|cid|xmpp|data):|[^a-z]|[a-z+.\-]+(?:[^a-z+.\-:]|$))/i,
+      ALLOWED_URI_REGEXP: /^(?:https?:|\/)/i,
     });
   }, [content]);
 

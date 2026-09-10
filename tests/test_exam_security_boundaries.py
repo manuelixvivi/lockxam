@@ -892,3 +892,148 @@ def test_serverless_cross_instance_pin_and_telemetry_persistence(db, client):
         assert card["monitoring_card_state"] == "YELLOW"  # battery <= 20%
     finally:
         app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Boundary 13: QR Token Generation Requester Authorization & Existence
+# ─────────────────────────────────────────────────────────────────────────────
+def test_qr_token_existence_and_requester_authorization(db, client):
+    """Memastikan QR check-in token hanya bisa dibuat untuk schedule yang ada,
+    dan hanya oleh pengawas yang ditugaskan, guru pengampu, atau admin sekolah."""
+    ctx = _create_school_hierarchy(db)
+    schedule = ctx["schedule"]
+    assigned_proctor = ctx["teacher"]
+
+    # 1. Nonexistent schedule_id -> MUST return 404
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(assigned_proctor.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_404 = client.get("/api/v1/exam/schedules/99999999/qr-token")
+        assert res_404.status_code == 404
+        assert "tidak ditemukan" in res_404.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 2. Guru dari sekolah lain -> MUST return 403
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "888888",
+        "role": "TEACHER",
+        "school_id": ctx["school"].id + 999,
+    }
+    try:
+        res_cross = client.get(f"/api/v1/exam/schedules/{schedule.id}/qr-token")
+        assert res_cross.status_code == 403
+        assert "bukan milik sekolah Anda" in res_cross.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 3. Guru yang tidak berwenang pada sekolah yang sama -> MUST return 403
+    unrelated_teacher = AuthAccount(
+        school_id=ctx["school"].id,
+        username=f"unrelated_{uuid4().hex[:8]}",
+        name="Guru Tanpa Penugasan",
+        password_hash="fake",
+        role=UserRole.TEACHER.value,
+        is_active=True,
+    )
+    db.add(unrelated_teacher)
+    db.flush()
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(unrelated_teacher.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_unauth = client.get(f"/api/v1/exam/schedules/{schedule.id}/qr-token")
+        assert res_unauth.status_code == 403
+        assert "Akses ditolak" in res_unauth.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 4. Pengawas atau guru pengampu yang berwenang -> MUST return 200
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(assigned_proctor.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_ok = client.get(f"/api/v1/exam/schedules/{schedule.id}/qr-token")
+        assert res_ok.status_code == 200
+        assert "qr_token" in res_ok.json()
+        assert "pin_code" in res_ok.json()
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Boundary 14: AI Resource Authorization (Object-Level Authorization)
+# ─────────────────────────────────────────────────────────────────────────────
+def test_ai_resource_authorization_boundary(db, client):
+    """Memastikan endpoint AI memvalidasi eksistensi dan kepemilikan jadwal ujian
+    serta menolak cross-school dan unauthorized teacher."""
+    ctx = _create_school_hierarchy(db)
+    schedule = ctx["schedule"]
+    teacher = ctx["teacher"]
+
+    # 1. Nonexistent schedule_id -> MUST return 404
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(teacher.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_404 = client.post(
+            "/api/v1/ai/grading/post-exam/start",
+            json={"exam_schedule_id": 99999999},
+        )
+        assert res_404.status_code == 404
+        assert "tidak ditemukan" in res_404.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 2. Guru dari sekolah lain -> MUST return 403
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": "77777",
+        "role": "TEACHER",
+        "school_id": ctx["school"].id + 888,
+    }
+    try:
+        res_cross = client.post(
+            "/api/v1/ai/grading/post-exam/start",
+            json={"exam_schedule_id": schedule.id},
+        )
+        assert res_cross.status_code == 403
+        assert "bukan milik sekolah Anda" in res_cross.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+    # 3. Guru di sekolah yang sama tetapi bukan pengampu/pengawas -> MUST return 403
+    unrelated_teacher = AuthAccount(
+        school_id=ctx["school"].id,
+        username=f"ai_unrelated_{uuid4().hex[:8]}",
+        name="Guru Lain",
+        password_hash="fake",
+        role=UserRole.TEACHER.value,
+        is_active=True,
+    )
+    db.add(unrelated_teacher)
+    db.flush()
+
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(unrelated_teacher.id),
+        "role": "TEACHER",
+        "school_id": ctx["school"].id,
+    }
+    try:
+        res_unauth = client.post(
+            "/api/v1/ai/grading/post-exam/start",
+            json={"exam_schedule_id": schedule.id},
+        )
+        assert res_unauth.status_code == 403
+        assert "bukan guru pengampu atau pengawas" in res_unauth.json().get("detail", "")
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)

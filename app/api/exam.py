@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session
 from starlette import status
 
 from app.core.database import get_db
-from app.core.rbac import require_role
+from app.core.rbac import require_academic_staff, require_role
 from app.models.exam.enums import ExamSessionStatus
 from app.models.exam.exam_session import ExamSession
 from app.models.security.enums import UserRole
@@ -344,10 +344,10 @@ ACTIVE_PIN_CACHE: dict[str, dict] = {}
 )
 def get_qr_checkin_token(
     schedule_id: int,
-    current_user=Depends(require_role(UserRole.TEACHER)),
+    current_user=Depends(require_academic_staff()),
     db: Session = Depends(get_db),
 ):
-    """Pengawas mengambil token QR absen untuk suatu jadwal ujian.
+    """Pengawas atau guru pengampu berwenang mengambil token QR absen untuk suatu jadwal ujian.
     Token berlaku 3 menit dan di-sign dengan HMAC-SHA256."""
     import hmac
     import time
@@ -355,11 +355,32 @@ def get_qr_checkin_token(
     from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
 
     schedule = exam_schedule_repository.get_by_id(db, schedule_id)
-    title = f"Jadwal Ujian #{schedule_id}"
-    if schedule:
-        title = getattr(
-            schedule, "title", getattr(schedule, "name", f"Jadwal Ujian #{schedule_id}")
-        )
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan.")
+
+    user_id = int(current_user["sub"])
+    role = current_user.get("role")
+    user_school_id = current_user.get("school_id")
+
+    # Authoritative QR token generation checks:
+    # 1. Tenant boundary
+    if role not in ("SUPERADMIN", UserRole.SUPERADMIN):
+        if user_school_id and schedule.school_id != user_school_id:
+            raise HTTPException(
+                status_code=403,
+                detail="Akses ditolak: Jadwal ujian bukan milik sekolah Anda.",
+            )
+        # 2. Resource authority: must be School Admin, assigned proctor, or schedule teacher
+        if role not in ("SCHOOL_ADMIN", "ADMIN", UserRole.ADMIN):
+            if schedule.proctor_id != user_id and schedule.teacher_id != user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Akses ditolak: Anda bukan pengawas atau guru pengampu yang berwenang untuk jadwal ujian ini.",
+                )
+
+    title = getattr(
+        schedule, "title", getattr(schedule, "name", f"Jadwal Ujian #{schedule_id}")
+    )
 
     # Token: base64url( schedule_id | expires_ts | hmac )
     from app.core.security.keys import SECRET_KEY

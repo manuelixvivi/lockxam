@@ -6,6 +6,7 @@ from sqlalchemy.orm import Session
 from app.core.database import get_db
 from app.core.rbac import require_academic_staff
 from app.models.academic.grading_run import GradingRun
+from app.models.security.enums import UserRole
 from app.schemas.ai.training_governance import (
     BuildDatasetVersionRequest,
     DatasetVersionResponse,
@@ -127,6 +128,25 @@ def batch_grade_question(
     Production Batch Grading: Evaluates multiple student essay answers for a single question.
     Performs RAG retrieval once for the question and grades answers in parallel chunks.
     """
+    user_role = current_user.get("role")
+    user_school_id = current_user.get("school_id")
+
+    if user_role not in ("SUPERADMIN", UserRole.SUPERADMIN):
+        if user_school_id and payload.school_id and payload.school_id != user_school_id:
+            raise HTTPException(
+                status_code=403, detail="Akses ditolak: Soal bukan milik sekolah Anda."
+            )
+
+    if payload.question_id:
+        from app.models.teacher.question import Question
+
+        q = db.query(Question).filter(Question.id == payload.question_id).first()
+        if q and user_role not in ("SUPERADMIN", UserRole.SUPERADMIN):
+            if user_school_id and q.school_id and q.school_id != user_school_id:
+                raise HTTPException(
+                    status_code=403, detail="Akses ditolak: Soal bukan milik sekolah Anda."
+                )
+
     try:
         return BatchGradingService.grade_question_batch(payload=payload, db=db)
     except ValueError as ve:
@@ -149,6 +169,30 @@ def start_post_exam_grading(
     Initiates post-exam batch grading workflow for a locked exam schedule.
     Creates a new GradingRun with a unique tracking UUID and executes batch grading.
     """
+    from app.models.academic.exam_schedule import ExamSchedule
+
+    schedule = (
+        db.query(ExamSchedule).filter(ExamSchedule.id == payload.exam_schedule_id).first()
+    )
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan.")
+
+    user_role = current_user.get("role")
+    user_school_id = current_user.get("school_id")
+    user_id = int(current_user["sub"])
+
+    if user_role not in ("SUPERADMIN", UserRole.SUPERADMIN):
+        if user_school_id and schedule.school_id != user_school_id:
+            raise HTTPException(
+                status_code=403, detail="Akses ditolak: Jadwal ujian bukan milik sekolah Anda."
+            )
+        if user_role not in ("SCHOOL_ADMIN", "ADMIN", UserRole.ADMIN):
+            if schedule.teacher_id != user_id and schedule.proctor_id != user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Akses ditolak: Anda bukan guru pengampu atau pengawas untuk jadwal ujian ini.",
+                )
+
     try:
         run = BatchGradingService.start_post_exam_grading(
             db=db,
@@ -186,6 +230,28 @@ def get_post_exam_grading_status(
     db: Session = Depends(get_db),
 ) -> PostExamGradingStatusResponse:
     """Returns the latest GradingRun status for the specified exam schedule."""
+    from app.models.academic.exam_schedule import ExamSchedule
+
+    schedule = db.query(ExamSchedule).filter(ExamSchedule.id == schedule_id).first()
+    if not schedule:
+        raise HTTPException(status_code=404, detail="Jadwal ujian tidak ditemukan.")
+
+    user_role = current_user.get("role")
+    user_school_id = current_user.get("school_id")
+    user_id = int(current_user["sub"])
+
+    if user_role not in ("SUPERADMIN", UserRole.SUPERADMIN):
+        if user_school_id and schedule.school_id != user_school_id:
+            raise HTTPException(
+                status_code=403, detail="Akses ditolak: Jadwal ujian bukan milik sekolah Anda."
+            )
+        if user_role not in ("SCHOOL_ADMIN", "ADMIN", UserRole.ADMIN):
+            if schedule.teacher_id != user_id and schedule.proctor_id != user_id:
+                raise HTTPException(
+                    status_code=403,
+                    detail="Akses ditolak: Anda bukan guru pengampu atau pengawas untuk jadwal ujian ini.",
+                )
+
     run = (
         db.query(GradingRun)
         .filter(GradingRun.exam_schedule_id == schedule_id)

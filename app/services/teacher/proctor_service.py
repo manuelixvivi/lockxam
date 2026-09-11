@@ -15,6 +15,31 @@ from app.repositories.teacher.proctor_event_repository import proctor_event_repo
 class ProctorService:
 
     @staticmethod
+    def validate_proctor_assignment_authorization(
+        db: Session,
+        proctor_assignment_id: int,
+        user_id: int,
+        user_role: str | None = None,
+    ):
+        """Authoritatively verifies that user is assigned as proctor (or admin) for the schedule / proctor assignment."""
+        from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+
+        schedule = exam_schedule_repository.get_by_id(db, proctor_assignment_id)
+        if not schedule:
+            return None
+
+        if user_role in ("SUPERADMIN", "SCHOOL_ADMIN"):
+            return schedule
+
+        if schedule.proctor_id and schedule.proctor_id != user_id:
+            raise BusinessException(
+                "Akses ditolak: Anda bukan pengawas yang ditugaskan untuk jadwal ujian ini.",
+                status_code=403,
+            )
+
+        return schedule
+
+    @staticmethod
     def log_proctor_event(
         db: Session,
         proctor_assignment_id: int,
@@ -23,8 +48,15 @@ class ProctorService:
         reason: str,
         proctor_id: int,
         action_taken: str,
+        user_role: str | None = None,
     ) -> ProctorAuditEvent:
         try:
+            ProctorService.validate_proctor_assignment_authorization(
+                db=db,
+                proctor_assignment_id=proctor_assignment_id,
+                user_id=proctor_id,
+                user_role=user_role,
+            )
             event = ProctorAuditEvent(
                 proctor_assignment_id=proctor_assignment_id,
                 student_id=student_id,
@@ -73,8 +105,21 @@ class ProctorService:
             db.rollback()
 
     @staticmethod
-    def get_or_create_bau(db: Session, proctor_assignment_id: int) -> BAUDocument:
+    def get_or_create_bau(
+        db: Session,
+        proctor_assignment_id: int,
+        user_id: int | None = None,
+        user_role: str | None = None,
+    ) -> BAUDocument:
         try:
+            if user_id is not None:
+                ProctorService.validate_proctor_assignment_authorization(
+                    db=db,
+                    proctor_assignment_id=proctor_assignment_id,
+                    user_id=user_id,
+                    user_role=user_role,
+                )
+
             from datetime import timedelta
 
             from app.utils.timezone import ensure_wib
@@ -159,11 +204,42 @@ class ProctorService:
         student_id: int,
         status: AttendanceStatus,
         reason: str | None = None,
+        user_id: int | None = None,
+        user_role: str | None = None,
     ) -> BAUAttendance:
         try:
             doc = bau_repository.get_by_id(db, bau_document_id)
             if not doc:
                 raise BusinessException("Berita Acara tidak ditemukan.", status_code=404)
+
+            if user_id is not None:
+                ProctorService.validate_proctor_assignment_authorization(
+                    db=db,
+                    proctor_assignment_id=doc.proctor_assignment_id,
+                    user_id=user_id,
+                    user_role=user_role,
+                )
+
+            # Enforce Student Class/School Enrollment Validation
+            from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
+            from app.repositories.academic.student_enrollment_repository import (
+                student_enrollment_repository,
+            )
+
+            schedule = exam_schedule_repository.get_by_id(db, doc.proctor_assignment_id)
+            if schedule:
+                enrollments = student_enrollment_repository.list_by_class(
+                    db, schedule.class_id, status="ACTIVE"
+                )
+                enrolled_student_ids = {en.student_id for en in enrollments}
+                if schedule.allowed_student_ids:
+                    enrolled_student_ids.update(schedule.allowed_student_ids)
+
+                if enrolled_student_ids and student_id not in enrolled_student_ids:
+                    raise BusinessException(
+                        "Siswa tidak terdaftar dalam kelas atau jadwal ujian ini.",
+                        status_code=400,
+                    )
 
             # BAU/BAP is editable during DRAFT or within 24 hours after SUBMITTED
             if doc.status == BAUStatus.SUBMITTED:
@@ -202,12 +278,24 @@ class ProctorService:
 
     @staticmethod
     def submit_bau(
-        db: Session, bau_document_id: int, proctor_notes: str | None = None
+        db: Session,
+        bau_document_id: int,
+        proctor_notes: str | None = None,
+        user_id: int | None = None,
+        user_role: str | None = None,
     ) -> BAUDocument:
         try:
             doc = bau_repository.get_by_id(db, bau_document_id)
             if not doc:
                 raise BusinessException("Berita Acara tidak ditemukan.", status_code=404)
+
+            if user_id is not None:
+                ProctorService.validate_proctor_assignment_authorization(
+                    db=db,
+                    proctor_assignment_id=doc.proctor_assignment_id,
+                    user_id=user_id,
+                    user_role=user_role,
+                )
 
             now_utc = datetime.now(timezone.utc)
             if doc.status == BAUStatus.SUBMITTED:
@@ -227,11 +315,24 @@ class ProctorService:
             raise
 
     @staticmethod
-    def request_correction(db: Session, bau_document_id: int) -> BAUDocument:
+    def request_correction(
+        db: Session,
+        bau_document_id: int,
+        user_id: int | None = None,
+        user_role: str | None = None,
+    ) -> BAUDocument:
         try:
             doc = bau_repository.get_by_id(db, bau_document_id)
             if not doc:
                 raise BusinessException("Berita Acara tidak ditemukan.", status_code=404)
+
+            if user_id is not None:
+                ProctorService.validate_proctor_assignment_authorization(
+                    db=db,
+                    proctor_assignment_id=doc.proctor_assignment_id,
+                    user_id=user_id,
+                    user_role=user_role,
+                )
 
             if doc.status != BAUStatus.SUBMITTED:
                 raise BusinessException(

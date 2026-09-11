@@ -347,6 +347,12 @@ class ExamService:
                     )
                     device_session_repository.create(db, act_dev)
                     db.commit()
+                else:
+                    if act_dev.device_id != device_id:
+                        raise BusinessException(
+                            "Ujian sedang berlangsung di perangkat lain. Minta pengawas untuk melakukan Reset Perangkat jika Anda berpindah HP/komputer.",
+                            status_code=403,
+                        )
                 existing.device_session_token = act_dev.session_token
                 return existing
 

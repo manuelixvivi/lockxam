@@ -31,6 +31,7 @@ def log_proctor_event(
     db: Session = Depends(get_db),
 ):
     proctor_id = int(current_user["sub"])
+    user_role = current_user.get("role")
     return ProctorService.log_proctor_event(
         db=db,
         proctor_assignment_id=proctor_assignment_id,
@@ -39,6 +40,7 @@ def log_proctor_event(
         reason=payload.reason,
         proctor_id=proctor_id,
         action_taken=payload.action_taken,
+        user_role=user_role,
     )
 
 
@@ -55,7 +57,11 @@ def get_or_create_bau(
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
-    return ProctorService.get_or_create_bau(db, proctor_assignment_id)
+    proctor_id = int(current_user["sub"])
+    user_role = current_user.get("role")
+    return ProctorService.get_or_create_bau(
+        db, proctor_assignment_id, user_id=proctor_id, user_role=user_role
+    )
 
 
 @router.put(
@@ -68,12 +74,16 @@ def update_attendance(
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
+    proctor_id = int(current_user["sub"])
+    user_role = current_user.get("role")
     return ProctorService.update_attendance(
         db=db,
         bau_document_id=bau_document_id,
         student_id=payload.student_id,
         status=payload.attendance_status,
         reason=payload.reason,
+        user_id=proctor_id,
+        user_role=user_role,
     )
 
 
@@ -87,10 +97,14 @@ def submit_bau(
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
+    proctor_id = int(current_user["sub"])
+    user_role = current_user.get("role")
     return ProctorService.submit_bau(
         db=db,
         bau_document_id=bau_document_id,
         proctor_notes=payload.proctor_notes,
+        user_id=proctor_id,
+        user_role=user_role,
     )
 
 
@@ -103,7 +117,11 @@ def request_correction(
     current_user=Depends(require_role(UserRole.TEACHER)),
     db: Session = Depends(get_db),
 ):
-    return ProctorService.request_correction(db, bau_document_id)
+    proctor_id = int(current_user["sub"])
+    user_role = current_user.get("role")
+    return ProctorService.request_correction(
+        db, bau_document_id, user_id=proctor_id, user_role=user_role
+    )
 
 
 @router.post(

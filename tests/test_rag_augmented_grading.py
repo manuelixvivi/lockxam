@@ -766,7 +766,7 @@ def test_pii_does_not_enter_provenance(db):
         meta_str = json.dumps(metadata)
         assert "Siswa A" not in meta_str
         assert "student_a" not in meta_str
-        assert "098" not in meta_str
+        assert env["student_a"].nisn not in meta_str
         assert "fake_hash" not in meta_str
 
 

@@ -44,7 +44,14 @@ def encrypt_secret(plaintext: Optional[str]) -> str:
         payload = salt + nonce + ciphertext
         return "enc:gcm:" + base64.urlsafe_b64encode(payload).decode("ascii")
 
-    # Fallback to PBKDF2-HMAC stream cipher envelope
+    # Enforce strict AEAD requirement in production
+    env = os.getenv("APP_ENV", "development").lower()
+    if env in ("production", "prod"):
+        raise RuntimeError(
+            "Paket 'cryptography' (AES-256-GCM AEAD) wajib diinstal untuk enkripsi di lingkungan produksi."
+        )
+
+    # Fallback to PBKDF2-HMAC stream cipher envelope in dev/test
     keystream = hashlib.sha256(derived_key + b"stream").digest()
     while len(keystream) < len(pt_bytes):
         keystream += hashlib.sha256(derived_key + keystream).digest()

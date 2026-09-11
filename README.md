@@ -115,11 +115,12 @@ npm run dev
 
 ## 🧪 Running Automated Test Suite
 
-EquiGrade maintains an automated test suite with 100% pass rate (**321 passed, 0 failed / 321 total** in ~38s):
+EquiGrade maintains an automated test suite with 100% pass rate (**331 passed, 0 failed / 331 total**):
 
 ```bash
-# Run complete test suite (321 tests)
+# Run complete test suite (331 tests)
 pytest -q
+
 
 # Run security & exam boundary test suite (17 tests)
 pytest tests/test_exam_security_boundaries.py -v

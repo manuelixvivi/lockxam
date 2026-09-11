@@ -452,6 +452,15 @@ class AuthService:
         validate_password_strength(new_password)
         account.password_hash = hash_password(new_password)
         account.must_change_password = False
+
+        # Invalidate active sessions to enforce immediate re-authentication with new password
+        sessions = session_repository.get_active_sessions_by_user(db, user_id)
+        for s in sessions:
+            s.revoked = True
+            s.revoked_at = datetime.now(timezone.utc)
+            s.revoked_reason = SessionRevokedReason.PASSWORD_CHANGED
+            session_repository.update(db, s)
+
         db.commit()
 
     @staticmethod

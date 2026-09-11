@@ -310,7 +310,9 @@ class AiManagementService:
             )
         except Exception as ex:
             latency_ms = round((time.perf_counter() - t_start) * 1000, 1)
-            err_msg = str(ex)
+            logger.warning(
+                f"AI test connection probe failed to {payload.provider}/{target_model}: {ex}"
+            )
 
             if setting:
                 val = dict(setting.value_json or {})
@@ -326,7 +328,7 @@ class AiManagementService:
                 provider=payload.provider,
                 model_name=target_model,
                 message="Koneksi Gagal. Periksa kembali API Key dan nama model.",
-                error_detail=err_msg,
+                error_detail="Koneksi ke target AI provider gagal atau terjadi timeout.",
             )
 
     @classmethod

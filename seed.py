@@ -4,6 +4,7 @@ from datetime import datetime, timedelta, timezone
 from sqlalchemy.orm import Session
 
 from app.core.database import Base, SessionLocal, engine
+from app.core.environment import is_production_environment
 from app.core.security import hash_password
 from app.models.school.school import School
 from app.models.security.activity_log import ActivityLog
@@ -12,9 +13,16 @@ from app.models.security.user_session import UserSession
 from app.models.license.school_license import SchoolLicense
 from app.models.master.license_type import LicenseType
 
+if is_production_environment():
+    raise RuntimeError("Security Error: seed.py cannot be executed in a production environment.")
+
+
 
 
 def seed_database():
+    if is_production_environment():
+        raise RuntimeError("Security Error: seed.py cannot be executed in a production environment.")
+
     print("=========================================")
     print("RUNNING EQUIGRADE DATABASE SEEDER SCRIPT")
     print("=========================================")

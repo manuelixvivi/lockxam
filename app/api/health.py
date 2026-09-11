@@ -1,7 +1,8 @@
-from fastapi import APIRouter
+from fastapi import APIRouter, Depends
 from sqlalchemy import text
 
 from app.core.database import engine
+from app.core.rbac import require_superadmin
 
 router = APIRouter(prefix="/health", tags=["Health"])
 
@@ -22,7 +23,7 @@ async def db_health():
     return {"database": "connected"}
 
 
-@router.get("/tables")
+@router.get("/tables", dependencies=[Depends(require_superadmin())])
 async def tables():
 
     with engine.connect() as conn:

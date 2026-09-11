@@ -112,18 +112,45 @@ def list_schools(
 @router.get(
     "/{identifier}",
     response_model=SchoolResponse,
-    dependencies=[Depends(require_authenticated())],
 )
-def get_school(identifier: str, db: Session = Depends(get_db)):
-    return SchoolService.get_school_by_id_or_public_id(db, identifier)
+def get_school(
+    identifier: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated()),
+):
+    school = SchoolService.get_school_by_id_or_public_id(db, identifier)
+    user_role = current_user.get("role")
+    user_school_id = current_user.get("school_id")
+
+    if user_role not in [UserRole.SUPERADMIN, "SUPERADMIN"]:
+        if not user_school_id or school.id != user_school_id:
+            raise BusinessException(
+                "Akses ditolak: Anda tidak memiliki akses ke profil sekolah ini.",
+                status_code=403,
+            )
+    return school
 
 
 @router.get(
     "/{identifier}/dashboard-summary",
-    dependencies=[Depends(require_authenticated())],
 )
-def get_school_dashboard_summary(identifier: str, db: Session = Depends(get_db)):
+def get_school_dashboard_summary(
+    identifier: str,
+    db: Session = Depends(get_db),
+    current_user: dict = Depends(require_authenticated()),
+):
+    school = SchoolService.get_school_by_id_or_public_id(db, identifier)
+    user_role = current_user.get("role")
+    user_school_id = current_user.get("school_id")
+
+    if user_role not in [UserRole.SUPERADMIN, "SUPERADMIN"]:
+        if not user_school_id or school.id != user_school_id:
+            raise BusinessException(
+                "Akses ditolak: Anda tidak memiliki akses ke ringkasan sekolah ini.",
+                status_code=403,
+            )
     return SchoolService.get_dashboard_summary(db, identifier)
+
 
 
 @router.put(

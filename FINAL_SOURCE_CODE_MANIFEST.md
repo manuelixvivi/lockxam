@@ -1,8 +1,8 @@
 # 📦 EQUIGRADE x LOCKXAM — FINAL HARDENED SOURCE CODE MANIFEST (MILESTONES A0–A9.4 & CBT SECURITY HARDENING)
 
-**Generated Date:** September 10, 2026  
+**Generated Date:** September 11, 2026  
 **Package:** `Equigrade_x_Lockxam_Latest.zip`  
-**Quality Assurance:** Full static compile verified (0 errors). Full automated regression suite verified (**321 passed, 0 failed in 38.67s** on configured PostgreSQL/SQLite test harness).  
+**Quality Assurance:** Full static compile verified (0 errors). Full automated regression suite verified (**331 passed, 0 failed** on configured PostgreSQL/SQLite test harness).  
 
 ---
 
@@ -14,11 +14,17 @@
    - **Strict Timer Expiration:** Zero auto-extensions. Passing `deadline_at` automatically triggers submission and locks attempt into `SUBMITTED`, returning `400 Bad Request` on any subsequent or concurrent autosave.
    - **Device Session Lifecycle:** Start attempt generates high-entropy cryptographic device session token; all student autosaves validate exact token match (`403` on mismatch); client cannot overwrite active tokens.
    - **Strict Proctor Authority:** Only assigned `schedule.proctor_id` (or school/super admin) has proctor authority. The exam creator (`teacher_id`) cannot issue proctor commands or broadcasts unless explicitly assigned as proctor.
-   - **Proctor Broadcast Isolation:** Broadcast messages are strictly isolated to students of that session and logged into authoritative attempt audit trails.
-   - **JWT Validation & Key Rotation:** Strict `kid` validation requiring existing keys in key cache; unknown or missing `kid` fails closed.
+   - **Proctor Broadcast Isolation & IDOR Protection:** Broadcast messages are strictly isolated to students of that session and logged into authoritative attempt audit trails. Student broadcast fetch validates attempt ownership or schedule eligibility.
+   - **AI Webhook Callback Fail-Closed:** `POST /api/v1/exam/ai/callback` validates HMAC-SHA256 signatures with no hardcoded fallback. Unconfigured webhook secrets return `503` in development and trigger application startup failure in production.
+   - **JWT Validation & Key Rotation:** Strict `kid` validation requiring existing keys in key cache; unknown or missing `kid` fails closed. Dedicated `QR_SIGNING_SECRET` decouples QR presensi from JWT rotation.
    - **LaTeX / HTML Sanitization:** KaTeX/MathML rendered with minimal whitelist DOMPurify configuration, strictly enforcing `ALLOWED_URI_REGEXP: /^(?:https?:|\/)/i` to prevent XSS.
 
 2. **Resource-Level Authorization & Multi-Tenant Boundaries (P1 Hardened):**
+   - **Multi-Tenant School Profile & Dashboard Isolation:** `GET /schools/{identifier}` and `GET /schools/{identifier}/dashboard-summary` strictly validate that non-SuperAdmin users belong to the requested school (`403 Forbidden` on mismatch).
+   - **Production Guard on `seed.py`:** Hard crash with `RuntimeError` if executed in production to prevent accidental database wipes or known credential usage.
+   - **Lockdown on `/health/tables`:** Endpoint requires SuperAdmin authorization (`require_superadmin`), blocking public schema enumeration.
+   - **Standard AES-256-GCM AEAD Encryption:** API keys and sensitive configuration use standard authenticated AES-256-GCM (`enc:gcm:`) with backward-compatible legacy decryption.
+   - **Session Revocation on Password Change:** Successful password change automatically invalidates all active user sessions with `SessionRevokedReason.PASSWORD_CHANGED`.
    - **Strict Proctor QR Token Generation:** `GET /schedules/{schedule_id}/qr-token` validates schedule existence (`404`), tenant matching (`403`), and restricts token creation strictly to assigned proctor (`schedule.proctor_id`) or School Admin (`403`).
    - **AI Object-Level Defense:** Batch grading (`/grading/batch-question`) and post-exam workflows validate actual database entities (`Question.school_id`, `ExamSchedule.school_id`, assigned teacher/proctor). Cross-school object tampering is rejected with `403 Forbidden` even if request payloads forge school identifiers.
    - **Canonical Role Normalization:** Unified `normalize_role()` normalizes string variants (`SCHOOL_ADMIN`, `SUPER_ADMIN`) into canonical `UserRole` enum instances, preventing role-casing bypasses.
@@ -114,4 +120,5 @@ f7a8b9c0d1e2_create_model_registry.py (HEAD)
 | Teacher Management & Workflow | `tests/test_teacher.py` | 9 |
 | Teacher Subject Mapping Import System | `tests/test_teacher_subject_import.py` | 20 |
 | Dense Vector Search & Cosine Metric (A5) | `tests/test_vector_search_service.py` | 18 |
-| **Total Automated Regression Tests** | **35 Test Suites** | **321 Passed, 0 Failed** |
+| Release Candidate Security & Multi-Tenant Boundaries (v7–v9) | `tests/test_rc_security_v7.py` | 10 |
+| **Total Automated Regression Tests** | **36 Test Suites** | **331 Passed, 0 Failed** |

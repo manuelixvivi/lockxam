@@ -213,3 +213,76 @@ def test_qr_signing_secret_decoupling(monkeypatch):
 
     resolved = get_qr_signing_secret()
     assert resolved == custom_qr_secret
+
+
+# =============================================================================
+# 5. MULTI-TENANT SCHOOL PROFILE & DASHBOARD ISOLATION
+# =============================================================================
+
+def test_school_tenant_isolation_cross_access_rejected(db, client):
+    """Memastikan user dari School A ditolak (403) saat membaca profil atau dashboard School B."""
+    ctx1 = _create_school_hierarchy(db, school_name="SMAN 1 Tenant A")
+    ctx2 = _create_school_hierarchy(db, school_name="SMAN 2 Tenant B")
+
+    school_a = ctx1["school"]
+    school_b = ctx2["school"]
+    student_a = ctx1["student1"]
+
+    # Student A (School A) mencoba akses profil School B -> MUST 403
+    app.dependency_overrides[get_current_user] = lambda: {
+        "sub": str(student_a.id),
+        "role": "STUDENT",
+        "school_id": school_a.id,
+    }
+    try:
+        res_profile = client.get(f"/api/v1/schools/{school_b.public_id}")
+        assert res_profile.status_code == status.HTTP_403_FORBIDDEN
+        assert "Akses ditolak" in res_profile.json()["detail"]
+
+        res_dashboard = client.get(f"/api/v1/schools/{school_b.public_id}/dashboard-summary")
+        assert res_dashboard.status_code == status.HTTP_403_FORBIDDEN
+        assert "Akses ditolak" in res_dashboard.json()["detail"]
+
+        # Student A membaca sekolahnya sendiri -> MUST 200 OK
+        res_own = client.get(f"/api/v1/schools/{school_a.public_id}")
+        assert res_own.status_code == status.HTTP_200_OK
+    finally:
+        app.dependency_overrides.pop(get_current_user, None)
+
+
+# =============================================================================
+# 6. SEED.PY PRODUCTION PROTECTION & HEALTH/TABLES LOCKDOWN
+# =============================================================================
+
+def test_seed_script_blocked_in_production(monkeypatch):
+    """Memastikan seed.py melempar RuntimeError di environment production."""
+    import sys
+    sys.modules.pop("seed", None)
+    monkeypatch.setenv("ENV", "production")
+
+    with pytest.raises(RuntimeError, match="cannot be executed in a production environment"):
+        import seed
+
+
+def test_health_tables_requires_superadmin(client):
+    """Memastikan endpoint /health/tables tidak dapat diakses tanpa hak akses SuperAdmin."""
+    # Unauthenticated -> 401 / 403
+    res_unauth = client.get("/health/tables")
+    assert res_unauth.status_code in (status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN)
+
+
+# =============================================================================
+# 7. STANDARD AES-256-GCM AEAD ENCRYPTION & DECRYPTION ROUND-TRIP
+# =============================================================================
+
+def test_aes_gcm_crypto_round_trip():
+    """Memastikan encrypt_secret menggunakan AES-256-GCM dan decrypt_secret berfungsi presisi."""
+    from app.core.security.crypto import encrypt_secret, decrypt_secret
+
+    secret_text = "sk-groq-live-api-key-secret-123456789"
+    encrypted = encrypt_secret(secret_text)
+    assert encrypted.startswith("enc:gcm:")
+
+    decrypted = decrypt_secret(encrypted)
+    assert decrypted == secret_text
+

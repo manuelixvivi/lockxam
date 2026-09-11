@@ -55,7 +55,13 @@ if should_auto_migrate:
     except Exception as _err:
         logger.warning(f"Deferred DB init on import: {_err}")
 
-app = FastAPI(title="EquiGrade API", version="1.0.0")
+docs_config = (
+    {"docs_url": None, "redoc_url": None, "openapi_url": None}
+    if is_production_environment()
+    else {}
+)
+
+app = FastAPI(title="EquiGrade API", version="1.0.0", **docs_config)
 
 # Enforce fail-fast configuration checks on production startup
 if is_production_environment():
@@ -81,7 +87,7 @@ async def add_security_headers(request, call_next):
     response = await call_next(request)
     response.headers["Content-Security-Policy"] = (
         "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
-        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none';"
+        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; object-src 'none'; frame-ancestors 'none';"
     )
     response.headers["X-Content-Type-Options"] = "nosniff"
     response.headers["X-Frame-Options"] = "DENY"
@@ -131,7 +137,7 @@ app.include_router(health_router, prefix="/api/v1")
 
 @app.get("/api/info")
 async def root_info():
-    return {"status": "ok", "app": "EquiGrade x Lockxam API"}
+    return {"status": "ok"}
 
 
 @app.get("/health/db")

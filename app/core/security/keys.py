@@ -69,6 +69,10 @@ def get_qr_signing_secret() -> str:
     secret = os.getenv("QR_SIGNING_SECRET")
     if secret and secret.strip():
         return secret.strip()
+    if is_production_environment():
+        raise RuntimeError(
+            "Production Security Error: 'QR_SIGNING_SECRET' must be explicitly set in production environment."
+        )
     return SECRET_KEY
 
 

@@ -59,8 +59,9 @@ app = FastAPI(title="EquiGrade API", version="1.0.0")
 
 # Enforce fail-fast configuration checks on production startup
 if is_production_environment():
-    from app.core.security.keys import get_ai_webhook_secret
+    from app.core.security.keys import get_ai_webhook_secret, get_qr_signing_secret
     get_ai_webhook_secret()
+    get_qr_signing_secret()
 
 
 # Serve uploaded static files securely
@@ -72,6 +73,20 @@ except Exception as _static_err:
 
 # Register RequestContextMiddleware for tracking latency, Request ID, IP, user agent
 app.add_middleware(RequestContextMiddleware)
+
+
+# Security Headers Middleware
+@app.middleware("http")
+async def add_security_headers(request, call_next):
+    response = await call_next(request)
+    response.headers["Content-Security-Policy"] = (
+        "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; "
+        "img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self' http: https:; object-src 'none';"
+    )
+    response.headers["X-Content-Type-Options"] = "nosniff"
+    response.headers["X-Frame-Options"] = "DENY"
+    return response
+
 
 # Production-hardened CORS policy:
 # Enforces explicit allowlist in production, disallows wildcard Vercel subdomain regex by default.
@@ -100,6 +115,7 @@ app.add_middleware(
         "X-Device-Id",
         "X-Device-Token",
         "X-Request-ID",
+        "X-Client-App",
         "Accept",
         "Origin",
         "X-Requested-With",

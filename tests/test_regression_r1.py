@@ -219,7 +219,9 @@ def test_student_login_rejected_from_web_browser(client, db, test_school):
         json={"username": student["username"], "password": student["password"]},
     )
     assert res.status_code == 403
-    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res.json().get("detail", "")
+    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res.json().get(
+        "detail", ""
+    )
 
 
 def test_student_login_with_x_lockxam_dev_bypass_fails_403(client, db, test_school):
@@ -234,10 +236,14 @@ def test_student_login_with_x_lockxam_dev_bypass_fails_403(client, db, test_scho
         json={"username": student["username"], "password": student["password"]},
     )
     assert res.status_code == 403
-    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res.json().get("detail", "")
+    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res.json().get(
+        "detail", ""
+    )
 
 
-def test_student_login_with_cookie_secure_false_bypass_fails_403(client, db, test_school, monkeypatch):
+def test_student_login_with_cookie_secure_false_bypass_fails_403(
+    client, db, test_school, monkeypatch
+):
     """COOKIE_SECURE=false environment variable must not bypass the APK check for student login."""
     monkeypatch.setenv("COOKIE_SECURE", "false")
     student = _create_student_account(db, test_school.id)
@@ -247,7 +253,9 @@ def test_student_login_with_cookie_secure_false_bypass_fails_403(client, db, tes
         json={"username": student["username"], "password": student["password"]},
     )
     assert res.status_code == 403
-    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res.json().get("detail", "")
+    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res.json().get(
+        "detail", ""
+    )
 
 
 def test_student_login_success_with_apk_headers(client, db, test_school):
@@ -295,7 +303,9 @@ def test_student_endpoint_access_rejected_without_apk(client, db, test_school):
         },
     )
     assert res_me.status_code == 403
-    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res_me.json().get("detail", "")
+    assert "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK" in res_me.json().get(
+        "detail", ""
+    )
 
 
 def test_student_endpoint_access_allowed_with_apk(client, db, test_school):
@@ -361,4 +371,3 @@ def test_student_single_device_binding_unconditional(client, db, test_school, mo
     )
     assert login3.status_code == 403
     assert "Kunci Keamanan Presensi QR" in login3.json().get("detail", "")
-

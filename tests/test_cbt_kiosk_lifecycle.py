@@ -1,6 +1,3 @@
-import hashlib
-import hmac
-import time
 from datetime import datetime, timedelta, timezone
 from uuid import uuid4
 
@@ -8,16 +5,13 @@ import pytest
 from sqlalchemy import select
 
 from app.core.dependencies import get_current_user
-from app.core.security.keys import SECRET_KEY
 from app.exceptions.base import BusinessException
 from app.models.academic.academic_semester import AcademicSemester
 from app.models.academic.academic_year import AcademicYear
 from app.models.academic.class_entity import ClassEntity
 from app.models.academic.enums import AcademicStatus, EnrollmentStatus, ExamScheduleStatus
 from app.models.academic.student_class_enrollment import StudentClassEnrollment
-from app.models.exam.device_session import DeviceSession, DeviceSessionStatus
 from app.models.exam.enums import ExamAttemptStatus, ExamSessionStatus
-from app.models.exam.exam_attempt import ExamAttempt
 from app.models.exam.exam_checkin import ExamCheckin
 from app.models.exam.exam_session import ExamSession
 from app.models.exam.package_snapshot import ExamPackageSnapshot
@@ -37,7 +31,9 @@ from app.services.exam.exam_service import ExamService
 from main import app
 
 
-def _setup_cbt_test_context(db, start_offset_minutes=15, duration_minutes=60, session_status=ExamSessionStatus.PLANNED):
+def _setup_cbt_test_context(
+    db, start_offset_minutes=15, duration_minutes=60, session_status=ExamSessionStatus.PLANNED
+):
     level = db.scalar(select(SchoolLevel).limit(1))
     if not level:
         level = SchoolLevel(code="SMA", name="Sekolah Menengah Atas")
@@ -266,7 +262,9 @@ def test_start_attempt_premature_strictly_rejected_400(db, client):
     When scheduled_start_at is in the future, start_attempt must strictly raise HTTP 400
     'Waktu pelaksanaan ujian belum tiba.' even if student has checked in and session is PLANNED.
     """
-    ctx = _setup_cbt_test_context(db, start_offset_minutes=20, session_status=ExamSessionStatus.PLANNED)
+    ctx = _setup_cbt_test_context(
+        db, start_offset_minutes=20, session_status=ExamSessionStatus.PLANNED
+    )
     schedule = ctx["schedule"]
     session = ctx["session"]
     student = ctx["student"]
@@ -321,7 +319,9 @@ def test_start_attempt_elimination_of_permissive_status_clause(db):
     Verifies that the permissive clause 'or str(session.status).upper() in ["PLANNED", "DRAFT", "READY", "SCHEDULED"]'
     is strictly eliminated. A session in PLANNED status cannot be started before scheduled_start_at.
     """
-    ctx = _setup_cbt_test_context(db, start_offset_minutes=10, session_status=ExamSessionStatus.PLANNED)
+    ctx = _setup_cbt_test_context(
+        db, start_offset_minutes=10, session_status=ExamSessionStatus.PLANNED
+    )
     session = ctx["session"]
     student = ctx["student"]
 
@@ -352,7 +352,9 @@ def test_start_attempt_requires_prior_checkin(db):
     When window is open (now >= scheduled_start_at), start_attempt must fail
     if student has not completed attendance check-in.
     """
-    ctx = _setup_cbt_test_context(db, start_offset_minutes=-5, session_status=ExamSessionStatus.PLANNED)
+    ctx = _setup_cbt_test_context(
+        db, start_offset_minutes=-5, session_status=ExamSessionStatus.PLANNED
+    )
     session = ctx["session"]
     student = ctx["student"]
 
@@ -374,7 +376,9 @@ def test_start_attempt_authorized_open_window_success(db, client):
     When scheduled_start_at has arrived (now >= start_at) and student has checked in,
     start_attempt activates session and returns new attempt in IN_PROGRESS.
     """
-    ctx = _setup_cbt_test_context(db, start_offset_minutes=-2, session_status=ExamSessionStatus.PLANNED)
+    ctx = _setup_cbt_test_context(
+        db, start_offset_minutes=-2, session_status=ExamSessionStatus.PLANNED
+    )
     schedule = ctx["schedule"]
     session = ctx["session"]
     student = ctx["student"]
@@ -416,7 +420,9 @@ def test_start_attempt_resume_and_device_session_binding(db):
     R3 Verification 5:
     Resuming an IN_PROGRESS or PAUSED attempt correctly maintains device session.
     """
-    ctx = _setup_cbt_test_context(db, start_offset_minutes=-10, session_status=ExamSessionStatus.ACTIVE)
+    ctx = _setup_cbt_test_context(
+        db, start_offset_minutes=-10, session_status=ExamSessionStatus.ACTIVE
+    )
     session = ctx["session"]
     student = ctx["student"]
 

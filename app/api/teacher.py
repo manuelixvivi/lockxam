@@ -738,7 +738,7 @@ async def upload_question_image(
         )
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
-    except Exception as err:
+    except Exception:
         logger.exception("Gagal menyimpan file gambar")
         raise HTTPException(status_code=500, detail="Gagal menyimpan file gambar.")
 
@@ -844,6 +844,7 @@ def _derive_ai_evaluation_metadata(
     """
     Derives root-level confidence, categorical confidence level (HIGH/MEDIUM/LOW),
     review_required flag, rubric breakdown, and academic rationale for essay evaluations.
+    AI Confidence is strictly independent from the student's assessment score.
     """
     earned = float(ev.score) if (ev and ev.score is not None) else 0.0
     max_q = (
@@ -854,34 +855,37 @@ def _derive_ai_evaluation_metadata(
     ratio = max(0.0, min(1.0, earned / max_q))
 
     is_empty = (
-        not text_answer
-        or text_answer.strip() == ""
-        or text_answer.strip() == "(Tidak diisi)"
+        not text_answer or text_answer.strip() == "" or text_answer.strip() == "(Tidak diisi)"
     )
-    is_finalized = (
-        hasattr(ev, "grading_status")
-        and (
-            getattr(ev.grading_status, "value", str(ev.grading_status)) == "FINALIZED"
-        )
+    is_finalized = hasattr(ev, "grading_status") and (
+        getattr(ev.grading_status, "value", str(ev.grading_status)) == "FINALIZED"
     )
+
+    # Decouple AI Confidence from score ratio: read model output confidence if available
+    raw_conf = getattr(ev, "confidence", None)
+    if raw_conf is None and isinstance(ev, dict):
+        raw_conf = ev.get("confidence")
 
     if is_finalized or is_empty:
         confidence = 1.0
+    elif raw_conf is not None:
+        try:
+            confidence = round(max(0.0, min(1.0, float(raw_conf))), 2)
+        except (ValueError, TypeError):
+            confidence = 0.85
+    else:
+        # Default AI model certainty for unfinalized non-empty evaluation
+        confidence = 0.85
+
+    if confidence >= 0.90:
         confidence_level = "HIGH"
         review_required = False
+    elif confidence >= 0.75:
+        confidence_level = "MEDIUM"
+        review_required = True
     else:
-        if ratio >= 0.90:
-            confidence = 0.95
-            confidence_level = "HIGH"
-            review_required = False
-        elif ratio >= 0.75:
-            confidence = 0.85
-            confidence_level = "MEDIUM"
-            review_required = True
-        else:
-            confidence = round(max(0.40, min(0.74, 0.50 + (ratio * 0.3))), 2)
-            confidence_level = "LOW"
-            review_required = True
+        confidence_level = "LOW"
+        review_required = True
 
     # Build rubric breakdown
     rubrics_list = getattr(q, "rubrics", None) if q else None
@@ -1413,9 +1417,7 @@ def list_session_attempts(
 
     # Batch query AttemptTelemetry from DB as authoritative source of truth
     telemetry_records = (
-        db.query(AttemptTelemetry)
-        .filter(AttemptTelemetry.attempt_id.in_(attempt_ids))
-        .all()
+        db.query(AttemptTelemetry).filter(AttemptTelemetry.attempt_id.in_(attempt_ids)).all()
         if attempt_ids
         else []
     )
@@ -2065,11 +2067,7 @@ def list_grading_evaluations(
         cls = class_map.get(cls_id) if cls_id else None
 
         ans = answer_map.get((attempt.id, q.id))
-        ans_text = (
-            ans.text_answer
-            if (ans and ans.text_answer)
-            else "(Tidak diisi / Pilihan ganda)"
-        )
+        ans_text = ans.text_answer if (ans and ans.text_answer) else "(Tidak diisi / Pilihan ganda)"
         eval_meta = _derive_ai_evaluation_metadata(ev, q, ans_text)
 
         res.append(

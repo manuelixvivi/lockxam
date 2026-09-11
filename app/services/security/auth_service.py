@@ -311,7 +311,9 @@ class AuthService:
                 user_profile = CurrentUserResponse(
                     user_id=account.id,
                     username=account.username,
-                    role=account.role.value if hasattr(account.role, "value") else str(account.role),
+                    role=(
+                        account.role.value if hasattr(account.role, "value") else str(account.role)
+                    ),
                     school_id=account.school_id,
                     school_name=school_name,
                     school_level_code=school_level_code,

@@ -4,7 +4,6 @@ import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
-
 from sqlalchemy.orm import Session
 
 from app.core.database import engine
@@ -136,7 +135,9 @@ class AiManagementService:
         max_output_tokens = int(config_data.get("max_output_tokens", 4096))
         rag_enabled = config_data.get("rag_enabled", AiConfig.is_rag_enabled())
         provider = config_data.get("provider", "Groq")
-        strict_transformer = bool(config_data.get("strict_transformer", AiConfig.STRICT_TRANSFORMER))
+        strict_transformer = bool(
+            config_data.get("strict_transformer", AiConfig.STRICT_TRANSFORMER)
+        )
         embedding_model = config_data.get("embedding_model", "intfloat/multilingual-e5-large")
         rag_top_k = int(config_data.get("rag_top_k", 3))
         rag_similarity_threshold = float(config_data.get("rag_similarity_threshold", 0.70))
@@ -197,7 +198,9 @@ class AiManagementService:
         if payload.model_name != old_model:
             changes.append(f"Model diubah: {old_model} → {payload.model_name}")
 
-        if payload.eval_model_name is not None and payload.eval_model_name != old_config.get("eval_model_name", AiConfig.EVAL_MODEL_NAME):
+        if payload.eval_model_name is not None and payload.eval_model_name != old_config.get(
+            "eval_model_name", AiConfig.EVAL_MODEL_NAME
+        ):
             changes.append(f"Evaluation model: {payload.eval_model_name}")
 
         if payload.api_key and payload.api_key.strip():
@@ -217,19 +220,30 @@ class AiManagementService:
         if payload.rag_enabled is not None and payload.rag_enabled != old_config.get("rag_enabled"):
             changes.append(f"RAG: {'Aktif' if payload.rag_enabled else 'Nonaktif'}")
 
-        if payload.strict_transformer is not None and payload.strict_transformer != old_config.get("strict_transformer"):
-            changes.append(f"Strict Transformer: {'Aktif' if payload.strict_transformer else 'Nonaktif'}")
+        if payload.strict_transformer is not None and payload.strict_transformer != old_config.get(
+            "strict_transformer"
+        ):
+            changes.append(
+                f"Strict Transformer: {'Aktif' if payload.strict_transformer else 'Nonaktif'}"
+            )
 
-        if payload.embedding_model is not None and payload.embedding_model != old_config.get("embedding_model"):
+        if payload.embedding_model is not None and payload.embedding_model != old_config.get(
+            "embedding_model"
+        ):
             changes.append(f"Embedding model: {payload.embedding_model}")
 
         if payload.rag_top_k is not None and payload.rag_top_k != old_config.get("rag_top_k"):
             changes.append(f"RAG Top-K: {payload.rag_top_k}")
 
-        if payload.rag_similarity_threshold is not None and payload.rag_similarity_threshold != old_config.get("rag_similarity_threshold"):
+        if (
+            payload.rag_similarity_threshold is not None
+            and payload.rag_similarity_threshold != old_config.get("rag_similarity_threshold")
+        ):
             changes.append(f"RAG Similarity Threshold: {payload.rag_similarity_threshold}")
 
-        if payload.max_rag_tokens is not None and payload.max_rag_tokens != old_config.get("max_rag_tokens"):
+        if payload.max_rag_tokens is not None and payload.max_rag_tokens != old_config.get(
+            "max_rag_tokens"
+        ):
             changes.append(f"RAG Max Tokens: {payload.max_rag_tokens}")
 
         # Update JSON config
@@ -249,9 +263,7 @@ class AiManagementService:
             else old_config.get("embedding_model", "intfloat/multilingual-e5-large")
         )
         rag_top_k_val = (
-            payload.rag_top_k
-            if payload.rag_top_k is not None
-            else old_config.get("rag_top_k", 3)
+            payload.rag_top_k if payload.rag_top_k is not None else old_config.get("rag_top_k", 3)
         )
         rag_threshold_val = (
             payload.rag_similarity_threshold
@@ -579,6 +591,7 @@ class AiManagementService:
         replay_protection_active = True
         try:
             from app.models.exam.ai_event_log import AiGradingEventLog
+
             _ = db.query(AiGradingEventLog).count()
             replay_protection_active = True
         except Exception:
@@ -602,7 +615,6 @@ class AiManagementService:
             training_stats=training_stats,
             latest_evaluation=latest_evaluation,
         )
-
 
     @classmethod
     def get_evaluation_report(cls, db: Session) -> EvaluationReportResponse:

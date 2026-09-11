@@ -4,7 +4,6 @@ import uuid
 from datetime import datetime, timedelta, timezone
 
 import pytest
-from fastapi.testclient import TestClient
 
 # Ensure workspace root is in sys.path
 ROOT_DIR = os.path.abspath(os.path.join(os.path.dirname(__file__), "../.."))
@@ -20,15 +19,12 @@ from app.models.academic.exam_schedule import ExamSchedule
 from app.models.academic.student_class_enrollment import StudentClassEnrollment
 from app.models.exam.enums import ExamSessionStatus
 from app.models.exam.exam_session import ExamSession
-from app.models.master.school_level import SchoolLevel
-from app.models.school.school import School
 from app.models.security.auth_account import AuthAccount
 from app.models.security.enums import UserRole
-from app.models.teacher.enums import PackageStatus, QuestionType
+from app.models.teacher.enums import QuestionType
 from app.models.teacher.package_item import QuestionPackageItem
 from app.models.teacher.question import Question
 from app.models.teacher.question_package import QuestionPackage
-from main import app
 
 
 @pytest.fixture
@@ -250,7 +246,9 @@ def exam_test_env(db, test_school, test_teacher, test_student):
         scheduled_start_at=schedule_start,
         scheduled_end_at=schedule_end,
         duration_minutes=90,
-        status=ExamSessionStatus.READY.value if hasattr(ExamSessionStatus.READY, "value") else "READY",
+        status=(
+            ExamSessionStatus.READY.value if hasattr(ExamSessionStatus.READY, "value") else "READY"
+        ),
     )
     db.add(session)
     db.flush()

@@ -1,7 +1,5 @@
 import os
-import pytest
-from app.models.security.auth_account import AuthAccount
-from app.schemas.ai.ai_management import AiProviderConfigUpdateRequest
+
 from app.services.ai.ai_management_service import AiManagementService
 from app.services.ai.shared.config import AiConfig
 
@@ -181,7 +179,10 @@ def test_ai_config_history_records_m3_changes(client, test_superadmin):
     latest_entry = histories[0]
     assert latest_entry["provider"] == "Groq"
     assert latest_entry["model_name"] == "mixtral-8x7b-32768"
-    assert "Evaluation model" in latest_entry["change_summary"] or "Konfigurasi" in latest_entry["change_summary"]
+    assert (
+        "Evaluation model" in latest_entry["change_summary"]
+        or "Konfigurasi" in latest_entry["change_summary"]
+    )
 
 
 def test_non_superadmin_cannot_access_or_modify_ai_config(client, test_teacher):
@@ -195,7 +196,12 @@ def test_non_superadmin_cannot_access_or_modify_ai_config(client, test_teacher):
     # Attempt PUT /config
     put_res = client.put(
         "/api/v1/superadmin/ai-system/config",
-        json={"provider": "Groq", "model_name": "malicious-model", "temperature": 0.5, "max_output_tokens": 1000},
+        json={
+            "provider": "Groq",
+            "model_name": "malicious-model",
+            "temperature": 0.5,
+            "max_output_tokens": 1000,
+        },
         headers=headers,
     )
     assert put_res.status_code == 403, f"Expected 403, got {put_res.status_code}"

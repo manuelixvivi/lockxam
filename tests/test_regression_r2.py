@@ -216,7 +216,9 @@ def test_forced_password_change_blocks_all_non_exempt_endpoints(client, db, test
     # 4. Blocked: /auth/logout-all
     res_logout_all = client.post("/api/v1/auth/logout-all", headers=headers)
     assert res_logout_all.status_code == 403
-    assert "Harap ubah kata sandi Anda sebelum melanjutkan" in res_logout_all.json().get("detail", "")
+    assert "Harap ubah kata sandi Anda sebelum melanjutkan" in res_logout_all.json().get(
+        "detail", ""
+    )
 
     # 5. Blocked: /auth/superadmin-only
     res_sa = client.get("/api/v1/auth/superadmin-only", headers=headers)
@@ -346,4 +348,3 @@ def test_forced_password_change_blocks_student_exam_endpoints(client, db, test_s
     res_me = client.get("/api/v1/auth/me", headers=headers)
     assert res_me.status_code == 200
     assert res_me.json()["must_change_password"] is True
-

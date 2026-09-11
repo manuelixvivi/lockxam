@@ -1,20 +1,18 @@
-from datetime import datetime, timezone
 from unittest.mock import MagicMock, patch
-import pytest
 
-from app.services.ai.grading.grading_schema import (
-    GradingEvaluateRequest,
-    GradingEvaluateResponse,
-)
-from app.services.ai.grading.batch_grading_schema import (
-    BatchStudentGradingResult,
-)
-from app.services.ai.grading.grading_service import GradingService
 from app.api.teacher import (
     EssayGradingEvaluationResponse,
     _derive_ai_evaluation_metadata,
 )
-from app.models.exam.enums import GradingStatus, GradingSource
+from app.models.exam.enums import GradingStatus
+from app.services.ai.grading.batch_grading_schema import (
+    BatchStudentGradingResult,
+)
+from app.services.ai.grading.grading_schema import (
+    GradingEvaluateRequest,
+    GradingEvaluateResponse,
+)
+from app.services.ai.grading.grading_service import GradingService
 
 
 class TestAiConfidenceElevationSchemas:
@@ -93,7 +91,11 @@ class TestGradingServiceConfidenceElevation:
 
         with patch(
             "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
-            return_value={"status": "success", "data": mock_llm_data, "model": "openai/gpt-oss-120b"},
+            return_value={
+                "status": "success",
+                "data": mock_llm_data,
+                "model": "openai/gpt-oss-120b",
+            },
         ):
             req = GradingEvaluateRequest(
                 question="Jelaskan mekanisme transpor aktif!",
@@ -130,7 +132,11 @@ class TestGradingServiceConfidenceElevation:
 
         with patch(
             "app.services.ai.shared.llm_client.LlmClient.call_chat_completion",
-            return_value={"status": "success", "data": mock_llm_data, "model": "openai/gpt-oss-120b"},
+            return_value={
+                "status": "success",
+                "data": mock_llm_data,
+                "model": "openai/gpt-oss-120b",
+            },
         ):
             req = GradingEvaluateRequest(
                 question="Jelaskan tahapan respirasi seluler!",
@@ -199,6 +205,7 @@ class TestTeacherEvaluationMetadataDerivation:
         mock_ev = MagicMock()
         mock_ev.score = 8.0
         mock_ev.max_score = 10.0
+        mock_ev.confidence = 0.85
         mock_ev.grading_status = GradingStatus.AI_DRAFT
         mock_ev.feedback = None
 
@@ -216,6 +223,7 @@ class TestTeacherEvaluationMetadataDerivation:
         mock_ev = MagicMock()
         mock_ev.score = 3.0
         mock_ev.max_score = 10.0
+        mock_ev.confidence = 0.65
         mock_ev.grading_status = GradingStatus.AI_DRAFT
         mock_ev.feedback = None
 

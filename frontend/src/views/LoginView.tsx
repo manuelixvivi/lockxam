@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { Lock, User, Shield, AlertCircle, Sparkles, Sun, Moon, Eye, EyeOff } from "lucide-react";
+import { Lock, User, Shield, AlertCircle, Sun, Moon, Eye, EyeOff } from "lucide-react";
 import { Input } from "../components/ui/Input";
 import { Button } from "../components/ui/Button";
 import { useAuth } from "../context/AuthContext";
@@ -13,8 +13,8 @@ export const LoginView: React.FC<{ onLoginSuccess?: (role: UserRole) => void }> 
   const { login } = useAuth();
   const { theme, toggleTheme, setTheme } = useTheme();
 
-  const [username, setUsername] = useState("admin_school");
-  const [password, setPassword] = useState("Password123!");
+  const [username, setUsername] = useState("");
+  const [password, setPassword] = useState("");
   const [showPassword, setShowPassword] = useState(false);
   const [isLoading, setIsLoading] = useState(false);
   const [errorMessage, setErrorMessage] = useState("");
@@ -65,12 +65,6 @@ export const LoginView: React.FC<{ onLoginSuccess?: (role: UserRole) => void }> 
     handlePerformLogin(username, password);
   };
 
-  const handleQuickLogin = (uname: string) => {
-    setUsername(uname);
-    setPassword("Password123!");
-    handlePerformLogin(uname, "Password123!");
-  };
-
   return (
     <div className="min-h-screen bg-slate-950 flex flex-col justify-center items-center p-6 relative overflow-hidden">
       {/* Floating Theme Toggle (Sun/Moon) */}
@@ -100,44 +94,6 @@ export const LoginView: React.FC<{ onLoginSuccess?: (role: UserRole) => void }> 
           <p className="text-xs text-indigo-400 font-semibold tracking-wider uppercase mt-0.5">
             Lockxam v3.0 Integrated Platform
           </p>
-        </div>
-
-        {/* Quick Demo Credentials Assistant */}
-        <div className="mb-6 p-4 rounded-2xl bg-indigo-950/40 border border-indigo-500/30 space-y-2">
-          <div className="flex items-center gap-1.5 text-xs font-semibold text-indigo-300">
-            <Sparkles className="w-3.5 h-3.5" />
-            <span>Satu-Klik Login Demo:</span>
-          </div>
-          <div className="grid grid-cols-2 gap-2 pt-1">
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("admin_school")}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-indigo-600/20 border border-indigo-500/40 text-indigo-200 hover:bg-indigo-600/40 transition-colors text-left"
-            >
-              🔑 School Admin
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("superadmin")}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-purple-600/20 border border-purple-500/40 text-purple-200 hover:bg-purple-600/40 transition-colors text-left"
-            >
-              👑 SuperAdmin
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("teacher1")}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-emerald-600/20 border border-emerald-500/40 text-emerald-200 hover:bg-emerald-600/40 transition-colors text-left"
-            >
-              👨‍🏫 Teacher
-            </button>
-            <button
-              type="button"
-              onClick={() => handleQuickLogin("student1")}
-              className="px-2.5 py-1.5 text-xs font-medium rounded-lg bg-amber-600/20 border border-amber-500/40 text-amber-200 hover:bg-amber-600/40 transition-colors text-left"
-            >
-              🎓 Student
-            </button>
-          </div>
         </div>
 
         {/* Error Alert */}

@@ -5,7 +5,6 @@ Authoritative Sources:
 - PROJECT.md § Feature Inventory (Features 1, 2, 3, 4) & § Interface Contracts (Auth & Forced Password Change)
 """
 
-import pytest
 
 
 def test_student_login_browser_no_bypass_fails_403(client, test_student, browser_headers):
@@ -39,7 +38,9 @@ def test_student_login_with_x_lockxam_dev_bypass_fails_403(client, test_student,
     assert "lockxam apk" in data["detail"].lower() or "aplikasi resmi" in data["detail"].lower()
 
 
-def test_student_login_cookie_secure_false_env_fails_403(client, test_student, browser_headers, monkeypatch):
+def test_student_login_cookie_secure_false_env_fails_403(
+    client, test_student, browser_headers, monkeypatch
+):
     """
     R1 / Feature 2: Setting COOKIE_SECURE=false must NOT bypass student APK verification.
     """
@@ -82,7 +83,9 @@ def test_student_valid_apk_login_succeeds_200(client, test_student, apk_headers)
     assert "session_expires_in" in data
 
 
-def test_teacher_superadmin_browser_login_allowed_200(client, test_teacher, test_superadmin, browser_headers):
+def test_teacher_superadmin_browser_login_allowed_200(
+    client, test_teacher, test_superadmin, browser_headers
+):
     """
     R1: Non-student roles (Teacher, SuperAdmin) are allowed to login via standard web browser.
     """

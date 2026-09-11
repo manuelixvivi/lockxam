@@ -50,3 +50,27 @@ for key, value in os.environ.items():
         SECRETS[kid] = value
 
 COOKIE_SECURE = os.getenv("COOKIE_SECURE", "true").lower() == "true"
+
+
+def get_ai_webhook_secret() -> str:
+    """Returns the secret used for validating incoming AI grading callbacks."""
+    secret = os.getenv("AI_WEBHOOK_SECRET")
+    if secret and secret.strip():
+        return secret.strip()
+    if is_production_environment():
+        raise RuntimeError(
+            "Production Security Error: 'AI_WEBHOOK_SECRET' must be explicitly set in production environment."
+        )
+    return ""
+
+
+def get_qr_signing_secret() -> str:
+    """Returns dedicated secret for exam QR code & short PIN signing/verification, decoupled from JWT rotation."""
+    secret = os.getenv("QR_SIGNING_SECRET")
+    if secret and secret.strip():
+        return secret.strip()
+    return SECRET_KEY
+
+
+QR_SIGNING_SECRET = get_qr_signing_secret()
+

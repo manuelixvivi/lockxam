@@ -57,6 +57,12 @@ if should_auto_migrate:
 
 app = FastAPI(title="EquiGrade API", version="1.0.0")
 
+# Enforce fail-fast configuration checks on production startup
+if is_production_environment():
+    from app.core.security.keys import get_ai_webhook_secret
+    get_ai_webhook_secret()
+
+
 # Serve uploaded static files securely
 try:
     os.makedirs("uploads/questions", exist_ok=True)

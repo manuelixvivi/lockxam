@@ -118,6 +118,19 @@ def get_session_broadcasts(
     db: Session = Depends(get_db),
 ):
     """Mendapatkan pengumuman darurat / broadcast dari pengawas untuk sesi ujian ini (Dari DB)."""
+    student_id = int(current_user["sub"])
+
+    # IDOR Protection: Siswa harus memiliki attempt pada sesi ini ATAU berhak (eligible) atas jadwal sesi
+    attempt = attempt_repository.get_by_session_and_student(
+        db, session_id=session_id, student_id=student_id
+    )
+    if not attempt:
+        session = exam_session_repository.get_by_id(db, session_id)
+        if not session:
+            raise HTTPException(status_code=404, detail="Sesi ujian tidak ditemukan.")
+        # Verifikasi kelayakan siswa pada jadwal sesi ujian terkait (melempar 403 jika tidak berhak)
+        ExamService.validate_student_exam_eligibility(db, session.schedule_id, student_id)
+
     events = proctor_event_repository.get_by_assignment(db, assignment_id=session_id)
     broadcasts = [
         {
@@ -128,6 +141,7 @@ def get_session_broadcasts(
         for ev in events
     ]
     return {"broadcasts": broadcasts}
+
 
 
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
@@ -389,11 +403,11 @@ def get_qr_checkin_token(
     )
 
     # Token: base64url( schedule_id | expires_ts | hmac )
-    from app.core.security.keys import SECRET_KEY
+    from app.core.security.keys import QR_SIGNING_SECRET
 
     expires_ts = int(time.time()) + 180  # 3 menit (180 detik)
     payload_str = f"{schedule_id}:{expires_ts}"
-    sig = hmac.new(SECRET_KEY.encode(), payload_str.encode(), hashlib.sha256).hexdigest()[:16]
+    sig = hmac.new(QR_SIGNING_SECRET.encode(), payload_str.encode(), hashlib.sha256).hexdigest()[:16]
     token = f"{schedule_id}:{expires_ts}:{sig}"
 
     # Generate short 6-digit numeric PIN
@@ -483,15 +497,16 @@ def student_checkin(
         )
         if db_pin:
             raw_token = db_pin.token
-        elif clean_pin in ACTIVE_PIN_CACHE:
-            cached = ACTIVE_PIN_CACHE[clean_pin]
-            if int(time.time()) <= cached.get("expires_ts", 0):
-                raw_token = cached["token"]
+        else:
+            raise HTTPException(
+                status_code=400,
+                detail="Kode PIN 6-digit tidak valid atau sudah kadaluarsa. Minta pengawas generate ulang.",
+            )
 
     # Validasi token
-    from app.core.security.keys import SECRET_KEY
+    from app.core.security.keys import QR_SIGNING_SECRET
 
-    secret = SECRET_KEY
+    secret = QR_SIGNING_SECRET
     try:
         parts = raw_token.split(":")
         if len(parts) != 3:
@@ -567,7 +582,8 @@ def student_checkin(
 
     except Exception as e:
         db.rollback()
-        raise HTTPException(status_code=500, detail=f"Gagal menyimpan data absensi: {str(e)}")
+        logger.exception("Gagal menyimpan data absensi")
+        raise HTTPException(status_code=500, detail="Gagal menyimpan data absensi.")
 
     return {
         "success": True,
@@ -844,16 +860,27 @@ async def _verify_ai_hmac(request: Request) -> None:
     import hashlib
     import hmac
 
-    secret = os.getenv("AI_WEBHOOK_SECRET", "equigrade-ai-webhook-secret-default")
-    if not secret:
-        raise HTTPException(status_code=500, detail="AI_WEBHOOK_SECRET not configured")
+    secret = os.getenv("AI_WEBHOOK_SECRET")
+    if not secret or not secret.strip():
+        logger.error("AI_WEBHOOK_SECRET is not configured")
+        raise HTTPException(
+            status_code=status.HTTP_503_SERVICE_UNAVAILABLE,
+            detail="AI webhook is not configured.",
+        )
 
     sig_header = request.headers.get("X-AI-Signature", "")
+    if not sig_header:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Missing X-AI-Signature header.",
+        )
+
     raw_body = await request.body()
-    expected = hmac.new(secret.encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
+    expected = hmac.new(secret.strip().encode("utf-8"), raw_body, hashlib.sha256).hexdigest()
 
     if not hmac.compare_digest(f"sha256={expected}", sig_header):
-        raise HTTPException(status_code=403, detail="Invalid HMAC signature")
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Invalid HMAC signature")
+
 
 
 @router.post(

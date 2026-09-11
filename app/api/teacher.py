@@ -739,7 +739,8 @@ async def upload_question_image(
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
     except Exception as err:
-        raise HTTPException(status_code=500, detail=f"Gagal menyimpan file gambar: {err}")
+        logger.exception("Gagal menyimpan file gambar")
+        raise HTTPException(status_code=500, detail="Gagal menyimpan file gambar.")
 
     return {"url": saved["url"], "filename": saved["filename"]}
 

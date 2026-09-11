@@ -54,6 +54,15 @@ export interface StudentAttemptProctor {
   monitoring_card_state?: "GREEN" | "YELLOW" | "RED";
 }
 
+export interface RubricCriterionScore {
+  ku_id: string;
+  text: string;
+  weight: number;
+  achieved: number;
+  earned_score?: number;
+  max_score?: number;
+}
+
 export interface EssayGradingEvaluation {
   evaluation_id: number;
   attempt_id: number;
@@ -71,6 +80,29 @@ export interface EssayGradingEvaluation {
   ai_feedback: string | null;
   grading_status: string;
   final_score: number | null;
+  confidence?: number;
+  confidence_level?: "HIGH" | "MEDIUM" | "LOW";
+  review_required?: boolean;
+  rubric_scores?: RubricCriterionScore[];
+  academic_rationale?: string;
+}
+
+export interface TeacherStudentAnswer {
+  question_id: number;
+  question_type: string;
+  question_content: string;
+  selected_option: string | null;
+  text_answer: string | null;
+  score_earned: number;
+  max_score: number;
+  is_correct: boolean;
+  evaluation_id: number | null;
+  ai_feedback: string | null;
+  confidence?: number;
+  confidence_level?: "HIGH" | "MEDIUM" | "LOW";
+  review_required?: boolean;
+  rubric_scores?: RubricCriterionScore[];
+  academic_rationale?: string;
 }
 
 export const teacherDashboardApi = {

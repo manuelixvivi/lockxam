@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from "react";
-import { ShieldAlert, Smartphone, QrCode, Lock, CheckCircle2, Terminal } from "lucide-react";
+import { ShieldAlert, Smartphone, QrCode, Lock, CheckCircle2 } from "lucide-react";
 import { Button } from "./Button";
 import { Badge } from "./Badge";
 import { ServerHealthIndicator } from "./ServerHealthIndicator";
@@ -11,7 +11,6 @@ interface LockxamAppGuardProps {
 export const LockxamAppGuard: React.FC<LockxamAppGuardProps> = ({ children }) => {
   const [isCustomApp, setIsCustomApp] = useState<boolean>(false);
   const [isChecking, setIsChecking] = useState<boolean>(true);
-  const [devBypass, setDevBypass] = useState<boolean>(false);
   const [showQrModal, setShowQrModal] = useState<boolean>(false);
 
   useEffect(() => {
@@ -23,23 +22,9 @@ export const LockxamAppGuard: React.FC<LockxamAppGuardProps> = ({ children }) =>
       ua.includes("EquigradeApp") ||
       (window as any).isLockxamApp === true;
 
-    const bypass = sessionStorage.getItem("lockxam_dev_bypass") === "true";
-    setDevBypass(bypass);
-
-    if (isAppUA || bypass) {
-      setIsCustomApp(true);
-    } else {
-      setIsCustomApp(false);
-    }
-
+    setIsCustomApp(Boolean(isAppUA));
     setIsChecking(false);
   }, []);
-
-  const handleEnableDevBypass = () => {
-    sessionStorage.setItem("lockxam_dev_bypass", "true");
-    setDevBypass(true);
-    setIsCustomApp(true);
-  };
 
   if (isChecking) {
     return (
@@ -120,21 +105,6 @@ export const LockxamAppGuard: React.FC<LockxamAppGuardProps> = ({ children }) =>
               QR Code
             </Button>
           </div>
-
-          {/* Developer Bypass Option */}
-          <div className="pt-4 border-t border-slate-800/80 flex items-center justify-between text-xs text-slate-500">
-            <div className="flex items-center gap-1.5">
-              <Terminal className="w-3.5 h-3.5 text-amber-400" />
-              <span>Pengembang / Penguji Sistem?</span>
-            </div>
-            <button
-              type="button"
-              onClick={handleEnableDevBypass}
-              className="text-amber-400 font-semibold hover:underline cursor-pointer"
-            >
-              Aktifkan Mode Simulasi App
-            </button>
-          </div>
         </div>
 
         {/* QR Code Modal */}
@@ -162,30 +132,5 @@ export const LockxamAppGuard: React.FC<LockxamAppGuardProps> = ({ children }) =>
     );
   }
 
-  return (
-    <>
-      {devBypass && (
-        <div className="bg-amber-950/90 text-amber-300 text-xs px-4 py-2 border-b border-amber-800/60 flex items-center justify-between z-50 relative">
-          <div className="flex items-center gap-2">
-            <Terminal className="w-4 h-4 text-amber-400" />
-            <span>
-              <strong>Mode Simulasi Lockxam App (Dev Bypass):</strong> Membuka portal siswa di browser publik untuk pengujian.
-            </span>
-          </div>
-          <button
-            type="button"
-            onClick={() => {
-              sessionStorage.removeItem("lockxam_dev_bypass");
-              setDevBypass(false);
-              setIsCustomApp(false);
-            }}
-            className="text-amber-200 hover:text-white underline text-[11px]"
-          >
-            Matikan Mode Simulasi
-          </button>
-        </div>
-      )}
-      {children}
-    </>
-  );
+  return <>{children}</>;
 };

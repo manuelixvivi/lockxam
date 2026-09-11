@@ -11,6 +11,10 @@ export interface AiProviderConfig {
   max_output_tokens: number;
   rag_enabled: boolean;
   strict_transformer: boolean;
+  embedding_model: string;
+  rag_top_k: number;
+  rag_similarity_threshold: number;
+  max_rag_tokens: number;
   last_tested_at?: string | null;
   last_test_status?: "CONNECTED" | "ERROR" | string | null;
   last_test_latency_ms?: number | null;
@@ -22,11 +26,18 @@ export interface AiProviderConfigUpdatePayload {
   provider: string;
   api_key?: string;
   model_name: string;
+  eval_model_name?: string;
   fallback_model?: string;
   temperature: number;
   max_output_tokens: number;
   rag_enabled?: boolean;
+  strict_transformer?: boolean;
+  embedding_model?: string;
+  rag_top_k?: number;
+  rag_similarity_threshold?: number;
+  max_rag_tokens?: number;
 }
+
 
 export interface AiTestConnectionPayload {
   provider?: string;
@@ -92,7 +103,13 @@ export interface AiSystemOverview {
     last_test_status: string;
     last_test_latency_ms: number;
   };
+  ai_safety_status?: {
+    hmac_callback_configured: boolean;
+    webhook_secret_set: boolean;
+    replay_protection_active: boolean;
+  };
   counts: {
+
     assessment_histories: number;
     training_candidates: number;
     dataset_versions: number;

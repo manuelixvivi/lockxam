@@ -58,13 +58,6 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
   // Countdown Timer
   const [remainingSeconds, setRemainingSeconds] = useState<number>(0);
 
-  // 1. Initialize Exam Attempt & Android Native Kiosk Mode
-  useEffect(() => {
-    if (typeof window !== "undefined" && (window as any).LockxamBridge?.enterKioskMode) {
-      (window as any).LockxamBridge.enterKioskMode();
-    }
-  }, []);
-
   const initAttempt = async () => {
     setIsLoading(true);
     try {
@@ -78,6 +71,11 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
         setIsCompleted(true);
         setIsLoading(false);
         return;
+      }
+
+      // Enter Kiosk Mode exclusively upon successful active attempt start
+      if (typeof window !== "undefined" && (window as any).LockxamBridge?.enterKioskMode) {
+        (window as any).LockxamBridge.enterKioskMode();
       }
 
       // Populate questions list — STRICTLY NO MOCK FALLBACK
@@ -584,10 +582,12 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
                 </div>
               </div>
 
-              {/* Interactive textarea with cursor positioning */}
+              {/* Interactive textarea with cursor positioning and soft-keyboard suppression */}
               <textarea
                 ref={textareaRef}
                 value={currentAnswer.text_answer || ""}
+                inputMode="none"
+                readOnly={true}
                 onChange={(e) => saveAnswer(currentQuestion.question_id, undefined, e.target.value)}
                 onFocus={() => setIsKeyboardVisible(true)}
                 onClick={() => setIsKeyboardVisible(true)}
@@ -1088,7 +1088,7 @@ function LockxamBottomKeyboard({ value, onChange, onClose, textareaRef }: Lockxa
 
         <button
           type="button"
-          onClick={() => onChange(value + " ")}
+          onClick={() => handleKeyPress(" ")}
           className="flex-1 h-11 sm:h-12 bg-slate-900 active:bg-indigo-600 border border-slate-800 text-slate-200 font-black text-xs sm:text-sm rounded-lg flex items-center justify-center tracking-widest transition-none active:scale-[0.98] shadow-sm"
         >
           SPASI

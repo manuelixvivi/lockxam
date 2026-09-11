@@ -50,6 +50,13 @@ def db_fixture():
         if trans.parent is None:
             nested = connection.begin_nested()
 
+    @event.listens_for(db, "before_flush")
+    def default_test_accounts_password(session, flush_context, instances):
+        for obj in session.new:
+            if isinstance(obj, AuthAccount):
+                if getattr(obj, "_keep_must_change_password", False) is not True:
+                    obj.must_change_password = False
+
     # Override get_db dependency to use the transactional session
     def override_get_db():
         try:
@@ -108,6 +115,7 @@ def test_superadmin(db, test_school):
         password_hash=hashed,
         role="SUPERADMIN",
         is_active=True,
+        must_change_password=False,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )
@@ -130,6 +138,7 @@ def test_teacher(db, test_school):
         password_hash=hashed,
         role="TEACHER",
         is_active=True,
+        must_change_password=False,
         created_at=datetime.now(timezone.utc),
         updated_at=datetime.now(timezone.utc),
     )

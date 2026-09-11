@@ -275,22 +275,19 @@ class ExamService:
             # Authoritative eligibility check at domain service layer
             ExamService.validate_student_exam_eligibility(db, session.schedule_id, student_id)
 
-            # Auto-activate session if start time has arrived or session was PLANNED / DRAFT
-            if session.status not in [ExamSessionStatus.ACTIVE, "ACTIVE"]:
-                now_utc = datetime.now(timezone.utc)
-                start_at = session.scheduled_start_at
-                if start_at and start_at.tzinfo is None:
-                    start_at = start_at.replace(tzinfo=timezone.utc)
+            # Strictly enforce exam window start time
+            now_utc = datetime.now(timezone.utc)
+            start_at = session.scheduled_start_at
+            if start_at and start_at.tzinfo is None:
+                start_at = start_at.replace(tzinfo=timezone.utc)
 
-                if (
-                    not start_at
-                    or now_utc >= start_at
-                    or str(session.status).upper() in ["PLANNED", "DRAFT", "READY", "SCHEDULED"]
-                ):
-                    session.status = ExamSessionStatus.ACTIVE
-                    db.flush()
-                else:
-                    raise BusinessException("Waktu pelaksanaan ujian belum tiba.", status_code=400)
+            if start_at and now_utc < start_at:
+                raise BusinessException("Waktu pelaksanaan ujian belum tiba.", status_code=400)
+
+            # Auto-activate session if start time has arrived
+            if session.status not in [ExamSessionStatus.ACTIVE, "ACTIVE"]:
+                session.status = ExamSessionStatus.ACTIVE
+                db.flush()
 
             # EXAM-QR-01: Validate QR Attendance Checkin Requirement
             from app.repositories.exam.checkin_repository import checkin_repository

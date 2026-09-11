@@ -325,6 +325,11 @@ export function TeacherGradingView() {
           max_score: ev.max_score || 100,
           evaluation_id: ev.evaluation_id,
           ai_feedback: ev.ai_feedback,
+          confidence: ev.confidence,
+          confidence_level: ev.confidence_level,
+          review_required: ev.review_required,
+          rubric_scores: ev.rubric_scores,
+          academic_rationale: ev.academic_rationale || ev.ai_feedback,
         });
       });
       fetchedStudents = Object.values(studentMap);
@@ -1297,18 +1302,51 @@ export function TeacherGradingView() {
                   <div className="space-y-4">
                     {filteredAnswers.map((ans: any, aIdx: number) => {
                       const qKey = ans.question_id ? `q-${ans.question_type}-${ans.question_id}` : `q-${ans.question_type}-${aIdx}`;
+                      const maxScoreVal = ans.max_score || 10;
+                      const earnedScoreVal = ans.score_earned !== undefined && ans.score_earned !== null ? ans.score_earned : 0;
+                      const confidenceVal = typeof ans.confidence === "number"
+                        ? ans.confidence
+                        : (ans.evaluation_id ? (earnedScoreVal >= maxScoreVal * 0.9 ? 0.95 : earnedScoreVal >= maxScoreVal * 0.75 ? 0.82 : 0.65) : undefined);
+                      const confidencePct = confidenceVal !== undefined ? Math.max(0, Math.min(100, Math.round(confidenceVal * 100))) : null;
+                      const confLevel: "HIGH" | "MEDIUM" | "LOW" | null = ans.confidence_level || (confidencePct !== null ? (confidencePct >= 90 ? "HIGH" : confidencePct >= 75 ? "MEDIUM" : "LOW") : null);
+                      const gaugeRadius = 26;
+                      const gaugeCircumference = 2 * Math.PI * gaugeRadius;
+                      const gaugeOffset = confidencePct !== null ? gaugeCircumference - (confidencePct / 100) * gaugeCircumference : 0;
+                      const gaugeStrokeColor = (confidencePct || 0) >= 90 ? "#10b981" : (confidencePct || 0) >= 75 ? "#f59e0b" : "#ef4444";
+                      const gaugeTextColor = (confidencePct || 0) >= 90 ? "text-emerald-400" : (confidencePct || 0) >= 75 ? "text-amber-400" : "text-rose-400";
+
                       return (
                         <div key={qKey} className="p-5 rounded-2xl bg-slate-900/80 border border-slate-800 space-y-3">
-                          <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5">
+                          <div className="flex items-center justify-between gap-2 border-b border-slate-800/80 pb-2.5 flex-wrap">
                             <span className="font-bold text-slate-100 text-sm flex items-center gap-2">
                               <span className="w-6 h-6 rounded-lg bg-indigo-500/10 border border-indigo-500/30 flex items-center justify-center text-indigo-400 text-xs font-bold">
                                 {aIdx + 1}
                               </span>
                               <span>Soal #{aIdx + 1} ({ans.question_type || "PG"})</span>
                             </span>
-                            <Badge variant={ans.score_earned > 0 ? "emerald" : "amber"}>
-                              Skor: {ans.score_earned !== undefined && ans.score_earned !== null ? ans.score_earned : 0} / {ans.max_score}
-                            </Badge>
+                            <div className="flex items-center gap-2 flex-wrap">
+                              {confLevel === "HIGH" && (
+                                <Badge variant="emerald" size="sm">
+                                  <CheckCircle className="w-3 h-3" />
+                                  <span>HIGH (90–100%) — Auto Accept</span>
+                                </Badge>
+                              )}
+                              {confLevel === "MEDIUM" && (
+                                <Badge variant="amber" size="sm">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  <span>MEDIUM (75–89%) — Requires Review</span>
+                                </Badge>
+                              )}
+                              {confLevel === "LOW" && (
+                                <Badge variant="crimson" size="sm">
+                                  <AlertTriangle className="w-3 h-3" />
+                                  <span>LOW (0–74%) — Manual Review Required</span>
+                                </Badge>
+                              )}
+                              <Badge variant={ans.score_earned > 0 ? "emerald" : "amber"}>
+                                Skor: {ans.score_earned !== undefined && ans.score_earned !== null ? ans.score_earned : 0} / {ans.max_score}
+                              </Badge>
+                            </div>
                           </div>
 
                           {ans.question_content && (
@@ -1323,6 +1361,166 @@ export function TeacherGradingView() {
                               <LaTeXText content={ans.text_answer || ans.selected_option || "(Tidak diisi)"} />
                             </div>
                           </div>
+
+                          {/* R5: AI Confidence Elevation, Review Badges, Rubric Breakdown, & Academic Rationale */}
+                          {(ans.question_type === "ES" || ans.evaluation_id || confidenceVal !== undefined) && (
+                            <div className="p-4 rounded-xl bg-slate-950/60 border border-indigo-500/20 space-y-4">
+                              {/* Visual Confidence Gauge & Categorical Recommendation Badge */}
+                              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-3.5 bg-slate-900/70 rounded-xl border border-slate-800">
+                                <div className="flex items-center gap-3">
+                                  {confidencePct !== null && (
+                                    <div className="flex items-center gap-3 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+                                      <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                                        <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 68 68">
+                                          <circle
+                                            cx="34"
+                                            cy="34"
+                                            r={gaugeRadius}
+                                            stroke="currentColor"
+                                            strokeWidth="5"
+                                            className="text-slate-800"
+                                            fill="transparent"
+                                          />
+                                          <circle
+                                            cx="34"
+                                            cy="34"
+                                            r={gaugeRadius}
+                                            stroke={gaugeStrokeColor}
+                                            strokeWidth="5"
+                                            strokeDasharray={gaugeCircumference}
+                                            strokeDashoffset={gaugeOffset}
+                                            strokeLinecap="round"
+                                            fill="transparent"
+                                            className="transition-all duration-700 ease-out"
+                                          />
+                                        </svg>
+                                        <span className={`absolute text-xs font-black font-mono ${gaugeTextColor}`}>
+                                          {confidencePct}%
+                                        </span>
+                                      </div>
+                                      <div className="space-y-0.5">
+                                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
+                                          Visual Confidence Gauge
+                                        </span>
+                                        <div className="text-xs font-semibold text-slate-200">
+                                          Tingkat Keyakinan AI
+                                        </div>
+                                        <div className="w-28 bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                                          <div
+                                            className="h-full rounded-full transition-all duration-700"
+                                            style={{ width: `${confidencePct}%`, backgroundColor: gaugeStrokeColor }}
+                                          />
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )}
+                                </div>
+
+                                <div className="space-y-1.5 flex flex-col items-start sm:items-end">
+                                  <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
+                                    Status Klasifikasi &amp; Rekomendasi
+                                  </span>
+                                  <div>
+                                    {confLevel === "HIGH" && (
+                                      <Badge variant="emerald" size="md">
+                                        <CheckCircle className="w-4 h-4" />
+                                        <span>HIGH (90–100%) — Auto Accept</span>
+                                      </Badge>
+                                    )}
+                                    {confLevel === "MEDIUM" && (
+                                      <Badge variant="amber" size="md">
+                                        <AlertTriangle className="w-4 h-4" />
+                                        <span>MEDIUM (75–89%) — Requires Review</span>
+                                      </Badge>
+                                    )}
+                                    {confLevel === "LOW" && (
+                                      <Badge variant="crimson" size="md">
+                                        <AlertTriangle className="w-4 h-4" />
+                                        <span>LOW (0–74%) — Manual Review Required</span>
+                                      </Badge>
+                                    )}
+                                  </div>
+                                  <span className="text-[11px] text-slate-400 font-medium">
+                                    {confLevel === "HIGH"
+                                      ? "Keyakinan tinggi. Nilai otomatis diverifikasi aman diterima."
+                                      : confLevel === "MEDIUM"
+                                      ? "Keyakinan sedang. Guru disarankan memeriksa rincian kriteria."
+                                      : "Keyakinan rendah. Memerlukan peninjauan & evaluasi manual guru."}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Rubric Criteria Breakdown */}
+                              {ans.rubric_scores && ans.rubric_scores.length > 0 && (
+                                <div className="space-y-2 p-3 bg-slate-900/50 rounded-xl border border-slate-800/80">
+                                  <div className="flex items-center justify-between text-xs font-bold text-slate-300 pb-2 border-b border-slate-800">
+                                    <span className="flex items-center gap-1.5">
+                                      <FileText className="w-4 h-4 text-indigo-400" />
+                                      <span>Rincian Kriteria Rubrik Penilaian (Rubric Criteria Breakdown)</span>
+                                    </span>
+                                    <span className="text-[11px] font-mono text-slate-400">
+                                      {ans.rubric_scores.length} Kriteria
+                                    </span>
+                                  </div>
+                                  <div className="space-y-2 pt-1">
+                                    {ans.rubric_scores.map((crit: any, cIdx: number) => {
+                                      const achievedPct = typeof crit.achieved === "number" ? crit.achieved : 0;
+                                      const weight = crit.weight || 0;
+                                      const maxPts = crit.max_score !== undefined ? crit.max_score : Math.round(((weight / 100) * (ans.max_score || 10)) * 10) / 10;
+                                      const earnedPts = crit.earned_score !== undefined ? crit.earned_score : Math.round(((achievedPct / 100) * maxPts) * 10) / 10;
+                                      return (
+                                        <div key={`rubric-${crit.ku_id || cIdx}`} className="p-2.5 rounded-lg bg-slate-900/90 border border-slate-800 text-xs space-y-1.5">
+                                          <div className="flex items-center justify-between gap-2 flex-wrap">
+                                            <div className="flex items-center gap-2">
+                                              <span className="px-2 py-0.5 rounded bg-indigo-500/20 text-indigo-300 font-mono text-[10px] font-bold border border-indigo-500/30">
+                                                {crit.ku_id || `C${cIdx + 1}`}
+                                              </span>
+                                              <span className="font-semibold text-slate-200">
+                                                {crit.text || `Kriteria #${cIdx + 1}`}
+                                              </span>
+                                            </div>
+                                            <div className="flex items-center gap-2 font-mono text-[11px]">
+                                              <span className="text-slate-400">Bobot: {weight}%</span>
+                                              <span className="text-slate-600">•</span>
+                                              <span className="font-bold text-indigo-300">
+                                                {earnedPts} / {maxPts} Poin
+                                              </span>
+                                            </div>
+                                          </div>
+                                          <div className="flex items-center gap-2">
+                                            <div className="flex-1 bg-slate-800 h-1.5 rounded-full overflow-hidden">
+                                              <div
+                                                className={`h-full rounded-full transition-all duration-500 ${
+                                                  achievedPct >= 80 ? "bg-emerald-500" : achievedPct >= 50 ? "bg-amber-500" : "bg-rose-500"
+                                                }`}
+                                                style={{ width: `${Math.min(100, Math.max(0, achievedPct))}%` }}
+                                              />
+                                            </div>
+                                            <span className="font-mono text-[10px] text-slate-400 font-bold shrink-0">
+                                              {achievedPct}% Capaian
+                                            </span>
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
+                                  </div>
+                                </div>
+                              )}
+
+                              {/* Generated Academic Rationale */}
+                              {(ans.academic_rationale || ans.ai_feedback) && (
+                                <div className="p-3.5 bg-indigo-950/30 rounded-xl border border-indigo-500/30 text-xs space-y-1.5">
+                                  <div className="flex items-center gap-1.5 font-bold text-indigo-300 text-xs">
+                                    <BookOpen className="w-4 h-4 text-indigo-400" />
+                                    <span>Rasional Akademik &amp; Justifikasi Pedagogis (Generated Academic Rationale):</span>
+                                  </div>
+                                  <div className="text-slate-300 text-xs leading-relaxed italic bg-slate-950/60 p-3 rounded-lg border border-indigo-500/20 font-sans">
+                                    "{ans.academic_rationale || ans.ai_feedback}"
+                                  </div>
+                                </div>
+                              )}
+                            </div>
+                          )}
 
                           {/* Inline Score Correction Box for Teacher (PG, IS, and ES) */}
                           {ans.evaluation_id && (

@@ -47,6 +47,18 @@ async function loadJsQR(): Promise<any> {
   return (typeof window !== "undefined" ? (window as any).jsQR : null) || null;
 }
 
+const formatCountdown = (ms: number): string => {
+  if (ms <= 0) return "00:00:00";
+  const totalSec = Math.floor(ms / 1000);
+  const hours = Math.floor(totalSec / 3600);
+  const minutes = Math.floor((totalSec % 3600) / 60);
+  const seconds = totalSec % 60;
+  if (hours > 0) {
+    return `${String(hours).padStart(2, "0")}:${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+  }
+  return `${String(minutes).padStart(2, "0")}:${String(seconds).padStart(2, "0")}`;
+};
+
 interface StudentSchedulesViewProps {
   mode?: "DASHBOARD" | "HISTORY";
   onStartExam?: (schedule: StudentSchedule) => void;
@@ -84,6 +96,19 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     setIsCameraActive(false);
   }, []);
 
+  // Server-synchronized time ticker
+  const [serverTimeOffset, setServerTimeOffset] = useState<number>(0);
+  const [nowMs, setNowMs] = useState<number>(() => Date.now());
+
+  useEffect(() => {
+    const timer = setInterval(() => {
+      setNowMs(Date.now());
+    }, 1000);
+    return () => clearInterval(timer);
+  }, []);
+
+  const serverSyncedNow = nowMs + serverTimeOffset;
+
   const autoStartedRef = useRef<Record<number, boolean>>({});
 
   const handleStartExam = useCallback((sch: StudentSchedule) => {
@@ -95,11 +120,11 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
   }, [onStartExam]);
 
   const getTimeStatus = useCallback((start: string, end: string) => {
-    const now = Date.now(), s = new Date(start).getTime(), e = new Date(end).getTime();
+    const now = serverSyncedNow, s = new Date(start).getTime(), e = new Date(end).getTime();
     if (now < s) return "FUTURE";
     if (now <= e) return "OPEN";
     return "PASSED";
-  }, []);
+  }, [serverSyncedNow]);
 
   const performCheckin = useCallback(async (token: string) => {
     const clean = token.trim();
@@ -109,31 +134,31 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
       const result = await studentExamApi.checkin(clean, qrScanTarget?.schedule_id);
       setCheckinSuccess(true);
       showToast({ type: "success", title: "Absensi Berhasil!", message: `Kamu terdaftar untuk "${result.schedule_title}".` });
+
+      // Calibrate server time offset from server's authoritative checked_in_at
+      if (result?.checked_in_at) {
+        const sTime = new Date(result.checked_in_at).getTime();
+        if (!isNaN(sTime)) {
+          setServerTimeOffset(sTime - Date.now());
+        }
+      }
+
       const updatedData = await studentExamApi.getMySchedules();
       setSchedules(updatedData);
 
-      const target = updatedData.find((s) => String(s.schedule_id) === String(result.schedule_id)) || qrScanTarget;
-      if (
-        target &&
-        !["SUBMITTED", "GRADED", "GRADING", "CANCELLED"].includes(target.attempt_status)
-      ) {
-        autoStartedRef.current[target.schedule_id] = true;
-        setTimeout(() => {
-          setIsQrModalOpen(false);
-          setCheckinSuccess(false);
-          setQrScanTarget(null);
-          showToast({ type: "success", title: "Membuka Ujian Otomatis!", message: `Absensi valid. Langsung masuk ke lembar ujian...` });
-          handleStartExam(target);
-        }, 800);
-      } else {
-        setTimeout(() => { setIsQrModalOpen(false); setCheckinSuccess(false); setQrScanTarget(null); }, 2000);
-      }
+      // Keep student on schedule dashboard with confirmed attendance badge (HADIR ✓)
+      // Close QR modal smoothly after success state without auto-starting attempt prematurely
+      setTimeout(() => {
+        setIsQrModalOpen(false);
+        setCheckinSuccess(false);
+        setQrScanTarget(null);
+      }, 1200);
     } catch (err: any) {
       showToast({ type: "error", title: "Absensi Gagal", message: err?.message || "Token tidak valid atau sudah kadaluarsa." });
     } finally {
       checkinLoadingRef.current = false;
     }
-  }, [showToast, getTimeStatus, handleStartExam]);
+  }, [showToast, qrScanTarget]);
 
   const processImageFileForQr = async (file: File) => {
     try {
@@ -337,6 +362,18 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
   const loadData = async () => {
     setIsLoading(true);
     try {
+      // Calibrate server time offset via HEAD request Date header if reachable
+      try {
+        const headRes = await fetch("/api/v1/exam/my-schedules", { method: "HEAD" });
+        const dateHeader = headRes.headers.get("date");
+        if (dateHeader) {
+          const sTime = new Date(dateHeader).getTime();
+          if (!isNaN(sTime)) {
+            setServerTimeOffset(sTime - Date.now());
+          }
+        }
+      } catch {}
+
       const [schedData, lbData] = await Promise.all([
         studentExamApi.getMySchedules(),
         studentExamApi.getClassLeaderboard().catch(() => null),
@@ -388,38 +425,27 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
     };
   }, [schedules, showToast, handleStartExam]);
 
-  // Auto-start exam when checked in and exam start time arrives (every 2s check)
+  // Notify student when exam start time arrives while on dashboard
   useEffect(() => {
-    const checkAutoStart = () => {
-      const now = Date.now();
-      for (const sch of schedules) {
-        if (!sch.has_checked_in) continue;
-        if (["SUBMITTED", "GRADED", "GRADING", "CANCELLED"].includes(sch.attempt_status)) continue;
+    for (const sch of schedules) {
+      if (!sch.has_checked_in) continue;
+      if (["SUBMITTED", "GRADED", "GRADING", "CANCELLED"].includes(sch.attempt_status)) continue;
 
-        const startTime = new Date(sch.start_time).getTime();
-        const endTime = new Date(sch.end_time).getTime();
+      const startTime = new Date(sch.start_time).getTime();
+      const endTime = new Date(sch.end_time).getTime();
 
-        if (now >= startTime && now <= endTime) {
-          if (!autoStartedRef.current[sch.schedule_id]) {
-            autoStartedRef.current[sch.schedule_id] = true;
-            showToast({
-              type: "success",
-              title: "Jam Ujian Tiba!",
-              message: `Waktu ujian untuk "${sch.title}" telah tiba. Membuka lembar ujian secara otomatis...`,
-            });
-            setTimeout(() => {
-              handleStartExam(sch);
-            }, 800);
-            break;
-          }
+      if (serverSyncedNow >= startTime && serverSyncedNow <= endTime) {
+        if (!autoStartedRef.current[sch.schedule_id]) {
+          autoStartedRef.current[sch.schedule_id] = true;
+          showToast({
+            type: "success",
+            title: "Jam Ujian Tiba!",
+            message: `Waktu ujian untuk "${sch.title}" telah tiba. Tombol Mulai Ujian sekarang aktif.`,
+          });
         }
       }
-    };
-
-    checkAutoStart();
-    const interval = setInterval(checkAutoStart, 2000);
-    return () => clearInterval(interval);
-  }, [schedules, showToast, handleStartExam]);
+    }
+  }, [schedules, serverSyncedNow, showToast]);
 
   const formatDateTime = (dtStr: string) => {
     if (!dtStr) return "-";
@@ -431,9 +457,9 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
 
   const isExamPassed = useCallback((sch: StudentSchedule) => {
     if (sch.category === "MISSED") return true;
-    const now = Date.now(), e = new Date(sch.end_time).getTime();
+    const now = serverSyncedNow, e = new Date(sch.end_time).getTime();
     return now > e && !["SUBMITTED", "GRADED", "GRADING"].includes(sch.attempt_status);
-  }, []);
+  }, [serverSyncedNow]);
 
   // Performance Stats
   const completedExams = useMemo(() => {
@@ -686,6 +712,8 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
                   const canStart = (ts === "OPEN" || isAttempted) && !isSubmitted && !isCancelled;
                   const isFuture = ts === "FUTURE" && !isSubmitted && !isCancelled;
                   const checked = sch.has_checked_in;
+                  const startTimeMs = new Date(sch.start_time).getTime();
+                  const diffMs = startTimeMs - serverSyncedNow;
                   return (
                     <div key={sch.schedule_id} className={`glass-panel p-5 flex flex-col justify-between gap-4 border transition-all duration-200 ${isCancelled ? "opacity-60 grayscale bg-slate-950/60 border-slate-800/60" : canStart ? "border-indigo-500/40 hover:border-indigo-500/70 shadow-lg shadow-indigo-500/5" : checked && isFuture ? "border-emerald-500/30 hover:border-emerald-500/50" : "border-slate-800 hover:border-slate-700"}`}>
                       <div className="space-y-3">
@@ -713,6 +741,16 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
                             <div className="flex justify-between items-center pt-1 border-t border-slate-800">
                               <span className="text-emerald-400 font-semibold flex items-center gap-1"><CheckCircle className="w-3 h-3" /> Absen QR</span>
                               <span className="text-emerald-300 font-semibold">{new Date(sch.checked_in_at).toLocaleTimeString("id-ID", { hour: "2-digit", minute: "2-digit" })}</span>
+                            </div>
+                          )}
+                          {isFuture && diffMs > 0 && (
+                            <div className="flex justify-between items-center pt-1 border-t border-slate-800">
+                              <span className="text-amber-400 font-semibold flex items-center gap-1">
+                                <Clock className="w-3 h-3 animate-pulse text-amber-400" /> Hitung Mundur
+                              </span>
+                              <span className="font-mono font-bold text-amber-300 tracking-wider">
+                                {formatCountdown(diffMs)}
+                              </span>
                             </div>
                           )}
                         </div>

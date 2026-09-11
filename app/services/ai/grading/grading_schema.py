@@ -1,7 +1,7 @@
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, model_validator
 
 
 class GradingRubricItem(BaseModel):
@@ -91,3 +91,61 @@ class GradingEvaluateResponse(BaseModel):
     )
     latency_ms: float = Field(0.0, description="Total execution latency in milliseconds")
     generated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    confidence: float = Field(
+        ...,
+        ge=0.0,
+        le=1.0,
+        description="Root-level grading confidence score (0.0 to 1.0)",
+    )
+    confidence_level: str = Field(
+        ...,
+        description="Categorical confidence: HIGH, MEDIUM, or LOW",
+    )
+    review_required: bool = Field(
+        ...,
+        description="Whether teacher review is required",
+    )
+    academic_rationale: Optional[str] = Field(
+        None,
+        description="Pedagogical academic rationale explaining the awarded points",
+    )
+
+    @model_validator(mode="before")
+    @classmethod
+    def populate_root_confidence(cls, data: Any) -> Any:
+        if isinstance(data, dict):
+            if "confidence" not in data or data["confidence"] is None:
+                decision = data.get("decision") or {}
+                conf = decision.get("quality_indicator")
+                if conf is None:
+                    conf = decision.get("confidence")
+                if conf is None:
+                    is_empty = (
+                        data.get("status") == "success"
+                        and data.get("score") == 0.0
+                        and "kosong" in str(data.get("feedback", "")).lower()
+                    )
+                    conf = 1.0 if is_empty else 0.85
+                data["confidence"] = round(max(0.0, min(1.0, float(conf))), 2)
+
+            conf_val = float(data["confidence"])
+            if "confidence_level" not in data or not data["confidence_level"]:
+                if conf_val >= 0.90:
+                    data["confidence_level"] = "HIGH"
+                elif conf_val >= 0.75:
+                    data["confidence_level"] = "MEDIUM"
+                else:
+                    data["confidence_level"] = "LOW"
+
+            if "review_required" not in data or data["review_required"] is None:
+                data["review_required"] = conf_val < 0.90
+
+            if "academic_rationale" not in data or not data["academic_rationale"]:
+                decision = data.get("decision") or {}
+                data["academic_rationale"] = (
+                    decision.get("academic_rationale")
+                    or decision.get("explainability")
+                    or data.get("feedback")
+                )
+        return data

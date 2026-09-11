@@ -68,12 +68,19 @@ export const SuperAdminAiSystemView: React.FC<{
   // Form states for Configuration Tab
   const [formProvider, setFormProvider] = useState<string>("Groq");
   const [formModel, setFormModel] = useState<string>("openai/gpt-oss-120b");
+  const [formEvalModel, setFormEvalModel] = useState<string>("openai/gpt-oss-120b");
   const [formFallbackModel, setFormFallbackModel] = useState<string>("openai/gpt-oss-20b");
   const [formApiKey, setFormApiKey] = useState<string>("");
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [formTemperature, setFormTemperature] = useState<number>(0.2);
   const [formMaxTokens, setFormMaxTokens] = useState<number>(4096);
   const [formRagEnabled, setFormRagEnabled] = useState<boolean>(false);
+  const [formStrictTransformer, setFormStrictTransformer] = useState<boolean>(false);
+  const [formEmbeddingModel, setFormEmbeddingModel] = useState<string>("intfloat/multilingual-e5-large");
+  const [formRagTopK, setFormRagTopK] = useState<number>(3);
+  const [formRagSimilarityThreshold, setFormRagSimilarityThreshold] = useState<number>(0.70);
+  const [formMaxRagTokens, setFormMaxRagTokens] = useState<number>(1500);
+
 
   // Test Connection states
   const [isTestingConn, setIsTestingConn] = useState<boolean>(false);
@@ -123,10 +130,17 @@ export const SuperAdminAiSystemView: React.FC<{
       // Populate form
       setFormProvider(configRes.provider || "Groq");
       setFormModel(configRes.model_name || "openai/gpt-oss-120b");
+      setFormEvalModel(configRes.eval_model_name || configRes.model_name || "openai/gpt-oss-120b");
       setFormFallbackModel(configRes.fallback_model || "openai/gpt-oss-20b");
       setFormTemperature(configRes.temperature ?? 0.2);
       setFormMaxTokens(configRes.max_output_tokens ?? 4096);
       setFormRagEnabled(configRes.rag_enabled ?? false);
+      setFormStrictTransformer(configRes.strict_transformer ?? false);
+      setFormEmbeddingModel(configRes.embedding_model || "intfloat/multilingual-e5-large");
+      setFormRagTopK(configRes.rag_top_k ?? 3);
+      setFormRagSimilarityThreshold(configRes.rag_similarity_threshold ?? 0.70);
+      setFormMaxRagTokens(configRes.max_rag_tokens ?? 1500);
+
     } catch (err: any) {
       const apiErr = err as AppApiError;
       toast.error("Gagal Memuat Data AI & Sistem", apiErr.message);
@@ -183,12 +197,19 @@ export const SuperAdminAiSystemView: React.FC<{
       const updated = await superadminAiApi.updateConfig({
         provider: formProvider,
         model_name: formModel,
+        eval_model_name: formEvalModel,
         fallback_model: formFallbackModel,
         api_key: formApiKey ? formApiKey.trim() : undefined,
         temperature: Number(formTemperature),
         max_output_tokens: Number(formMaxTokens),
         rag_enabled: formRagEnabled,
+        strict_transformer: formStrictTransformer,
+        embedding_model: formEmbeddingModel,
+        rag_top_k: Number(formRagTopK),
+        rag_similarity_threshold: Number(formRagSimilarityThreshold),
+        max_rag_tokens: Number(formMaxRagTokens),
       });
+
 
       setConfig(updated);
       setFormApiKey("");
@@ -464,6 +485,89 @@ export const SuperAdminAiSystemView: React.FC<{
                       </div>
                     </div>
                   )}
+
+                  {/* AI Safety & Webhook Governance Status */}
+                  <div className="glass-panel p-6 border-slate-800 bg-slate-900/60">
+                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-4">
+                      <div>
+                        <div className="flex items-center gap-2">
+                          <ShieldCheck className="w-5 h-5 text-emerald-400" />
+                          <h2 className="text-lg font-bold text-slate-100">
+                            AI Safety, Webhook Verification & Replay Protection
+                          </h2>
+                        </div>
+                        <p className="text-xs text-slate-400 mt-1">
+                          Status keamanan webhook HMAC-SHA256, autentikasi callback asynchronous, dan pencegahan replay penilaian AI.
+                        </p>
+                      </div>
+                      <Badge variant={overview.ai_safety_status?.webhook_secret_set ? "emerald" : "amber"}>
+                        {overview.ai_safety_status?.webhook_secret_set ? "SECURE & SIGNED" : "NEEDS CONFIGURATION"}
+                      </Badge>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                      {/* HMAC Callback Health */}
+                      <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 flex flex-col justify-between">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-slate-300">HMAC Callback Health</span>
+                          {overview.ai_safety_status?.hmac_callback_configured ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-amber-400" />
+                          )}
+                        </div>
+                        <div className="text-base font-bold text-slate-100 flex items-center gap-2">
+                          <Badge variant={overview.ai_safety_status?.hmac_callback_configured ? "emerald" : "amber"} size="sm">
+                            {overview.ai_safety_status?.hmac_callback_configured ? "HEALTHY / VERIFIED" : "UNCONFIGURED"}
+                          </Badge>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-2">
+                          Route: <code className="font-mono text-slate-300">/api/v1/exam/ai/callback</code>
+                        </div>
+                      </div>
+
+                      {/* Webhook Secret Verification */}
+                      <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 flex flex-col justify-between">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-slate-300">Webhook Secret Verification</span>
+                          {overview.ai_safety_status?.webhook_secret_set ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-amber-400" />
+                          )}
+                        </div>
+                        <div className="text-base font-bold text-slate-100 flex items-center gap-2">
+                          <Badge variant={overview.ai_safety_status?.webhook_secret_set ? "emerald" : "amber"} size="sm">
+                            {overview.ai_safety_status?.webhook_secret_set ? "CONFIGURED (AI_WEBHOOK_SECRET)" : "NOT SET (FAIL-CLOSED)"}
+                          </Badge>
+                        </div>
+                        <div className="text-[11px] text-slate-400 mt-2">
+                          Header: <code className="font-mono text-slate-300">X-AI-Signature (HMAC-SHA256)</code>
+                        </div>
+                      </div>
+
+                      {/* Replay Protection Status */}
+                      <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700/50 flex flex-col justify-between">
+                        <div className="flex items-center justify-between mb-2">
+                          <span className="text-xs font-semibold text-slate-300">Replay Protection Status</span>
+                          {overview.ai_safety_status?.replay_protection_active ? (
+                            <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                          ) : (
+                            <XCircle className="w-4 h-4 text-red-400" />
+                          )}
+                        </div>
+                        <div className="text-base font-bold text-slate-100 flex items-center gap-2">
+                          <Badge variant={overview.ai_safety_status?.replay_protection_active ? "emerald" : "crimson"} size="sm">
+                            {overview.ai_safety_status?.replay_protection_active ? "ACTIVE & IDEMPOTENT" : "DISABLED"}
+                          </Badge>
+                        </div>
+
+                        <div className="text-[11px] text-slate-400 mt-2">
+                          Storage: <code className="font-mono text-slate-300">AiGradingEventLog (Atomic UUID)</code>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
               )}
 
@@ -550,6 +654,27 @@ export const SuperAdminAiSystemView: React.FC<{
                           </select>
                         </div>
 
+                        {/* Evaluation Model Selection */}
+                        <div className="space-y-2">
+                          <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                            Evaluation Model (eval_model_name)
+                          </label>
+                          <select
+                            value={formEvalModel}
+                            onChange={(e) => setFormEvalModel(e.target.value)}
+                            className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                          >
+                            {availableModels.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name} {m.is_recommended ? "★ (Rekomendasi)" : ""}
+                              </option>
+                            ))}
+                          </select>
+                          <p className="text-[11px] text-slate-400">
+                            Model yang digunakan untuk evaluasi grading, pemeringkatan rubrik, dan feedback pedagogis siswa.
+                          </p>
+                        </div>
+
                         {/* Fallback Model Selection */}
                         <div className="space-y-2">
                           <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
@@ -563,6 +688,26 @@ export const SuperAdminAiSystemView: React.FC<{
                             <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Ultra-Low Latency)</option>
                             <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
                           </select>
+                        </div>
+
+                        {/* Strict Transformer Toggle */}
+                        <div className="pt-2">
+                          <label className="flex items-center gap-3 p-3.5 rounded-xl bg-slate-800/40 border border-slate-700/50 cursor-pointer hover:bg-slate-800/60 transition-colors">
+                            <input
+                              type="checkbox"
+                              checked={formStrictTransformer}
+                              onChange={(e) => setFormStrictTransformer(e.target.checked)}
+                              className="w-4 h-4 rounded text-indigo-600 bg-slate-900 border-slate-700 focus:ring-indigo-500"
+                            />
+                            <div>
+                              <div className="text-sm font-semibold text-slate-200">
+                                Strict Transformer Enforcement (Fail-Closed)
+                              </div>
+                              <div className="text-xs text-slate-400">
+                                Mewajibkan inferensi neural SentenceTransformer murni; menolak fallback ke encoder tiruan pada lingkungan produksi.
+                              </div>
+                            </div>
+                          </label>
                         </div>
 
                         {/* Hyperparameters Grid */}
@@ -623,6 +768,103 @@ export const SuperAdminAiSystemView: React.FC<{
                             </div>
                           </label>
                         </div>
+
+                        {/* RAG Semantic Tuning & Hyperparameters */}
+                        <div className="p-4 rounded-xl bg-slate-900/60 border border-slate-800 space-y-4">
+                          <div className="flex items-center justify-between border-b border-slate-800 pb-2">
+                            <div className="text-xs font-bold text-slate-200 uppercase tracking-wider flex items-center gap-1.5">
+                              <Sliders className="w-3.5 h-3.5 text-indigo-400" />
+                              RAG Tuning & Retrieval Parameters
+                            </div>
+                            <Badge variant={formRagEnabled ? "indigo" : "slate"} size="sm">
+                              {formRagEnabled ? "RAG AKTIF" : "RAG NONAKTIF"}
+                            </Badge>
+                          </div>
+
+                          {/* Embedding Model */}
+                          <div className="space-y-1.5">
+                            <label className="text-xs font-semibold text-slate-300">
+                              Embedding Model
+                            </label>
+                            <input
+                              type="text"
+                              value={formEmbeddingModel}
+                              onChange={(e) => setFormEmbeddingModel(e.target.value)}
+                              placeholder="intfloat/multilingual-e5-large"
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                            />
+                            <p className="text-[11px] text-slate-500">
+                              Dense neural semantic encoder (1024-dim) untuk representasi vektor jawaban dan kriteria rubrik.
+                            </p>
+                          </div>
+
+                          {/* Top-K and Similarity Threshold Sliders */}
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-1">
+                            {/* Top-K Slider */}
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <label className="text-xs font-semibold text-slate-300">
+                                  Top-K Retrieval: <span className="text-indigo-400 font-mono">{formRagTopK}</span>
+                                </label>
+                              </div>
+                              <input
+                                type="range"
+                                min="1"
+                                max="10"
+                                step="1"
+                                value={formRagTopK}
+                                onChange={(e) => setFormRagTopK(parseInt(e.target.value, 10))}
+                                className="w-full accent-indigo-500 cursor-pointer"
+                              />
+                              <div className="flex justify-between text-[10px] text-slate-500">
+                                <span>1 Kasus</span>
+                                <span>10 Kasus</span>
+                              </div>
+                            </div>
+
+                            {/* Similarity Threshold Slider */}
+                            <div className="space-y-2">
+                              <div className="flex justify-between items-center">
+                                <label className="text-xs font-semibold text-slate-300">
+                                  Similarity Threshold: <span className="text-indigo-400 font-mono">{formRagSimilarityThreshold}</span>
+                                </label>
+                              </div>
+                              <input
+                                type="range"
+                                min="0.50"
+                                max="0.95"
+                                step="0.05"
+                                value={formRagSimilarityThreshold}
+                                onChange={(e) => setFormRagSimilarityThreshold(parseFloat(e.target.value))}
+                                className="w-full accent-indigo-500 cursor-pointer"
+                              />
+                              <div className="flex justify-between text-[10px] text-slate-500">
+                                <span>0.50 (Longgar)</span>
+                                <span>0.95 (Ketat)</span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Context Token Limit */}
+                          <div className="space-y-1.5 pt-1">
+                            <label className="text-xs font-semibold text-slate-300">
+                              Context Token Limit (max_rag_tokens)
+                            </label>
+                            <input
+                              type="number"
+                              min="512"
+                              max="4096"
+                              step="128"
+                              value={formMaxRagTokens}
+                              onChange={(e) => setFormMaxRagTokens(parseInt(e.target.value, 10))}
+                              className="w-full bg-slate-950 border border-slate-800 rounded-xl px-4 py-2 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
+                            />
+                            <p className="text-[11px] text-slate-500">
+                              Batas maksimal token konteks referensi RAG (512 - 4096 token) yang diinjeksi ke prompt evaluator.
+                            </p>
+                          </div>
+                        </div>
+
 
                         {/* Test Connection Live Result Box */}
                         {testResult && (
@@ -698,6 +940,36 @@ export const SuperAdminAiSystemView: React.FC<{
                             </span>
                           </div>
                           <div className="flex justify-between py-1.5 border-b border-slate-800">
+                            <span className="text-slate-400">Model Evaluasi:</span>
+                            <span className="font-semibold text-indigo-400 font-mono truncate max-w-[150px]">
+                              {config?.eval_model_name || config?.model_name}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1.5 border-b border-slate-800">
+                            <span className="text-slate-400">Strict Transformer:</span>
+                            <Badge variant={config?.strict_transformer ? "emerald" : "slate"} size="sm">
+                              {config?.strict_transformer ? "ENFORCED" : "PERMISSIVE"}
+                            </Badge>
+                          </div>
+                          <div className="flex justify-between py-1.5 border-b border-slate-800">
+                            <span className="text-slate-400">Embedding Model:</span>
+                            <span className="font-mono text-[11px] text-slate-300 truncate max-w-[150px]">
+                              {config?.embedding_model || "intfloat/multilingual-e5-large"}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1.5 border-b border-slate-800">
+                            <span className="text-slate-400">RAG Tuning:</span>
+                            <span className="text-slate-300 text-xs">
+                              K={config?.rag_top_k ?? 3} | θ={config?.rag_similarity_threshold ?? 0.70}
+                            </span>
+                          </div>
+                          <div className="flex justify-between py-1.5 border-b border-slate-800">
+                            <span className="text-slate-400">AI Safety Webhook:</span>
+                            <Badge variant={overview?.ai_safety_status?.webhook_secret_set ? "emerald" : "amber"} size="sm">
+                              {overview?.ai_safety_status?.webhook_secret_set ? "HMAC VERIFIED" : "UNSET"}
+                            </Badge>
+                          </div>
+                          <div className="flex justify-between py-1.5 border-b border-slate-800">
                             <span className="text-slate-400">Kunci API:</span>
                             <span className="font-mono text-slate-300">
                               {config?.is_api_key_configured ? config.api_key_masked : "Belum diisi"}
@@ -717,6 +989,7 @@ export const SuperAdminAiSystemView: React.FC<{
                           </div>
                         </div>
                       </div>
+
 
                       <div className="glass-panel p-6 border-slate-800">
                         <h3 className="text-sm font-bold text-slate-100 mb-4 flex items-center gap-2">
@@ -1140,6 +1413,52 @@ export const SuperAdminAiSystemView: React.FC<{
                         <div className="flex justify-between py-2">
                           <span className="text-slate-400">Registered Model Versions (A9.4):</span>
                           <span className="font-bold text-amber-400">{overview.counts.model_versions}</span>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* AI Safety & Webhook Integrity Card */}
+                    <div className="glass-panel p-6 border-slate-800 space-y-4 md:col-span-2">
+                      <div className="flex items-center justify-between">
+                        <h3 className="text-base font-bold text-slate-100 flex items-center gap-2">
+                          <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                          Status Keamanan & Verifikasi Webhook AI (AI Safety Status)
+                        </h3>
+                        <Badge variant={overview.ai_safety_status?.webhook_secret_set ? "emerald" : "amber"}>
+                          {overview.ai_safety_status?.webhook_secret_set ? "PROTECTED" : "ATTENTION"}
+                        </Badge>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-3 gap-4 text-xs">
+                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex justify-between items-center">
+                          <div>
+                            <div className="font-semibold text-slate-200">HMAC Callback Health</div>
+                            <div className="text-slate-400 text-[11px] mt-0.5">X-AI-Signature Verification</div>
+                          </div>
+                          <Badge variant={overview.ai_safety_status?.hmac_callback_configured ? "emerald" : "amber"}>
+                            {overview.ai_safety_status?.hmac_callback_configured ? "ONLINE" : "PENDING"}
+                          </Badge>
+                        </div>
+
+                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex justify-between items-center">
+                          <div>
+                            <div className="font-semibold text-slate-200">Webhook Secret Configuration</div>
+                            <div className="text-slate-400 text-[11px] mt-0.5">AI_WEBHOOK_SECRET Environment</div>
+                          </div>
+                          <Badge variant={overview.ai_safety_status?.webhook_secret_set ? "emerald" : "amber"}>
+                            {overview.ai_safety_status?.webhook_secret_set ? "ACTIVE" : "UNSET"}
+                          </Badge>
+                        </div>
+
+                        <div className="p-3.5 rounded-xl bg-slate-900/60 border border-slate-800 flex justify-between items-center">
+                          <div>
+                            <div className="font-semibold text-slate-200">Replay Protection Engine</div>
+                            <div className="text-slate-400 text-[11px] mt-0.5">Idempotent Event Logging</div>
+                          </div>
+                          <Badge variant={overview.ai_safety_status?.replay_protection_active ? "emerald" : "crimson"}>
+                            {overview.ai_safety_status?.replay_protection_active ? "ENFORCED" : "INACTIVE"}
+                          </Badge>
+
                         </div>
                       </div>
                     </div>

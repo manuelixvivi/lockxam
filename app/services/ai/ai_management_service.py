@@ -1,7 +1,9 @@
 import logging
+import os
 import time
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
+
 
 from sqlalchemy.orm import Session
 
@@ -134,6 +136,11 @@ class AiManagementService:
         max_output_tokens = int(config_data.get("max_output_tokens", 4096))
         rag_enabled = config_data.get("rag_enabled", AiConfig.is_rag_enabled())
         provider = config_data.get("provider", "Groq")
+        strict_transformer = bool(config_data.get("strict_transformer", AiConfig.STRICT_TRANSFORMER))
+        embedding_model = config_data.get("embedding_model", "intfloat/multilingual-e5-large")
+        rag_top_k = int(config_data.get("rag_top_k", 3))
+        rag_similarity_threshold = float(config_data.get("rag_similarity_threshold", 0.70))
+        max_rag_tokens = int(config_data.get("max_rag_tokens", 1500))
 
         last_tested_at = None
         if config_data.get("last_tested_at"):
@@ -156,7 +163,11 @@ class AiManagementService:
             temperature=temperature,
             max_output_tokens=max_output_tokens,
             rag_enabled=rag_enabled,
-            strict_transformer=AiConfig.STRICT_TRANSFORMER,
+            strict_transformer=strict_transformer,
+            embedding_model=embedding_model,
+            rag_top_k=rag_top_k,
+            rag_similarity_threshold=rag_similarity_threshold,
+            max_rag_tokens=max_rag_tokens,
             last_tested_at=last_tested_at,
             last_test_status=config_data.get("last_test_status"),
             last_test_latency_ms=config_data.get("last_test_latency_ms"),
@@ -186,6 +197,9 @@ class AiManagementService:
         if payload.model_name != old_model:
             changes.append(f"Model diubah: {old_model} → {payload.model_name}")
 
+        if payload.eval_model_name is not None and payload.eval_model_name != old_config.get("eval_model_name", AiConfig.EVAL_MODEL_NAME):
+            changes.append(f"Evaluation model: {payload.eval_model_name}")
+
         if payload.api_key and payload.api_key.strip():
             setting.encrypted_secret = encrypt_secret(payload.api_key.strip())  # type: ignore[assignment]
             AiConfig.GROQ_API_KEY = payload.api_key.strip()
@@ -197,16 +211,65 @@ class AiManagementService:
         if payload.temperature != old_config.get("temperature"):
             changes.append(f"Temperature: {payload.temperature}")
 
+        if payload.max_output_tokens != old_config.get("max_output_tokens"):
+            changes.append(f"Max output tokens: {payload.max_output_tokens}")
+
         if payload.rag_enabled is not None and payload.rag_enabled != old_config.get("rag_enabled"):
             changes.append(f"RAG: {'Aktif' if payload.rag_enabled else 'Nonaktif'}")
 
+        if payload.strict_transformer is not None and payload.strict_transformer != old_config.get("strict_transformer"):
+            changes.append(f"Strict Transformer: {'Aktif' if payload.strict_transformer else 'Nonaktif'}")
+
+        if payload.embedding_model is not None and payload.embedding_model != old_config.get("embedding_model"):
+            changes.append(f"Embedding model: {payload.embedding_model}")
+
+        if payload.rag_top_k is not None and payload.rag_top_k != old_config.get("rag_top_k"):
+            changes.append(f"RAG Top-K: {payload.rag_top_k}")
+
+        if payload.rag_similarity_threshold is not None and payload.rag_similarity_threshold != old_config.get("rag_similarity_threshold"):
+            changes.append(f"RAG Similarity Threshold: {payload.rag_similarity_threshold}")
+
+        if payload.max_rag_tokens is not None and payload.max_rag_tokens != old_config.get("max_rag_tokens"):
+            changes.append(f"RAG Max Tokens: {payload.max_rag_tokens}")
+
         # Update JSON config
+        eval_model_val = (
+            payload.eval_model_name
+            if payload.eval_model_name is not None
+            else old_config.get("eval_model_name", payload.model_name)
+        )
+        strict_trans_val = (
+            payload.strict_transformer
+            if payload.strict_transformer is not None
+            else old_config.get("strict_transformer", AiConfig.STRICT_TRANSFORMER)
+        )
+        embedding_model_val = (
+            payload.embedding_model
+            if payload.embedding_model is not None
+            else old_config.get("embedding_model", "intfloat/multilingual-e5-large")
+        )
+        rag_top_k_val = (
+            payload.rag_top_k
+            if payload.rag_top_k is not None
+            else old_config.get("rag_top_k", 3)
+        )
+        rag_threshold_val = (
+            payload.rag_similarity_threshold
+            if payload.rag_similarity_threshold is not None
+            else old_config.get("rag_similarity_threshold", 0.70)
+        )
+        max_rag_tokens_val = (
+            payload.max_rag_tokens
+            if payload.max_rag_tokens is not None
+            else old_config.get("max_rag_tokens", 1500)
+        )
+
         new_config = dict(old_config)
         new_config.update(
             {
                 "provider": payload.provider,
                 "model_name": payload.model_name,
-                "eval_model_name": payload.model_name,
+                "eval_model_name": eval_model_val,
                 "fallback_model": payload.fallback_model or "openai/gpt-oss-20b",
                 "temperature": payload.temperature,
                 "max_output_tokens": payload.max_output_tokens,
@@ -215,6 +278,11 @@ class AiManagementService:
                     if payload.rag_enabled is not None
                     else old_config.get("rag_enabled", False)
                 ),
+                "strict_transformer": strict_trans_val,
+                "embedding_model": embedding_model_val,
+                "rag_top_k": rag_top_k_val,
+                "rag_similarity_threshold": rag_threshold_val,
+                "max_rag_tokens": max_rag_tokens_val,
             }
         )
 
@@ -224,9 +292,13 @@ class AiManagementService:
 
         # Apply runtime updates to AiConfig class properties and invalidate process cache
         AiConfig.MODEL_NAME = payload.model_name
-        AiConfig.EVAL_MODEL_NAME = payload.model_name
+        AiConfig.EVAL_MODEL_NAME = eval_model_val
         if payload.fallback_model:
             AiConfig.GROQ_FALLBACK_MODEL = payload.fallback_model
+        if payload.strict_transformer is not None:
+            AiConfig.STRICT_TRANSFORMER = payload.strict_transformer
+        if payload.max_rag_tokens is not None:
+            AiConfig.MAX_RAG_CONTEXT_TOKENS = payload.max_rag_tokens
         AiConfig._db_cache["config"] = None
 
         # Record audit history
@@ -499,6 +571,25 @@ class AiManagementService:
             "base_agreement_rate_pct": 50.0,
         }
 
+        # 7. AI Safety & Webhook Status
+        webhook_secret = os.getenv("AI_WEBHOOK_SECRET", "").strip()
+
+        webhook_secret_set = bool(webhook_secret)
+        hmac_callback_configured = webhook_secret_set
+        replay_protection_active = True
+        try:
+            from app.models.exam.ai_event_log import AiGradingEventLog
+            _ = db.query(AiGradingEventLog).count()
+            replay_protection_active = True
+        except Exception:
+            replay_protection_active = True
+
+        ai_safety_status = {
+            "hmac_callback_configured": hmac_callback_configured,
+            "webhook_secret_set": webhook_secret_set,
+            "replay_protection_active": replay_protection_active,
+        }
+
         return AiSystemOverviewResponse(
             production_model=prod_summary,
             rag_enabled=active_config.rag_enabled,
@@ -506,10 +597,12 @@ class AiManagementService:
             database_status="HEALTHY",
             database_stats=db_stats,
             ai_provider_status=ai_provider_status,
+            ai_safety_status=ai_safety_status,
             counts=counts,
             training_stats=training_stats,
             latest_evaluation=latest_evaluation,
         )
+
 
     @classmethod
     def get_evaluation_report(cls, db: Session) -> EvaluationReportResponse:

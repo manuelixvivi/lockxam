@@ -57,6 +57,7 @@ class GradingService:
         # Handle empty student answer early and deterministically
         if not student_answer:
             elapsed_ms = round((time.time() - start_time) * 1000, 2)
+            academic_rationale = "Jawaban siswa kosong. Tidak ada poin yang dapat dinilai."
             return GradingEvaluateResponse(
                 status="success",
                 score=0.0,
@@ -66,6 +67,10 @@ class GradingService:
                 decision={
                     "status": "EMPTY_ANSWER",
                     "confidence": 1.0,
+                    "confidence_level": "HIGH",
+                    "review_required": False,
+                    "quality_indicator": 1.0,
+                    "academic_rationale": academic_rationale,
                     "explainability": "Jawaban kosong",
                 },
                 metrics={"concept": 0, "semantic": 0, "logic": 0, "reasoning": 0},
@@ -86,6 +91,10 @@ class GradingService:
                 prompt_version=GRADING_PROMPT_VERSION,
                 rag_enabled=False,
                 latency_ms=elapsed_ms,
+                confidence=1.0,
+                confidence_level="HIGH",
+                review_required=False,
+                academic_rationale=academic_rationale,
             )
 
         # -------------------------------------------------------------
@@ -285,6 +294,28 @@ class GradingService:
             max(0.0, min(1.0, eval_completeness * (0.85 + (concept_pct / 1000.0)))), 2
         )
 
+        # R5: AI Confidence Level Elevation
+        # Derive confidence from quality_indicator (defaulting to 0.85 if missing)
+        confidence = float(quality_indicator) if quality_indicator is not None else 0.85
+        confidence = round(max(0.0, min(1.0, confidence)), 2)
+
+        # Classify categorical levels: HIGH >= 0.90, MEDIUM 0.75-0.89, LOW < 0.75
+        if confidence >= 0.90:
+            confidence_level = "HIGH"
+            review_required = False
+        elif confidence >= 0.75:
+            confidence_level = "MEDIUM"
+            review_required = True
+        else:
+            confidence_level = "LOW"
+            review_required = True
+
+        academic_rationale = (
+            data.get("academic_rationale")
+            or data.get("rationale")
+            or f"Evaluasi berbasis {len(combined_rubrics)} kriteria rubrik dengan tingkat kesesuaian konsep {concept_pct}% dan kemiripan semantik {semantic_pct}%. Skor akhir: {pct_score}% ({actual_score}/{max_score})."
+        )
+
         metrics = {
             "concept": concept_pct,
             "semantic": semantic_pct,
@@ -297,6 +328,10 @@ class GradingService:
             "status": "EVALUATED" if not missing_criteria else "PARTIAL_EVALUATED",
             "final_score": pct_score,
             "quality_indicator": quality_indicator,
+            "confidence": confidence,
+            "confidence_level": confidence_level,
+            "review_required": review_required,
+            "academic_rationale": academic_rationale,
             "explainability": f"Score: {pct_score} (Concept: {concept_pct}%, Semantic: {semantic_pct}%, Completeness: {round(eval_completeness * 100)}%)",
         }
 
@@ -317,6 +352,10 @@ class GradingService:
             rag_context_tokens=rag_context_tokens,
             rag_metadata=rag_metadata,
             latency_ms=elapsed_ms,
+            confidence=confidence,
+            confidence_level=confidence_level,
+            review_required=review_required,
+            academic_rationale=academic_rationale,
         )
 
     @staticmethod

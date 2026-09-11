@@ -9,6 +9,7 @@ from app.core.database import get_db
 from app.core.security import verify_token
 from app.exceptions import AuthenticationException, LicenseExpiredException, PermissionException
 from app.models.security.enums import SessionRevokedReason
+from app.repositories.security.auth_repository import auth_repository
 from app.repositories.security.session_repository import session_repository
 
 security = HTTPBearer(auto_error=False)
@@ -77,6 +78,39 @@ def get_current_user(
         user_session.last_activity_at = now_utc
         session_repository.update(db, user_session)
         db.commit()
+
+    # Load account to verify active status and forced password change
+    account = auth_repository.get_by_id(db, user_session.auth_account_id)
+    if not account or not account.is_active:
+        raise AuthenticationException("User account is inactive or disabled")
+
+    # Enforce Student Role: student requests strictly allowed only via official Lockxam APK
+    role = payload.get("role")
+    if role == "STUDENT":
+        user_agent = request.headers.get("user-agent", "")
+        x_client_app = request.headers.get("x-client-app", "")
+        is_apk = (
+            "Lockxam" in user_agent
+            or "LockxamBrowser" in user_agent
+            or "EquigradeApp" in user_agent
+            or x_client_app == "lockxam_apk"
+        )
+        if not is_apk:
+            raise PermissionException(
+                "Akun siswa hanya dapat diakses melalui aplikasi resmi Lockxam APK. "
+                "Silakan gunakan aplikasi Android Lockxam."
+            )
+
+    # Enforce Forced Password Change (R2): block all endpoints except exempt routes
+    if account.must_change_password:
+        normalized_path = request.url.path.rstrip("/")
+        is_exempt = (
+            normalized_path.endswith("/auth/change-password")
+            or normalized_path.endswith("/auth/logout")
+            or normalized_path.endswith("/auth/me")
+        )
+        if not is_exempt:
+            raise PermissionException("Harap ubah kata sandi Anda sebelum melanjutkan.")
 
     # Enforce School Status Checks (BR-LIC-007, BR-LIC-008, BR-LIC-011)
     school_id = payload.get("school_id")

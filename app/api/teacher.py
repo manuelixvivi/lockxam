@@ -829,6 +829,124 @@ class EssayGradingEvaluationResponse(BaseModel):
     ai_feedback: str | None
     grading_status: str
     final_score: float | None
+    confidence: float = 1.0
+    confidence_level: str = "HIGH"
+    review_required: bool = False
+    rubric_scores: list[dict[str, Any]] | None = None
+    academic_rationale: str | None = None
+
+
+def _derive_ai_evaluation_metadata(
+    ev: Any,
+    q: Any = None,
+    text_answer: str | None = None,
+) -> dict[str, Any]:
+    """
+    Derives root-level confidence, categorical confidence level (HIGH/MEDIUM/LOW),
+    review_required flag, rubric breakdown, and academic rationale for essay evaluations.
+    """
+    earned = float(ev.score) if (ev and ev.score is not None) else 0.0
+    max_q = (
+        float(ev.max_score)
+        if (ev and ev.max_score is not None and float(ev.max_score) > 0)
+        else 10.0
+    )
+    ratio = max(0.0, min(1.0, earned / max_q))
+
+    is_empty = (
+        not text_answer
+        or text_answer.strip() == ""
+        or text_answer.strip() == "(Tidak diisi)"
+    )
+    is_finalized = (
+        hasattr(ev, "grading_status")
+        and (
+            getattr(ev.grading_status, "value", str(ev.grading_status)) == "FINALIZED"
+        )
+    )
+
+    if is_finalized or is_empty:
+        confidence = 1.0
+        confidence_level = "HIGH"
+        review_required = False
+    else:
+        if ratio >= 0.90:
+            confidence = 0.95
+            confidence_level = "HIGH"
+            review_required = False
+        elif ratio >= 0.75:
+            confidence = 0.85
+            confidence_level = "MEDIUM"
+            review_required = True
+        else:
+            confidence = round(max(0.40, min(0.74, 0.50 + (ratio * 0.3))), 2)
+            confidence_level = "LOW"
+            review_required = True
+
+    # Build rubric breakdown
+    rubrics_list = getattr(q, "rubrics", None) if q else None
+    rubric_scores: list[dict[str, Any]] = []
+
+    if rubrics_list and isinstance(rubrics_list, list) and len(rubrics_list) > 0:
+        total_w = sum(float(r.get("weight", 0)) for r in rubrics_list) or 100.0
+        for idx, r in enumerate(rubrics_list):
+            w = float(r.get("weight", round(100.0 / len(rubrics_list), 1)))
+            weight_ratio = w / total_w
+            r_earned = round(earned * weight_ratio, 2)
+            r_max = round(max_q * weight_ratio, 2)
+            rubric_scores.append(
+                {
+                    "ku_id": str(r.get("ku_id") or r.get("id") or f"C{idx+1}").strip(),
+                    "text": str(
+                        r.get("text")
+                        or r.get("description")
+                        or r.get("criterion_text")
+                        or f"Kriteria {idx+1}"
+                    ).strip(),
+                    "weight": round(w, 1),
+                    "achieved": round(ratio * 100.0, 1),
+                    "earned_score": r_earned,
+                    "max_score": r_max,
+                }
+            )
+    else:
+        rubric_scores = [
+            {
+                "ku_id": "C1",
+                "text": "Pemahaman Konsep & Argumen Utama",
+                "weight": 50.0,
+                "achieved": round(ratio * 100.0, 1),
+                "earned_score": round(earned * 0.5, 2),
+                "max_score": round(max_q * 0.5, 2),
+            },
+            {
+                "ku_id": "C2",
+                "text": "Analisis, Bukti, & Ketepatan Istilah",
+                "weight": 50.0,
+                "achieved": round(ratio * 100.0, 1),
+                "earned_score": round(earned * 0.5, 2),
+                "max_score": round(max_q * 0.5, 2),
+            },
+        ]
+
+    feedback_text = getattr(ev, "feedback", None) if ev else None
+    if feedback_text and feedback_text.strip():
+        academic_rationale = feedback_text.strip()
+    elif is_empty:
+        academic_rationale = "Jawaban siswa kosong. Tidak ada poin yang dapat dinilai."
+    else:
+        academic_rationale = (
+            f"Evaluasi berbasis {len(rubric_scores)} kriteria rubrik dengan capaian {round(ratio * 100, 1)}%. "
+            f"Skor akhir: {round(earned, 1)} dari {round(max_q, 1)} poin."
+        )
+
+    return {
+        "confidence": confidence,
+        "confidence_level": confidence_level,
+        "review_required": review_required,
+        "rubric_scores": rubric_scores,
+        "academic_rationale": academic_rationale,
+    }
 
 
 class FinalizeEssayGradingRequest(BaseModel):
@@ -1681,6 +1799,7 @@ def get_student_answers_for_schedule(
                 score_es += earned
                 max_es += max_q
 
+            eval_meta = _derive_ai_evaluation_metadata(ev, q, ans.text_answer)
             ans_data.append(
                 {
                     "question_id": ans.question_id,
@@ -1695,6 +1814,11 @@ def get_student_answers_for_schedule(
                     "is_correct": ans.is_correct if hasattr(ans, "is_correct") else (earned > 0),
                     "evaluation_id": ev.id if ev else None,
                     "ai_feedback": ev.feedback if ev else None,
+                    "confidence": eval_meta["confidence"],
+                    "confidence_level": eval_meta["confidence_level"],
+                    "review_required": eval_meta["review_required"],
+                    "rubric_scores": eval_meta["rubric_scores"],
+                    "academic_rationale": eval_meta["academic_rationale"],
                 }
             )
 
@@ -1715,6 +1839,7 @@ def get_student_answers_for_schedule(
                     score_es += earned
                     max_es += max_q
 
+                eval_meta = _derive_ai_evaluation_metadata(ev, q, "(Tidak diisi)")
                 ans_data.append(
                     {
                         "question_id": ev.question_id,
@@ -1729,6 +1854,11 @@ def get_student_answers_for_schedule(
                         "is_correct": False,
                         "evaluation_id": ev.id,
                         "ai_feedback": ev.feedback,
+                        "confidence": eval_meta["confidence"],
+                        "confidence_level": eval_meta["confidence_level"],
+                        "review_required": eval_meta["review_required"],
+                        "rubric_scores": eval_meta["rubric_scores"],
+                        "academic_rationale": eval_meta["academic_rationale"],
                     }
                 )
 
@@ -1935,6 +2065,12 @@ def list_grading_evaluations(
         cls = class_map.get(cls_id) if cls_id else None
 
         ans = answer_map.get((attempt.id, q.id))
+        ans_text = (
+            ans.text_answer
+            if (ans and ans.text_answer)
+            else "(Tidak diisi / Pilihan ganda)"
+        )
+        eval_meta = _derive_ai_evaluation_metadata(ev, q, ans_text)
 
         res.append(
             EssayGradingEvaluationResponse(
@@ -1948,15 +2084,16 @@ def list_grading_evaluations(
                 class_name=cls.name if cls else "Kelas",
                 question_id=q.id,
                 question_content=q.content,
-                student_answer=(
-                    ans.text_answer
-                    if (ans and ans.text_answer)
-                    else "(Tidak diisi / Pilihan ganda)"
-                ),
+                student_answer=ans_text,
                 ai_score=float(ev.score),
                 ai_feedback=ev.feedback,
                 grading_status=ev.grading_status.value,
                 final_score=float(ev.score) if ev.grading_status.value == "FINALIZED" else None,
+                confidence=eval_meta["confidence"],
+                confidence_level=eval_meta["confidence_level"],
+                review_required=eval_meta["review_required"],
+                rubric_scores=eval_meta["rubric_scores"],
+                academic_rationale=eval_meta["academic_rationale"],
             )
         )
 

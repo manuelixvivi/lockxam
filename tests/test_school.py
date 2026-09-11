@@ -86,7 +86,7 @@ def test_create_school_invalid_level(db: Session):
     assert "level" in str(exc_info.value)
 
 
-def test_school_api_rbac(client, test_superadmin, test_teacher, db: Session):
+def test_school_api_rbac(client, test_superadmin, test_teacher, test_school, db: Session):
     lvl = db.query(SchoolLevel).first()
 
     # 1. Try to create as guest -> 401
@@ -150,13 +150,22 @@ def test_school_api_rbac(client, test_superadmin, test_teacher, db: Session):
     assert school_data["npsn"] == "11112222"
     public_id = school_data["public_id"]
 
-    # 4. Get Single School as Teacher (authenticated users can read)
+    # 4. Cross-tenant read as Teacher -> 403 Forbidden (Multi-tenant isolation)
     res = client.get(
         f"/api/v1/schools/{public_id}",
         headers={"Authorization": f"Bearer {teacher_token}"},
     )
-    assert res.status_code == 200
-    assert res.json()["name"] == "API School"
+    assert res.status_code == 403
+
+    # 4b. Get Own School as Teacher -> 200 OK
+    test_school.deleted_at = None
+    db.flush()
+    res_own = client.get(
+        f"/api/v1/schools/{test_school.public_id}",
+        headers={"Authorization": f"Bearer {teacher_token}"},
+    )
+    assert res_own.status_code == 200
+    assert res_own.json()["name"] == test_school.name
 
     # 5. List Global Schools as Teacher -> 403 Forbidden (RBAC Protected)
     res = client.get("/api/v1/schools", headers={"Authorization": f"Bearer {teacher_token}"})

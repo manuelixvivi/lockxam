@@ -92,8 +92,9 @@ export const SuperAdminAiSystemView: React.FC<{
     error_detail?: string | null;
   } | null>(null);
 
-  // Save states
+  // Save & Refresh states
   const [isSavingConfig, setIsSavingConfig] = useState<boolean>(false);
+  const [isRefreshingModels, setIsRefreshingModels] = useState<boolean>(false);
 
   // Selected Job for Drawer/Modal
   const [selectedJob, setSelectedJob] = useState<TrainingJobItem | null>(null);
@@ -161,6 +162,26 @@ export const SuperAdminAiSystemView: React.FC<{
     loadAllData();
   }, []);
 
+  const handleRefreshLiveModels = async (explicitKey?: string) => {
+    setIsRefreshingModels(true);
+    try {
+      const keyToUse = explicitKey !== undefined ? explicitKey : (formApiKey ? formApiKey.trim() : undefined);
+      const models = await superadminAiApi.getAvailableModels(keyToUse);
+      if (models && models.length > 0) {
+        setAvailableModels(models);
+        toast.success(
+          "Model Groq Diperbarui",
+          `Berhasil mendeteksi ${models.length} model aktif dari Groq API.`
+        );
+      }
+    } catch (err: any) {
+      const apiErr = err as AppApiError;
+      toast.error("Gagal Memuat Model Live", apiErr.message || "Tidak dapat memuat model live dari Groq.");
+    } finally {
+      setIsRefreshingModels(false);
+    }
+  };
+
   const handleTestConnection = async () => {
     setIsTestingConn(true);
     setTestResult(null);
@@ -181,6 +202,8 @@ export const SuperAdminAiSystemView: React.FC<{
 
       if (res.success) {
         toast.success("Koneksi Berhasil", `Terhubung ke ${formProvider} (${formModel}) dalam ${res.latency_ms} ms`);
+        // Refresh live model list automatically using the verified key
+        handleRefreshLiveModels(formApiKey ? formApiKey.trim() : undefined);
       } else {
         toast.error("Koneksi Gagal", res.message);
       }
@@ -677,9 +700,21 @@ export const SuperAdminAiSystemView: React.FC<{
 
                         {/* Model Selection */}
                         <div className="space-y-2">
-                          <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
-                            Active Inference Model
-                          </label>
+                          <div className="flex items-center justify-between">
+                            <label className="text-xs font-semibold text-slate-300 uppercase tracking-wider">
+                              Active Inference Model
+                            </label>
+                            <button
+                              type="button"
+                              disabled={isRefreshingModels}
+                              onClick={() => handleRefreshLiveModels()}
+                              className="inline-flex items-center gap-1.5 text-xs text-indigo-400 hover:text-indigo-300 transition-colors disabled:opacity-50"
+                              title="Cek model live langsung dari Groq API"
+                            >
+                              <RefreshCw className={`w-3.5 h-3.5 ${isRefreshingModels ? "animate-spin" : ""}`} />
+                              <span>{isRefreshingModels ? "Memeriksa Groq..." : "Cek Model Live Groq"}</span>
+                            </button>
+                          </div>
                           <select
                             value={formModel}
                             onChange={(e) => setFormModel(e.target.value)}

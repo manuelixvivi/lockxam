@@ -210,8 +210,10 @@ export const superadminAiApi = {
   testConnection: (payload: AiTestConnectionPayload): Promise<AiTestConnectionResult> =>
     apiClient.post<AiTestConnectionResult>("/api/v1/superadmin/ai-system/test-connection", payload),
 
-  getAvailableModels: (): Promise<AvailableAiModel[]> =>
-    apiClient.get<AvailableAiModel[]>("/api/v1/superadmin/ai-system/available-models"),
+  getAvailableModels: (apiKey?: string): Promise<AvailableAiModel[]> => {
+    const qs = apiKey ? `?api_key=${encodeURIComponent(apiKey)}` : "";
+    return apiClient.get<AvailableAiModel[]>(`/api/v1/superadmin/ai-system/available-models${qs}`);
+  },
 
   getConfigHistory: (): Promise<AiConfigHistoryItem[]> =>
     apiClient.get<AiConfigHistoryItem[]>("/api/v1/superadmin/ai-system/config/history"),

@@ -1,6 +1,6 @@
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, Query, Request
 from sqlalchemy.orm import Session
 
 from app.core.database import get_db
@@ -95,9 +95,15 @@ def test_ai_connection(
 @router.get(
     "/available-models", response_model=List[AvailableModelItem], summary="List Available AI Models"
 )
-def get_available_models(db: Session = Depends(get_db)) -> List[AvailableModelItem]:
-    """Returns curated list of available models for selection in the SuperAdmin UI."""
-    return AiManagementService.list_available_models(db)
+def get_available_models(
+    api_key: Optional[str] = Query(
+        default=None,
+        description="Optional explicit API key to query live models dynamically from Groq",
+    ),
+    db: Session = Depends(get_db),
+) -> List[AvailableModelItem]:
+    """Returns curated and dynamically discovered Groq models."""
+    return AiManagementService.list_available_models(db, explicit_api_key=api_key)
 
 
 @router.get(

@@ -1,5 +1,6 @@
 import json
 import logging
+import os
 import re
 import time
 import urllib.error
@@ -27,8 +28,10 @@ class LlmClient:
 
     @classmethod
     def get_live_models(cls, api_key: Optional[str] = None) -> Set[str]:
-        """Queries Groq /models endpoint to discover active production models (cached 15m)."""
-        effective_key = AiConfig.get_effective_api_key(api_key)
+        """Queries Groq /openai/v1/models endpoint to discover active production models (cached 15m)."""
+        import requests
+
+        effective_key = AiConfig.get_effective_api_key(api_key) or os.environ.get("GROQ_API_KEY")
         if not effective_key:
             return set()
 
@@ -39,16 +42,17 @@ class LlmClient:
         ):
             return cls._model_cache["models"]
 
-        url = f"{AiConfig.GROQ_BASE_URL.rstrip('/')}/models"
+        url = "https://api.groq.com/openai/v1/models"
         headers = {
             "Authorization": f"Bearer {effective_key}",
+            "Content-Type": "application/json",
             "User-Agent": "EquiGrade-AI-Engine/2.0",
         }
-        req = urllib.request.Request(url, headers=headers, method="GET")
 
         try:
-            with urllib.request.urlopen(req, timeout=10) as resp:
-                data = json.loads(resp.read().decode("utf-8"))
+            resp = requests.get(url, headers=headers, timeout=10)
+            if resp.status_code == 200:
+                data = resp.json()
                 active_models = {
                     item["id"]
                     for item in data.get("data", [])
@@ -57,8 +61,11 @@ class LlmClient:
                 cls._model_cache["models"] = active_models
                 cls._model_cache["last_checked"] = now
                 return active_models
+            else:
+                logger.warning(f"Groq /models returned status {resp.status_code}")
+                return cls._model_cache["models"]
         except Exception as e:
-            logger.warning(f"Failed to fetch live models from Groq /models: {e}")
+            logger.warning(f"Failed to fetch live models from Groq /openai/v1/models: {e}")
             return cls._model_cache["models"]
 
     @classmethod

@@ -29,7 +29,6 @@ from app.schemas.ai.ai_management import (
     ProductionModelSummary,
 )
 from app.services.ai.shared.config import AiConfig
-from app.services.ai.shared.llm_client import LlmClient
 
 logger = logging.getLogger(__name__)
 
@@ -567,37 +566,89 @@ class AiManagementService:
             )
 
     @classmethod
-    def list_available_models(cls, db: Session) -> List[AvailableModelItem]:
-        """Returns list of recommended and configured Groq models."""
-        models: List[AvailableModelItem] = [
-            AvailableModelItem(**m) for m in DEFAULT_RECOMMENDED_MODELS
-        ]
+    def list_available_models(
+        cls, db: Session, explicit_api_key: Optional[str] = None
+    ) -> List[AvailableModelItem]:
+        """Queries live models available in Groq via /openai/v1/models and returns curated & live models."""
+        models_map: Dict[str, AvailableModelItem] = {
+            m["id"]: AvailableModelItem(**m) for m in DEFAULT_RECOMMENDED_MODELS
+        }
 
-        # Optionally query live models from Groq if key exists
-        effective_key = cls.get_effective_api_key(db)
+        # Determine effective API key: explicit param, DB setting, or GROQ_API_KEY environment variable
+        api_key = (
+            explicit_api_key.strip()
+            if explicit_api_key and explicit_api_key.strip()
+            else (cls.get_effective_api_key(db) or os.environ.get("GROQ_API_KEY"))
+        )
 
-        if effective_key:
+        url = "https://api.groq.com/openai/v1/models"
+
+        if api_key:
             try:
-                live_ids = LlmClient.get_live_models(effective_key)
-                existing_ids = {m.id for m in models}
-                for lid in live_ids:
-                    if lid not in existing_ids and (
-                        "llama" in lid or "gpt" in lid or "mixtral" in lid or "gemma" in lid
-                    ):
-                        models.append(
-                            AvailableModelItem(
-                                id=lid,
-                                name=lid,
-                                provider="Groq",
-                                context_window=8192,
-                                is_recommended=False,
-                                description=f"Model terdeteksi aktif di Groq: {lid}",
-                            )
-                        )
-            except Exception:
-                pass
+                payload: Dict[str, Any] = {}
+                try:
+                    import requests
 
-        return models
+                    headers = {
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    }
+                    response = requests.get(url, headers=headers, timeout=10)
+                    if response.status_code == 200:
+                        payload = response.json()
+                    else:
+                        logger.warning(
+                            f"Groq models query returned status {response.status_code}: {response.text[:200]}"
+                        )
+                except ImportError:
+                    import json
+                    import urllib.request
+
+                    req = urllib.request.Request(
+                        url,
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        method="GET",
+                    )
+                    with urllib.request.urlopen(req, timeout=10) as resp:
+                        payload = json.loads(resp.read().decode("utf-8"))
+
+                for item in payload.get("data", []):
+                    if not isinstance(item, dict):
+                        continue
+                    mid = item.get("id")
+                    if not mid or not item.get("active", True):
+                        continue
+                    # Omit pure audio/transcription models from CBT text grading selector
+                    if "whisper" in mid.lower():
+                        continue
+
+                    context_window = item.get("context_window", 8192)
+                    owned_by = item.get("owned_by", "Groq")
+
+                    if mid in models_map:
+                        models_map[mid].context_window = context_window
+                    else:
+                        models_map[mid] = AvailableModelItem(
+                            id=mid,
+                            name=f"{mid} ({owned_by})",
+                            provider="Groq",
+                            context_window=context_window,
+                            is_recommended=False,
+                            description=f"Model terdeteksi aktif di Groq ({owned_by}). Jendela konteks: {context_window} token.",
+                        )
+            except Exception as ex:
+                logger.warning(f"Could not query live models from Groq: {ex}")
+
+        # Return recommended models first, then additional active live models sorted alphabetically
+        recommended = [m for m in models_map.values() if m.is_recommended]
+        others = sorted(
+            [m for m in models_map.values() if not m.is_recommended],
+            key=lambda x: x.id,
+        )
+        return recommended + others
 
     @classmethod
     def get_config_history(cls, db: Session, limit: int = 50) -> List[AiConfigHistoryResponse]:

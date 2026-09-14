@@ -215,3 +215,66 @@ def test_unauthenticated_request_rejected(client):
     """Verifies that requests without authentication token are strictly rejected with 401 Unauthorized."""
     res = client.get("/api/v1/superadmin/ai-system/config")
     assert res.status_code in (401, 403)
+
+
+def test_get_available_models_live_and_fallback(client, test_superadmin, monkeypatch):
+    """Verifies that GET /available-models dynamically incorporates Groq models via requests."""
+    headers = _get_superadmin_auth_headers(client, test_superadmin)
+
+    # 1. Test fallback when no live query or mock returns preset
+    res = client.get("/api/v1/superadmin/ai-system/available-models", headers=headers)
+    assert res.status_code == 200
+    models = res.json()
+    assert len(models) >= 2
+    model_ids = [m["id"] for m in models]
+    assert "llama-3.3-70b-versatile" in model_ids
+    assert "llama-3.1-8b-instant" in model_ids
+
+    # 2. Test live query integration with mocked requests.get
+    class MockResponse:
+        status_code = 200
+
+        def json(self):
+            return {
+                "object": "list",
+                "data": [
+                    {
+                        "id": "llama-3.3-70b-versatile",
+                        "object": "model",
+                        "active": True,
+                        "context_window": 128000,
+                        "owned_by": "meta",
+                    },
+                    {
+                        "id": "qwen-2.5-coder-32b",
+                        "object": "model",
+                        "active": True,
+                        "context_window": 32768,
+                        "owned_by": "alibaba",
+                    },
+                    {
+                        "id": "whisper-large-v3",
+                        "object": "model",
+                        "active": True,
+                        "context_window": 448,
+                        "owned_by": "openai",
+                    },
+                ],
+            }
+
+    import requests
+
+    monkeypatch.setattr(requests, "get", lambda url, headers=None, timeout=None: MockResponse())
+
+    res_live = client.get(
+        "/api/v1/superadmin/ai-system/available-models?api_key=gsk_test_key_live_mock",
+        headers=headers,
+    )
+    assert res_live.status_code == 200
+    live_models = res_live.json()
+    live_ids = [m["id"] for m in live_models]
+
+    assert "llama-3.3-70b-versatile" in live_ids
+    assert "qwen-2.5-coder-32b" in live_ids
+    # whisper must be filtered out from CBT text grading
+    assert "whisper-large-v3" not in live_ids

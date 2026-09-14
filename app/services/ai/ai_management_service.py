@@ -96,6 +96,29 @@ class AiManagementService:
     """
 
     @classmethod
+    def _ensure_tables_exist(cls, db: Session) -> None:
+        """Ensures ai_system_settings and ai_config_histories tables exist in the target database."""
+        try:
+            from sqlalchemy import Table
+
+            from app.core.database import Base
+            from app.models.ai.ai_system_setting import AiConfigHistory, AiSystemSetting
+
+            bind = db.get_bind()
+            ai_tables = [
+                t
+                for t in (AiSystemSetting.__table__, AiConfigHistory.__table__)
+                if isinstance(t, Table)
+            ]
+            Base.metadata.create_all(
+                bind=bind,
+                tables=ai_tables,
+                checkfirst=True,
+            )
+        except Exception as ex:
+            logger.warning(f"Could not auto-create AI system setting tables: {ex}")
+
+    @classmethod
     def get_effective_api_key(cls, db: Session) -> str:
         """Reads and decrypts current active API key from central DB or falls back to env."""
         try:
@@ -109,6 +132,7 @@ class AiManagementService:
         except Exception as ex:
             logger.warning(f"Could not read effective API key from DB: {ex}")
             db.rollback()
+            cls._ensure_tables_exist(db)
         return AiConfig.GROQ_API_KEY
 
     @classmethod
@@ -127,6 +151,17 @@ class AiManagementService:
         except Exception as ex:
             logger.warning(f"Could not query AiSystemSetting from DB: {ex}")
             db.rollback()
+            cls._ensure_tables_exist(db)
+            try:
+                setting = (
+                    db.query(AiSystemSetting)
+                    .filter(AiSystemSetting.key == CONFIG_SETTING_KEY)
+                    .first()
+                )
+                if setting and setting.value_json:
+                    config_data = dict(setting.value_json)
+            except Exception:
+                pass
 
         model_name = config_data.get("model_name", AiConfig.MODEL_NAME)
         eval_model_name = config_data.get("eval_model_name", AiConfig.EVAL_MODEL_NAME)
@@ -184,9 +219,18 @@ class AiManagementService:
         Persists updated AI provider configuration, synchronizes AiConfig runtime cache,
         and logs an immutable audit trail into AiConfigHistory.
         """
-        setting = (
-            db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
-        )
+        setting = None
+        try:
+            setting = (
+                db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+            )
+        except Exception:
+            db.rollback()
+            cls._ensure_tables_exist(db)
+            setting = (
+                db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+            )
+
         if not setting:
             setting = AiSystemSetting(key=CONFIG_SETTING_KEY, value_json={})
             db.add(setting)
@@ -340,9 +384,23 @@ class AiManagementService:
         """
         Performs a lightweight probe to the target provider/model and records test latency.
         """
-        setting = (
-            db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
-        )
+        setting = None
+        try:
+            setting = (
+                db.query(AiSystemSetting).filter(AiSystemSetting.key == CONFIG_SETTING_KEY).first()
+            )
+        except Exception:
+            db.rollback()
+            cls._ensure_tables_exist(db)
+            try:
+                setting = (
+                    db.query(AiSystemSetting)
+                    .filter(AiSystemSetting.key == CONFIG_SETTING_KEY)
+                    .first()
+                )
+            except Exception:
+                pass
+
         effective_key = (
             payload.api_key.strip() if payload.api_key else cls.get_effective_api_key(db)
         )

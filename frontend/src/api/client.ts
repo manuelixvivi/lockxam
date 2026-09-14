@@ -131,28 +131,71 @@ class ApiClient {
 
       if (!response.ok) {
         let errorData: any = {};
+        let textBody = "";
         try {
-          errorData = await response.json();
+          textBody = await response.text();
+          if (textBody && textBody.trim().startsWith("{")) {
+            errorData = JSON.parse(textBody);
+          } else {
+            errorData = { detail: textBody.trim() || response.statusText };
+          }
         } catch {
           errorData = { detail: response.statusText };
         }
 
-        let rawDetail = errorData.detail || errorData.message;
-        let formattedMsg = "An unexpected error occurred.";
+        let rawDetail =
+          errorData.detail ||
+          errorData.message ||
+          (errorData.error && typeof errorData.error === "object" ? errorData.error.message : errorData.error) ||
+          (Array.isArray(errorData.errors) ? errorData.errors : undefined);
 
-        if (typeof rawDetail === "string") {
-          formattedMsg = rawDetail;
+        let formattedMsg = "";
+
+        if (typeof rawDetail === "string" && rawDetail.trim()) {
+          formattedMsg = rawDetail.trim();
         } else if (Array.isArray(rawDetail)) {
-          formattedMsg = rawDetail.map((item: any) => item.msg || item.message || JSON.stringify(item)).join(", ");
+          formattedMsg = rawDetail.map((item: any) => (typeof item === "string" ? item : item.msg || item.message || JSON.stringify(item))).join(", ");
         } else if (rawDetail && typeof rawDetail === "object") {
           formattedMsg = rawDetail.message || JSON.stringify(rawDetail);
+        } else if (textBody && textBody.trim() && !textBody.trim().startsWith("<")) {
+          formattedMsg = textBody.trim().slice(0, 300);
+        } else {
+          switch (response.status) {
+            case 400:
+              formattedMsg = "Permintaan tidak valid (HTTP 400 Bad Request).";
+              break;
+            case 401:
+              formattedMsg = "Sesi tidak valid atau telah berakhir (HTTP 401 Unauthorized).";
+              break;
+            case 403:
+              formattedMsg = "Akses ditolak: Anda tidak memiliki izin untuk tindakan ini (HTTP 403 Forbidden).";
+              break;
+            case 404:
+              formattedMsg = "Endpoint atau data tidak ditemukan (HTTP 404 Not Found).";
+              break;
+            case 422:
+              formattedMsg = "Validasi data gagal (HTTP 422 Unprocessable Entity).";
+              break;
+            case 500:
+              formattedMsg = "Terjadi kesalahan pada server internal (HTTP 500 Internal Server Error).";
+              break;
+            case 502:
+              formattedMsg = "Server gateway/backend tidak dapat dihubungi (HTTP 502 Bad Gateway).";
+              break;
+            case 504:
+              formattedMsg = "Waktu koneksi ke backend habis (HTTP 504 Gateway Timeout).";
+              break;
+            default:
+              formattedMsg = `Terjadi kesalahan pada server (HTTP ${response.status} ${response.statusText || ""}).`.trim();
+              break;
+          }
         }
 
         const normalizedError: AppApiError = {
           statusCode: response.status,
           message: formattedMsg,
-          code: errorData.code,
-          details: errorData.details,
+          code: errorData.code || (errorData.error && errorData.error.code),
+          details: errorData.details || (errorData.error && errorData.error.details),
         };
 
         throw normalizedError;

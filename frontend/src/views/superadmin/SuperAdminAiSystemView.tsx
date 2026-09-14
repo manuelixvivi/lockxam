@@ -101,15 +101,7 @@ export const SuperAdminAiSystemView: React.FC<{
   const loadAllData = async () => {
     setIsLoading(true);
     try {
-      const [
-        overviewRes,
-        configRes,
-        modelsRes,
-        historyRes,
-        registryRes,
-        jobsRes,
-        evalRes,
-      ] = await Promise.all([
+      const results = await Promise.allSettled([
         superadminAiApi.getOverview(),
         superadminAiApi.getConfig(),
         superadminAiApi.getAvailableModels(),
@@ -119,28 +111,43 @@ export const SuperAdminAiSystemView: React.FC<{
         superadminAiApi.getEvaluationReport(),
       ]);
 
-      setOverview(overviewRes);
-      setConfig(configRes);
-      setAvailableModels(modelsRes);
-      setConfigHistory(historyRes);
-      setModelRegistry(registryRes.models);
-      setTrainingJobs(jobsRes.jobs);
-      setEvaluation(evalRes);
+      const [
+        overviewRes,
+        configRes,
+        modelsRes,
+        historyRes,
+        registryRes,
+        jobsRes,
+        evalRes,
+      ] = results;
 
-      // Populate form
-      setFormProvider(configRes.provider || "Groq");
-      setFormModel(configRes.model_name || "openai/gpt-oss-120b");
-      setFormEvalModel(configRes.eval_model_name || configRes.model_name || "openai/gpt-oss-120b");
-      setFormFallbackModel(configRes.fallback_model || "openai/gpt-oss-20b");
-      setFormTemperature(configRes.temperature ?? 0.2);
-      setFormMaxTokens(configRes.max_output_tokens ?? 4096);
-      setFormRagEnabled(configRes.rag_enabled ?? false);
-      setFormStrictTransformer(configRes.strict_transformer ?? false);
-      setFormEmbeddingModel(configRes.embedding_model || "intfloat/multilingual-e5-large");
-      setFormRagTopK(configRes.rag_top_k ?? 3);
-      setFormRagSimilarityThreshold(configRes.rag_similarity_threshold ?? 0.70);
-      setFormMaxRagTokens(configRes.max_rag_tokens ?? 1500);
+      if (overviewRes.status === "fulfilled") setOverview(overviewRes.value);
+      if (modelsRes.status === "fulfilled") setAvailableModels(modelsRes.value);
+      if (historyRes.status === "fulfilled") setConfigHistory(historyRes.value);
+      if (registryRes.status === "fulfilled") setModelRegistry(registryRes.value.models);
+      if (jobsRes.status === "fulfilled") setTrainingJobs(jobsRes.value.jobs);
+      if (evalRes.status === "fulfilled") setEvaluation(evalRes.value);
 
+      if (configRes.status === "fulfilled") {
+        const c = configRes.value;
+        setConfig(c);
+        // Populate form
+        setFormProvider(c.provider || "Groq");
+        setFormModel(c.model_name || "openai/gpt-oss-120b");
+        setFormEvalModel(c.eval_model_name || c.model_name || "openai/gpt-oss-120b");
+        setFormFallbackModel(c.fallback_model || "openai/gpt-oss-20b");
+        setFormTemperature(c.temperature ?? 0.2);
+        setFormMaxTokens(c.max_output_tokens ?? 4096);
+        setFormRagEnabled(c.rag_enabled ?? false);
+        setFormStrictTransformer(c.strict_transformer ?? false);
+        setFormEmbeddingModel(c.embedding_model || "intfloat/multilingual-e5-large");
+        setFormRagTopK(c.rag_top_k ?? 3);
+        setFormRagSimilarityThreshold(c.rag_similarity_threshold ?? 0.70);
+        setFormMaxRagTokens(c.max_rag_tokens ?? 1500);
+      } else {
+        const reason = configRes.reason as AppApiError;
+        toast.error("Gagal Memuat Konfigurasi AI", reason?.message || "Koneksi ke endpoint konfigurasi gagal");
+      }
     } catch (err: any) {
       const apiErr = err as AppApiError;
       toast.error("Gagal Memuat Data AI & Sistem", apiErr.message);
@@ -194,36 +201,67 @@ export const SuperAdminAiSystemView: React.FC<{
     e.preventDefault();
     setIsSavingConfig(true);
     try {
-      const updated = await superadminAiApi.updateConfig({
-        provider: formProvider,
-        model_name: formModel,
-        eval_model_name: formEvalModel,
-        fallback_model: formFallbackModel,
-        api_key: formApiKey ? formApiKey.trim() : undefined,
-        temperature: Number(formTemperature),
-        max_output_tokens: Number(formMaxTokens),
-        rag_enabled: formRagEnabled,
-        strict_transformer: formStrictTransformer,
-        embedding_model: formEmbeddingModel,
-        rag_top_k: Number(formRagTopK),
-        rag_similarity_threshold: Number(formRagSimilarityThreshold),
-        max_rag_tokens: Number(formMaxRagTokens),
-      });
+      const parsedTemp = Number(formTemperature);
+      const safeTemp = isNaN(parsedTemp) ? 0.2 : Math.min(2.0, Math.max(0.0, parsedTemp));
 
+      const parsedMaxTokens = Number(formMaxTokens);
+      const safeMaxTokens = isNaN(parsedMaxTokens) || parsedMaxTokens < 128
+        ? 4096
+        : Math.min(16384, Math.round(parsedMaxTokens));
+
+      const parsedRagTokens = Number(formMaxRagTokens);
+      const safeRagTokens = isNaN(parsedRagTokens) || parsedRagTokens < 128
+        ? 1500
+        : Math.min(8192, Math.round(parsedRagTokens));
+
+      const parsedTopK = Number(formRagTopK);
+      const safeTopK = isNaN(parsedTopK) || parsedTopK < 1
+        ? 3
+        : Math.min(20, Math.round(parsedTopK));
+
+      const parsedSimThreshold = Number(formRagSimilarityThreshold);
+      const safeSimThreshold = isNaN(parsedSimThreshold)
+        ? 0.70
+        : Math.min(1.0, Math.max(0.0, parsedSimThreshold));
+
+      const targetModel = formModel.trim() || "openai/gpt-oss-120b";
+      const targetEvalModel = formEvalModel.trim() || targetModel;
+      const targetFallbackModel = formFallbackModel.trim() || "openai/gpt-oss-20b";
+      const targetEmbedding = (formEmbeddingModel || "").trim() || "intfloat/multilingual-e5-large";
+
+      const updated = await superadminAiApi.updateConfig({
+        provider: formProvider || "Groq",
+        model_name: targetModel,
+        eval_model_name: targetEvalModel,
+        fallback_model: targetFallbackModel,
+        api_key: formApiKey && formApiKey.trim() ? formApiKey.trim() : undefined,
+        temperature: safeTemp,
+        max_output_tokens: safeMaxTokens,
+        rag_enabled: !!formRagEnabled,
+        strict_transformer: !!formStrictTransformer,
+        embedding_model: targetEmbedding,
+        rag_top_k: safeTopK,
+        rag_similarity_threshold: safeSimThreshold,
+        max_rag_tokens: safeRagTokens,
+      });
 
       setConfig(updated);
       setFormApiKey("");
       toast.success("Konfigurasi Tersimpan", "Konfigurasi runtime AI berhasil diperbarui dan aktif seketika.");
 
-      const [newHist, newOverview] = await Promise.all([
-        superadminAiApi.getConfigHistory(),
-        superadminAiApi.getOverview(),
-      ]);
-      setConfigHistory(newHist);
-      setOverview(newOverview);
+      try {
+        const [newHist, newOverview] = await Promise.all([
+          superadminAiApi.getConfigHistory(),
+          superadminAiApi.getOverview(),
+        ]);
+        setConfigHistory(newHist);
+        setOverview(newOverview);
+      } catch (refreshErr) {
+        console.warn("Background refresh warning:", refreshErr);
+      }
     } catch (err: any) {
       const apiErr = err as AppApiError;
-      toast.error("Gagal Menyimpan Konfigurasi", apiErr.message);
+      toast.error("Gagal Menyimpan Konfigurasi", apiErr.message || "Terjadi kesalahan saat menyimpan ke database.");
     } finally {
       setIsSavingConfig(false);
     }
@@ -646,6 +684,9 @@ export const SuperAdminAiSystemView: React.FC<{
                             onChange={(e) => setFormModel(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
                           >
+                            {formModel && !availableModels.some((m) => m.id === formModel) && (
+                              <option value={formModel}>{formModel} (Model Aktif)</option>
+                            )}
                             {availableModels.map((m) => (
                               <option key={m.id} value={m.id}>
                                 {m.name} {m.is_recommended ? "★ (Rekomendasi)" : ""}
@@ -664,6 +705,9 @@ export const SuperAdminAiSystemView: React.FC<{
                             onChange={(e) => setFormEvalModel(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
                           >
+                            {formEvalModel && !availableModels.some((m) => m.id === formEvalModel) && (
+                              <option value={formEvalModel}>{formEvalModel} (Model Evaluasi Aktif)</option>
+                            )}
                             {availableModels.map((m) => (
                               <option key={m.id} value={m.id}>
                                 {m.name} {m.is_recommended ? "★ (Rekomendasi)" : ""}
@@ -685,8 +729,17 @@ export const SuperAdminAiSystemView: React.FC<{
                             onChange={(e) => setFormFallbackModel(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
                           >
+                            {formFallbackModel &&
+                              !["openai/gpt-oss-20b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"].includes(
+                                formFallbackModel
+                              ) && (
+                                <option value={formFallbackModel}>
+                                  {formFallbackModel} (Model Fallback Aktif)
+                                </option>
+                              )}
                             <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Ultra-Low Latency)</option>
                             <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
+                            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
                           </select>
                         </div>
 

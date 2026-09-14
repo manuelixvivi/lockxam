@@ -1,9 +1,10 @@
 import os
+from typing import Any, cast
 
-from fastapi import FastAPI
+from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import text
+from sqlalchemy import Table, text
 
 # Ensure uploads directory exists
 try:
@@ -43,7 +44,6 @@ from app.middleware import RequestContextMiddleware
 # Default is strictly "false". Table creation in production/staging environments
 # MUST run authoritatively via Alembic migrations (`alembic upgrade head`).
 should_auto_migrate = os.getenv("AUTO_CREATE_TABLES", "false").lower() in ("true", "1", "yes")
-
 if should_auto_migrate:
     try:
         Base.metadata.create_all(bind=engine)
@@ -55,7 +55,23 @@ if should_auto_migrate:
     except Exception as _err:
         logger.warning(f"Deferred DB init on import: {_err}")
 
-docs_config = (
+# Always guarantee AI Management System tables exist on startup
+try:
+    from app.models.ai.ai_system_setting import AiConfigHistory, AiSystemSetting
+
+    ai_tables = cast(
+        list[Table],
+        [t for t in (AiSystemSetting.__table__, AiConfigHistory.__table__) if isinstance(t, Table)],
+    )
+    Base.metadata.create_all(
+        bind=engine,
+        tables=ai_tables,
+        checkfirst=True,
+    )
+except Exception as _ai_tbl_err:
+    logger.warning(f"AI settings table check skipped on startup: {_ai_tbl_err}")
+
+docs_config: dict[str, Any] = (
     {"docs_url": None, "redoc_url": None, "openapi_url": None}
     if is_production_environment()
     else {}
@@ -66,6 +82,7 @@ app = FastAPI(title="EquiGrade API", version="1.0.0", **docs_config)
 # Enforce fail-fast configuration checks on production startup
 if is_production_environment():
     from app.core.security.keys import get_ai_webhook_secret, get_qr_signing_secret
+
     get_ai_webhook_secret()
     get_qr_signing_secret()
 
@@ -148,7 +165,7 @@ async def db_health():
         return {"status": "ok"}
     except Exception as exc:
         logger.error(f"Health check DB probe failed: {exc}")
-        raise HTTPException(status_code=503, detail="Database connectivity failure")
+        raise HTTPException(status_code=503, detail="Database connectivity failure") from exc
 
 
 app.include_router(auth_router)

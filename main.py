@@ -1,10 +1,10 @@
 import os
-from typing import Any, cast
+from typing import Any
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import Table, text
+from sqlalchemy import text
 
 # Ensure uploads directory exists
 try:
@@ -55,21 +55,6 @@ if should_auto_migrate:
     except Exception as _err:
         logger.warning(f"Deferred DB init on import: {_err}")
 
-# Always guarantee AI Management System tables exist on startup
-try:
-    from app.models.ai.ai_system_setting import AiConfigHistory, AiSystemSetting
-
-    ai_tables = cast(
-        list[Table],
-        [t for t in (AiSystemSetting.__table__, AiConfigHistory.__table__) if isinstance(t, Table)],
-    )
-    Base.metadata.create_all(
-        bind=engine,
-        tables=ai_tables,
-        checkfirst=True,
-    )
-except Exception as _ai_tbl_err:
-    logger.warning(f"AI settings table check skipped on startup: {_ai_tbl_err}")
 
 docs_config: dict[str, Any] = (
     {"docs_url": None, "redoc_url": None, "openapi_url": None}

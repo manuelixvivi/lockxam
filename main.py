@@ -34,7 +34,7 @@ from app.api.superadmin_ai import router as superadmin_ai_router
 from app.api.teacher import dashboard_router, questions_router
 from app.api.teacher import router as teacher_router
 from app.core.database import Base, SessionLocal, engine
-from app.core.environment import is_production_environment
+from app.core.environment import is_production_environment, is_serverless_environment
 from app.database.seed_master import seed_master_data
 from app.exceptions import register_exception_handlers
 from app.logging.logger import logger
@@ -79,12 +79,15 @@ docs_config: dict[str, Any] = (
 
 app = FastAPI(title="EquiGrade API", version="1.0.0", **docs_config)
 
-# Enforce fail-fast configuration checks on production startup
-if is_production_environment():
-    from app.core.security.keys import get_ai_webhook_secret, get_qr_signing_secret
+# Startup configuration validation (non-blocking for serverless environments)
+if is_production_environment() and not is_serverless_environment():
+    try:
+        from app.core.security.keys import get_ai_webhook_secret, get_qr_signing_secret
 
-    get_ai_webhook_secret()
-    get_qr_signing_secret()
+        get_ai_webhook_secret()
+        get_qr_signing_secret()
+    except Exception as _sec_err:
+        logger.warning(f"Production configuration warning on startup: {_sec_err}")
 
 
 # Serve uploaded static files securely

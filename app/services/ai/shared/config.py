@@ -100,20 +100,12 @@ class AiConfig:
     def get_effective_model(
         cls, explicit_model: Optional[str] = None, db: Optional[Any] = None
     ) -> str:
-        """Returns active model with persistent DB priority and automatic migration of legacy placeholder IDs."""
+        """Returns active model with persistent DB priority."""
         if explicit_model and explicit_model.strip():
-            candidate = explicit_model.strip()
-            if candidate.startswith("openai/gpt-oss"):
-                return "llama-3.3-70b-versatile"
-            return candidate
+            return explicit_model.strip()
         db_cfg = cls.get_runtime_db_config(db)
         if db_cfg.get("model_name"):
-            m = db_cfg["model_name"]
-            if m.startswith("openai/gpt-oss"):
-                return "llama-3.3-70b-versatile"
-            return m
-        if cls.MODEL_NAME.startswith("openai/gpt-oss"):
-            return "llama-3.3-70b-versatile"
+            return db_cfg["model_name"]
         return cls.MODEL_NAME
 
     @classmethod
@@ -121,10 +113,5 @@ class AiConfig:
         """Returns fallback model with persistent DB priority."""
         db_cfg = cls.get_runtime_db_config(db)
         if db_cfg.get("fallback_model"):
-            m = db_cfg["fallback_model"]
-            if m.startswith("openai/gpt-oss"):
-                return "llama-3.1-8b-instant"
-            return m
-        if cls.GROQ_FALLBACK_MODEL.startswith("openai/gpt-oss"):
-            return "llama-3.1-8b-instant"
+            return db_cfg["fallback_model"]
         return cls.GROQ_FALLBACK_MODEL

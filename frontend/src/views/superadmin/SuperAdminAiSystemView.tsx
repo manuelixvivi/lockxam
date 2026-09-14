@@ -133,11 +133,9 @@ export const SuperAdminAiSystemView: React.FC<{
         const c = configRes.value;
         setConfig(c);
         // Populate form
-        const normModel = (m?: string, def = "llama-3.3-70b-versatile") =>
-          !m || m.includes("gpt-oss") ? def : m;
-        setFormModel(normModel(c.model_name, "llama-3.3-70b-versatile"));
-        setFormEvalModel(normModel(c.eval_model_name || c.model_name, "llama-3.3-70b-versatile"));
-        setFormFallbackModel(normModel(c.fallback_model, "llama-3.1-8b-instant"));
+        setFormModel(c.model_name || "openai/gpt-oss-120b");
+        setFormEvalModel(c.eval_model_name || c.model_name || "openai/gpt-oss-120b");
+        setFormFallbackModel(c.fallback_model || "openai/gpt-oss-20b");
         setFormTemperature(c.temperature ?? 0.2);
         setFormMaxTokens(c.max_output_tokens ?? 4096);
         setFormRagEnabled(c.rag_enabled ?? false);
@@ -765,18 +763,14 @@ export const SuperAdminAiSystemView: React.FC<{
                             onChange={(e) => setFormFallbackModel(e.target.value)}
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
                           >
-                            {formFallbackModel &&
-                              !["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "deepseek-r1-distill-llama-70b", "gemma2-9b-it"].includes(
-                                formFallbackModel
-                              ) && (
-                                <option value={formFallbackModel}>
-                                  {formFallbackModel} (Model Fallback Aktif)
-                                </option>
-                              )}
-                            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (High-Speed Fallback)</option>
-                            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Flagship)</option>
-                            <option value="deepseek-r1-distill-llama-70b">deepseek-r1-distill-llama-70b (Reasoning)</option>
-                            <option value="gemma2-9b-it">gemma2-9b-it (Google Gemma 2)</option>
+                            {formFallbackModel && !availableModels.some((m) => m.id === formFallbackModel) && (
+                              <option value={formFallbackModel}>{formFallbackModel} (Model Fallback Aktif)</option>
+                            )}
+                            {availableModels.map((m) => (
+                              <option key={m.id} value={m.id}>
+                                {m.name} {m.is_recommended ? "★ (Rekomendasi)" : ""}
+                              </option>
+                            ))}
                           </select>
                         </div>
 

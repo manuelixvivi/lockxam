@@ -126,8 +126,6 @@ class LlmClient:
         """
         effective_key = AiConfig.get_effective_api_key(api_key)
         target_model = model or AiConfig.get_effective_model()
-        if target_model.startswith("openai/gpt-oss"):
-            target_model = "llama-3.3-70b-versatile"
 
         direct_error = None
         if effective_key:

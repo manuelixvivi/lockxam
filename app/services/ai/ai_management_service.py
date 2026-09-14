@@ -35,16 +35,32 @@ logger = logging.getLogger(__name__)
 # Canonical recommended Groq models
 DEFAULT_RECOMMENDED_MODELS: List[Dict[str, Any]] = [
     {
-        "id": "llama-3.3-70b-versatile",
-        "name": "Llama 3.3 70B Versatile (Primary Flagship)",
+        "id": "openai/gpt-oss-120b",
+        "name": "GPT OSS 120B (Primary Flagship)",
         "provider": "Groq",
         "context_window": 128000,
         "is_recommended": True,
-        "description": "Meta Llama 3.3 flagship model with extended 128k context and state-of-the-art grading & feedback reasoning.",
+        "description": "OpenAI GPT OSS 120B model on Groq LPU with 128k context and state-of-the-art grading & feedback reasoning.",
+    },
+    {
+        "id": "openai/gpt-oss-20b",
+        "name": "GPT OSS 20B (High-Speed Fallback)",
+        "provider": "Groq",
+        "context_window": 32768,
+        "is_recommended": True,
+        "description": "OpenAI GPT OSS 20B model for ultra-low latency inference and high-throughput evaluation.",
+    },
+    {
+        "id": "llama-3.3-70b-versatile",
+        "name": "Llama 3.3 70B Versatile",
+        "provider": "Groq",
+        "context_window": 128000,
+        "is_recommended": True,
+        "description": "Meta Llama 3.3 flagship model with extended 128k context and robust essay evaluation.",
     },
     {
         "id": "llama-3.1-8b-instant",
-        "name": "Llama 3.1 8B Instant (High-Speed Fallback)",
+        "name": "Llama 3.1 8B Instant",
         "provider": "Groq",
         "context_window": 128000,
         "is_recommended": True,
@@ -163,14 +179,14 @@ class AiManagementService:
                 pass
 
         model_name = config_data.get("model_name", AiConfig.get_effective_model())
-        if not model_name or model_name.startswith("openai/gpt-oss"):
-            model_name = "llama-3.3-70b-versatile"
+        if not model_name:
+            model_name = "openai/gpt-oss-120b"
         eval_model_name = config_data.get("eval_model_name", model_name)
-        if not eval_model_name or eval_model_name.startswith("openai/gpt-oss"):
-            eval_model_name = "llama-3.3-70b-versatile"
-        fallback_model = config_data.get("fallback_model", "llama-3.1-8b-instant")
-        if not fallback_model or fallback_model.startswith("openai/gpt-oss"):
-            fallback_model = "llama-3.1-8b-instant"
+        if not eval_model_name:
+            eval_model_name = model_name
+        fallback_model = config_data.get("fallback_model", AiConfig.get_effective_fallback_model())
+        if not fallback_model:
+            fallback_model = "openai/gpt-oss-20b"
         temperature = float(config_data.get("temperature", 0.2))
         max_output_tokens = int(config_data.get("max_output_tokens", 4096))
         rag_enabled = config_data.get("rag_enabled", AiConfig.is_rag_enabled())
@@ -415,8 +431,8 @@ class AiManagementService:
             if setting and setting.value_json
             else AiConfig.get_effective_model()
         )
-        if not target_model or target_model.startswith("openai/gpt-oss"):
-            target_model = "llama-3.3-70b-versatile"
+        if not target_model:
+            target_model = "openai/gpt-oss-120b"
 
         if not effective_key:
             return AiTestConnectionResponse(
@@ -475,13 +491,11 @@ class AiManagementService:
                     f"Gagal terhubung ke host provider (Network/DNS): {ue.reason}"
                 ) from ue
 
-            # Step 2: Validate target model exists on provider
+            # Step 2: Validate target model exists on provider if models were returned
             if available_model_ids and target_model not in available_model_ids:
-                recommended_sample = ", ".join(
-                    [m for m in available_model_ids if "llama-3" in m or "gemma" in m][:5]
-                )
+                sample_models = ", ".join(available_model_ids[:10])
                 raise ValueError(
-                    f"Model '{target_model}' tidak aktif atau tidak ditemukan di akun Groq ini. Model aktif yang tersedia antara lain: {recommended_sample}"
+                    f"Model '{target_model}' tidak aktif atau tidak ditemukan di akun Groq ini. Model aktif yang tersedia antara lain: {sample_models}"
                 )
 
             # Step 3: Fast chat completion verification probe (JSON-compliant)

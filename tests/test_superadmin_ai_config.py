@@ -278,3 +278,39 @@ def test_get_available_models_live_and_fallback(client, test_superadmin, monkeyp
     assert "qwen-2.5-coder-32b" in live_ids
     # whisper must be filtered out from CBT text grading
     assert "whisper-large-v3" not in live_ids
+
+
+def test_gpt_oss_models_preserved_and_available(client, test_superadmin):
+    """Verifies that openai/gpt-oss-120b and openai/gpt-oss-20b are supported and preserved."""
+    headers = _get_superadmin_auth_headers(client, test_superadmin)
+
+    # 1. Available models include GPT OSS 120B and 20B presets
+    res = client.get("/api/v1/superadmin/ai-system/available-models", headers=headers)
+    assert res.status_code == 200
+    models = res.json()
+    model_ids = [m["id"] for m in models]
+    assert "openai/gpt-oss-120b" in model_ids
+    assert "openai/gpt-oss-20b" in model_ids
+
+    # 2. Config update with openai/gpt-oss-120b is preserved (not substituted)
+    put_res = client.put(
+        "/api/v1/superadmin/ai-system/config",
+        json={
+            "provider": "Groq",
+            "model_name": "openai/gpt-oss-120b",
+            "eval_model_name": "openai/gpt-oss-120b",
+            "fallback_model": "openai/gpt-oss-20b",
+            "temperature": 0.2,
+            "max_output_tokens": 4096,
+        },
+        headers=headers,
+    )
+    assert put_res.status_code == 200
+    data = put_res.json()
+    assert data["model_name"] == "openai/gpt-oss-120b"
+    assert data["eval_model_name"] == "openai/gpt-oss-120b"
+    assert data["fallback_model"] == "openai/gpt-oss-20b"
+
+    get_res = client.get("/api/v1/superadmin/ai-system/config", headers=headers)
+    assert get_res.status_code == 200
+    assert get_res.json()["model_name"] == "openai/gpt-oss-120b"

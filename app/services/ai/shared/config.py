@@ -10,14 +10,14 @@ class AiConfig:
     GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
     GROQ_BASE_URL: str = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     MODEL_NAME: str = os.environ.get(
-        "GROQ_MODEL", os.environ.get("MODEL_NAME", "openai/gpt-oss-120b")
+        "GROQ_MODEL", os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
     )
     EVAL_MODEL_NAME: str = os.environ.get(
-        "GROQ_MODEL", os.environ.get("EVAL_MODEL_NAME", "openai/gpt-oss-120b")
+        "GROQ_MODEL", os.environ.get("EVAL_MODEL_NAME", "llama-3.3-70b-versatile")
     )
-    VALIDATION_MODEL_NAME: str = os.environ.get("VALIDATION_MODEL_NAME", "openai/gpt-oss-120b")
-    GROQ_FALLBACK_MODEL: str = os.environ.get("GROQ_FALLBACK_MODEL", "openai/gpt-oss-20b")
-    FAST_EVAL_MODEL_NAME: str = os.environ.get("FAST_EVAL_MODEL_NAME", "groq/compound-mini")
+    VALIDATION_MODEL_NAME: str = os.environ.get("VALIDATION_MODEL_NAME", "llama-3.3-70b-versatile")
+    GROQ_FALLBACK_MODEL: str = os.environ.get("GROQ_FALLBACK_MODEL", "llama-3.1-8b-instant")
+    FAST_EVAL_MODEL_NAME: str = os.environ.get("FAST_EVAL_MODEL_NAME", "llama-3.1-8b-instant")
     BATCH_GRADING_SIZE: int = int(os.environ.get("BATCH_GRADING_SIZE", "50"))
 
     # RAG Feature Flag (Default: False for security & predictable cost)
@@ -38,11 +38,15 @@ class AiConfig:
     def get_runtime_db_config(cls, db: Optional[Any] = None) -> Dict[str, Any]:
         """Resolves runtime AI configuration from persistent AiSystemSetting table (serverless-safe)."""
         now = time.time()
-        if cls._db_cache["config"] is not None and (now - cls._db_cache["last_fetched"]) < cls._db_cache["ttl"]:
+        if (
+            cls._db_cache["config"] is not None
+            and (now - cls._db_cache["last_fetched"]) < cls._db_cache["ttl"]
+        ):
             return cls._db_cache["config"]
 
         if db is None:
             from app.core.database import SessionLocal
+
             try:
                 with SessionLocal() as session:
                     return cls._fetch_db_config(session)
@@ -53,9 +57,14 @@ class AiConfig:
     @classmethod
     def _fetch_db_config(cls, session: Any) -> Dict[str, Any]:
         try:
-            from app.models.ai.ai_system_setting import AiSystemSetting
             from app.core.security.crypto import decrypt_secret
-            setting = session.query(AiSystemSetting).filter(AiSystemSetting.key == "ai_provider_config").first()
+            from app.models.ai.ai_system_setting import AiSystemSetting
+
+            setting = (
+                session.query(AiSystemSetting)
+                .filter(AiSystemSetting.key == "ai_provider_config")
+                .first()
+            )
             if not setting:
                 return {}
             val = dict(setting.value_json or {})
@@ -76,7 +85,9 @@ class AiConfig:
         return os.environ.get("RAG_ENABLED", "false").lower() in ("true", "1", "yes")
 
     @classmethod
-    def get_effective_api_key(cls, explicit_key: Optional[str] = None, db: Optional[Any] = None) -> str:
+    def get_effective_api_key(
+        cls, explicit_key: Optional[str] = None, db: Optional[Any] = None
+    ) -> str:
         """Strict server-side GROQ_API_KEY security boundary with persistent DB priority."""
         if explicit_key and explicit_key.strip():
             return explicit_key.strip()
@@ -86,11 +97,34 @@ class AiConfig:
         return cls.GROQ_API_KEY or ""
 
     @classmethod
-    def get_effective_model(cls, explicit_model: Optional[str] = None, db: Optional[Any] = None) -> str:
-        """Returns active model with persistent DB priority."""
+    def get_effective_model(
+        cls, explicit_model: Optional[str] = None, db: Optional[Any] = None
+    ) -> str:
+        """Returns active model with persistent DB priority and automatic migration of legacy placeholder IDs."""
         if explicit_model and explicit_model.strip():
-            return explicit_model.strip()
+            candidate = explicit_model.strip()
+            if candidate.startswith("openai/gpt-oss"):
+                return "llama-3.3-70b-versatile"
+            return candidate
         db_cfg = cls.get_runtime_db_config(db)
         if db_cfg.get("model_name"):
-            return db_cfg["model_name"]
+            m = db_cfg["model_name"]
+            if m.startswith("openai/gpt-oss"):
+                return "llama-3.3-70b-versatile"
+            return m
+        if cls.MODEL_NAME.startswith("openai/gpt-oss"):
+            return "llama-3.3-70b-versatile"
         return cls.MODEL_NAME
+
+    @classmethod
+    def get_effective_fallback_model(cls, db: Optional[Any] = None) -> str:
+        """Returns fallback model with persistent DB priority."""
+        db_cfg = cls.get_runtime_db_config(db)
+        if db_cfg.get("fallback_model"):
+            m = db_cfg["fallback_model"]
+            if m.startswith("openai/gpt-oss"):
+                return "llama-3.1-8b-instant"
+            return m
+        if cls.GROQ_FALLBACK_MODEL.startswith("openai/gpt-oss"):
+            return "llama-3.1-8b-instant"
+        return cls.GROQ_FALLBACK_MODEL

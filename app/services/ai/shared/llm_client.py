@@ -119,6 +119,8 @@ class LlmClient:
         """
         effective_key = AiConfig.get_effective_api_key(api_key)
         target_model = model or AiConfig.get_effective_model()
+        if target_model.startswith("openai/gpt-oss"):
+            target_model = "llama-3.3-70b-versatile"
 
         direct_error = None
         if effective_key:
@@ -129,11 +131,15 @@ class LlmClient:
                 "User-Agent": "EquiGrade-AI-Engine/2.0",
             }
 
+            sys_content = system_prompt
+            if "json" not in (sys_content + user_prompt).lower():
+                sys_content = f"{sys_content}\nRespond strictly in valid JSON format."
+
             for attempt in range(max_retries):
                 payload = {
                     "model": target_model,
                     "messages": [
-                        {"role": "system", "content": system_prompt},
+                        {"role": "system", "content": sys_content},
                         {"role": "user", "content": user_prompt},
                     ],
                     "temperature": temperature,
@@ -149,7 +155,9 @@ class LlmClient:
                         raw_content = resp_json["choices"][0]["message"]["content"].strip()
                         parsed = cls.clean_and_parse_json(raw_content)
                         if not parsed or not isinstance(parsed, dict):
-                            raise ValueError(f"Empty or non-dictionary JSON from LLM: {raw_content[:100]}")
+                            raise ValueError(
+                                f"Empty or non-dictionary JSON from LLM: {raw_content[:100]}"
+                            )
                         return {
                             "status": "success",
                             "data": parsed,
@@ -174,7 +182,9 @@ class LlmClient:
                         if attempt < max_retries - 1:
                             time.sleep(sleep_time)
                             continue
-                        direct_error = f"Rate limit exceeded (429) after {max_retries} retries: {error_body}"
+                        direct_error = (
+                            f"Rate limit exceeded (429) after {max_retries} retries: {error_body}"
+                        )
                         break
 
                     # Handle 404 Model Not Found / Deprecated -> Attempt Fallback Model
@@ -308,8 +318,7 @@ class LlmClient:
                     return json.loads(match.group(0))
                 except json.JSONDecodeError:
                     pass
-            logger.error(f"Failed to parse JSON from LLM output: {raw_text[:200]}")
-            raise ValueError(f"LLM did not return valid JSON output: {raw_text[:100]}")
+            raise ValueError(f"LLM did not return valid JSON output: {raw_text[:100]}") from None
 
     @classmethod
     def check_health(cls) -> Dict[str, Any]:

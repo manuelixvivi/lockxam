@@ -67,9 +67,9 @@ export const SuperAdminAiSystemView: React.FC<{
 
   // Form states for Configuration Tab
   const [formProvider, setFormProvider] = useState<string>("Groq");
-  const [formModel, setFormModel] = useState<string>("openai/gpt-oss-120b");
-  const [formEvalModel, setFormEvalModel] = useState<string>("openai/gpt-oss-120b");
-  const [formFallbackModel, setFormFallbackModel] = useState<string>("openai/gpt-oss-20b");
+  const [formModel, setFormModel] = useState<string>("llama-3.3-70b-versatile");
+  const [formEvalModel, setFormEvalModel] = useState<string>("llama-3.3-70b-versatile");
+  const [formFallbackModel, setFormFallbackModel] = useState<string>("llama-3.1-8b-instant");
   const [formApiKey, setFormApiKey] = useState<string>("");
   const [showApiKey, setShowApiKey] = useState<boolean>(false);
   const [formTemperature, setFormTemperature] = useState<number>(0.2);
@@ -132,10 +132,11 @@ export const SuperAdminAiSystemView: React.FC<{
         const c = configRes.value;
         setConfig(c);
         // Populate form
-        setFormProvider(c.provider || "Groq");
-        setFormModel(c.model_name || "openai/gpt-oss-120b");
-        setFormEvalModel(c.eval_model_name || c.model_name || "openai/gpt-oss-120b");
-        setFormFallbackModel(c.fallback_model || "openai/gpt-oss-20b");
+        const normModel = (m?: string, def = "llama-3.3-70b-versatile") =>
+          !m || m.includes("gpt-oss") ? def : m;
+        setFormModel(normModel(c.model_name, "llama-3.3-70b-versatile"));
+        setFormEvalModel(normModel(c.eval_model_name || c.model_name, "llama-3.3-70b-versatile"));
+        setFormFallbackModel(normModel(c.fallback_model, "llama-3.1-8b-instant"));
         setFormTemperature(c.temperature ?? 0.2);
         setFormMaxTokens(c.max_output_tokens ?? 4096);
         setFormRagEnabled(c.rag_enabled ?? false);
@@ -224,9 +225,9 @@ export const SuperAdminAiSystemView: React.FC<{
         ? 0.70
         : Math.min(1.0, Math.max(0.0, parsedSimThreshold));
 
-      const targetModel = formModel.trim() || "openai/gpt-oss-120b";
+      const targetModel = formModel.trim() || "llama-3.3-70b-versatile";
       const targetEvalModel = formEvalModel.trim() || targetModel;
-      const targetFallbackModel = formFallbackModel.trim() || "openai/gpt-oss-20b";
+      const targetFallbackModel = formFallbackModel.trim() || "llama-3.1-8b-instant";
       const targetEmbedding = (formEmbeddingModel || "").trim() || "intfloat/multilingual-e5-large";
 
       const updated = await superadminAiApi.updateConfig({
@@ -730,16 +731,17 @@ export const SuperAdminAiSystemView: React.FC<{
                             className="w-full bg-slate-900 border border-slate-800 rounded-xl px-4 py-2.5 text-sm text-slate-100 focus:outline-none focus:border-indigo-500 font-mono"
                           >
                             {formFallbackModel &&
-                              !["openai/gpt-oss-20b", "llama-3.1-8b-instant", "llama-3.3-70b-versatile"].includes(
+                              !["llama-3.1-8b-instant", "llama-3.3-70b-versatile", "deepseek-r1-distill-llama-70b", "gemma2-9b-it"].includes(
                                 formFallbackModel
                               ) && (
                                 <option value={formFallbackModel}>
                                   {formFallbackModel} (Model Fallback Aktif)
                                 </option>
                               )}
-                            <option value="openai/gpt-oss-20b">openai/gpt-oss-20b (Ultra-Low Latency)</option>
-                            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant</option>
-                            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile</option>
+                            <option value="llama-3.1-8b-instant">llama-3.1-8b-instant (High-Speed Fallback)</option>
+                            <option value="llama-3.3-70b-versatile">llama-3.3-70b-versatile (Flagship)</option>
+                            <option value="deepseek-r1-distill-llama-70b">deepseek-r1-distill-llama-70b (Reasoning)</option>
+                            <option value="gemma2-9b-it">gemma2-9b-it (Google Gemma 2)</option>
                           </select>
                         </div>
 

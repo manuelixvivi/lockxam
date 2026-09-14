@@ -36,44 +36,44 @@ logger = logging.getLogger(__name__)
 # Canonical recommended Groq models
 DEFAULT_RECOMMENDED_MODELS: List[Dict[str, Any]] = [
     {
-        "id": "openai/gpt-oss-120b",
-        "name": "GPT-OSS 120B (Primary Production)",
-        "provider": "Groq",
-        "context_window": 8192,
-        "is_recommended": True,
-        "description": "High-accuracy open-weights LLM optimal for nuanced essay grading and feedback synthesis.",
-    },
-    {
-        "id": "openai/gpt-oss-20b",
-        "name": "GPT-OSS 20B (High-Speed Fallback)",
-        "provider": "Groq",
-        "context_window": 8192,
-        "is_recommended": True,
-        "description": "Ultra-low latency fallback model for high-concurrency batch evaluation.",
-    },
-    {
         "id": "llama-3.3-70b-versatile",
-        "name": "Llama 3.3 70B Versatile",
+        "name": "Llama 3.3 70B Versatile (Primary Flagship)",
         "provider": "Groq",
         "context_window": 128000,
         "is_recommended": True,
-        "description": "Meta Llama 3.3 flagship model with extended 128k context and state-of-the-art reasoning.",
+        "description": "Meta Llama 3.3 flagship model with extended 128k context and state-of-the-art grading & feedback reasoning.",
     },
     {
         "id": "llama-3.1-8b-instant",
-        "name": "Llama 3.1 8B Instant",
+        "name": "Llama 3.1 8B Instant (High-Speed Fallback)",
+        "provider": "Groq",
+        "context_window": 128000,
+        "is_recommended": True,
+        "description": "Ultra-fast, low latency model suited for high-throughput evaluation and quick validation.",
+    },
+    {
+        "id": "deepseek-r1-distill-llama-70b",
+        "name": "DeepSeek R1 Distill Llama 70B (Reasoning)",
+        "provider": "Groq",
+        "context_window": 128000,
+        "is_recommended": False,
+        "description": "Deep reasoning model optimized for complex STEM and essay step-by-step evaluation.",
+    },
+    {
+        "id": "gemma2-9b-it",
+        "name": "Gemma 2 9B IT",
         "provider": "Groq",
         "context_window": 8192,
         "is_recommended": False,
-        "description": "Lightweight model suited for fast rubric generation and answer validation.",
+        "description": "Google Gemma 2 model with efficient token generation and lightweight footprint.",
     },
     {
-        "id": "mixtral-8x7b-32768",
-        "name": "Mixtral 8x7B MoE",
+        "id": "qwen-2.5-32b",
+        "name": "Qwen 2.5 32B",
         "provider": "Groq",
         "context_window": 32768,
         "is_recommended": False,
-        "description": "Sparse mixture of experts model with 32k token context.",
+        "description": "Alibaba Qwen 2.5 open-weights model suited for diverse multilingual evaluation.",
     },
 ]
 
@@ -163,9 +163,15 @@ class AiManagementService:
             except Exception:
                 pass
 
-        model_name = config_data.get("model_name", AiConfig.MODEL_NAME)
-        eval_model_name = config_data.get("eval_model_name", AiConfig.EVAL_MODEL_NAME)
-        fallback_model = config_data.get("fallback_model", AiConfig.GROQ_FALLBACK_MODEL)
+        model_name = config_data.get("model_name", AiConfig.get_effective_model())
+        if not model_name or model_name.startswith("openai/gpt-oss"):
+            model_name = "llama-3.3-70b-versatile"
+        eval_model_name = config_data.get("eval_model_name", model_name)
+        if not eval_model_name or eval_model_name.startswith("openai/gpt-oss"):
+            eval_model_name = "llama-3.3-70b-versatile"
+        fallback_model = config_data.get("fallback_model", "llama-3.1-8b-instant")
+        if not fallback_model or fallback_model.startswith("openai/gpt-oss"):
+            fallback_model = "llama-3.1-8b-instant"
         temperature = float(config_data.get("temperature", 0.2))
         max_output_tokens = int(config_data.get("max_output_tokens", 4096))
         rag_enabled = config_data.get("rag_enabled", AiConfig.is_rag_enabled())
@@ -408,8 +414,10 @@ class AiManagementService:
         target_model = payload.model_name or (
             setting.value_json.get("model_name")
             if setting and setting.value_json
-            else AiConfig.MODEL_NAME
+            else AiConfig.get_effective_model()
         )
+        if not target_model or target_model.startswith("openai/gpt-oss"):
+            target_model = "llama-3.3-70b-versatile"
 
         if not effective_key:
             return AiTestConnectionResponse(
@@ -417,21 +425,105 @@ class AiManagementService:
                 provider=payload.provider,
                 model_name=target_model,
                 message="Koneksi Gagal: API Key belum dikonfigurasi.",
-                error_detail="Missing API Key in request and stored configuration.",
+                error_detail="API Key tidak boleh kosong. Masukkan API Key dari Groq Console (dimulai dengan gsk_...).",
             )
 
         t_start = time.perf_counter()
         try:
-            # Lightweight probe with 5 max tokens
-            LlmClient.call_chat_completion(
-                system_prompt="ping",
-                user_prompt="ping",
-                model=target_model,
-                temperature=0.1,
-                max_tokens=5,
-                api_key=effective_key,
-                timeout=10,
+            import json as _json
+            import urllib.error
+            import urllib.request
+
+            # Step 1: Probe Groq /models endpoint with Bearer token
+            models_url = f"{AiConfig.GROQ_BASE_URL.rstrip('/')}/models"
+            models_req = urllib.request.Request(
+                models_url,
+                headers={
+                    "Authorization": f"Bearer {effective_key}",
+                    "User-Agent": "EquiGrade-AI-Engine/2.0",
+                },
+                method="GET",
             )
+
+            available_model_ids: List[str] = []
+            try:
+                with urllib.request.urlopen(models_req, timeout=10) as resp:
+                    resp_data = _json.loads(resp.read().decode("utf-8"))
+                    available_model_ids = [
+                        item["id"]
+                        for item in resp_data.get("data", [])
+                        if isinstance(item, dict) and item.get("active", True)
+                    ]
+            except urllib.error.HTTPError as he:
+                err_body = he.read().decode("utf-8", errors="ignore")
+                err_msg = ""
+                try:
+                    parsed_err = _json.loads(err_body)
+                    err_msg = parsed_err.get("error", {}).get("message", err_body)
+                except Exception:
+                    err_msg = err_body or str(he)
+
+                if he.code in (401, 403):
+                    raise ValueError(
+                        f"API Key tidak valid (HTTP {he.code}): {err_msg}. Pastikan API Key benar dan masih aktif di console.groq.com."
+                    ) from he
+                elif he.code == 429:
+                    raise ValueError(f"Rate limit API terlampaui (HTTP 429): {err_msg}") from he
+                else:
+                    raise ValueError(f"HTTP Error dari provider ({he.code}): {err_msg}") from he
+            except urllib.error.URLError as ue:
+                raise ValueError(
+                    f"Gagal terhubung ke host provider (Network/DNS): {ue.reason}"
+                ) from ue
+
+            # Step 2: Validate target model exists on provider
+            if available_model_ids and target_model not in available_model_ids:
+                recommended_sample = ", ".join(
+                    [m for m in available_model_ids if "llama-3" in m or "gemma" in m][:5]
+                )
+                raise ValueError(
+                    f"Model '{target_model}' tidak aktif atau tidak ditemukan di akun Groq ini. Model aktif yang tersedia antara lain: {recommended_sample}"
+                )
+
+            # Step 3: Fast chat completion verification probe (JSON-compliant)
+            chat_url = f"{AiConfig.GROQ_BASE_URL.rstrip('/')}/chat/completions"
+            chat_payload = {
+                "model": target_model,
+                "messages": [
+                    {
+                        "role": "user",
+                        "content": 'Respond with valid JSON: {"status": "ok"}',
+                    }
+                ],
+                "temperature": 0.0,
+                "max_tokens": 30,
+                "response_format": {"type": "json_object"},
+            }
+            chat_req = urllib.request.Request(
+                chat_url,
+                data=_json.dumps(chat_payload).encode("utf-8"),
+                headers={
+                    "Content-Type": "application/json",
+                    "Authorization": f"Bearer {effective_key}",
+                    "User-Agent": "EquiGrade-AI-Engine/2.0",
+                },
+                method="POST",
+            )
+            try:
+                with urllib.request.urlopen(chat_req, timeout=12) as chat_resp:
+                    _ = chat_resp.read()
+            except urllib.error.HTTPError as he:
+                err_body = he.read().decode("utf-8", errors="ignore")
+                err_msg = ""
+                try:
+                    parsed_err = _json.loads(err_body)
+                    err_msg = parsed_err.get("error", {}).get("message", err_body)
+                except Exception:
+                    err_msg = err_body or str(he)
+                raise ValueError(
+                    f"Chat probe gagal pada model '{target_model}' ({he.code}): {err_msg}"
+                ) from he
+
             latency_ms = round((time.perf_counter() - t_start) * 1000, 1)
 
             # Record success in setting
@@ -452,8 +544,9 @@ class AiManagementService:
             )
         except Exception as ex:
             latency_ms = round((time.perf_counter() - t_start) * 1000, 1)
+            raw_err = str(ex)
             logger.warning(
-                f"AI test connection probe failed to {payload.provider}/{target_model}: {ex}"
+                f"AI test connection probe failed to {payload.provider}/{target_model}: {raw_err}"
             )
 
             if setting:
@@ -469,8 +562,8 @@ class AiManagementService:
                 latency_ms=latency_ms,
                 provider=payload.provider,
                 model_name=target_model,
-                message="Koneksi Gagal. Periksa kembali API Key dan nama model.",
-                error_detail="Koneksi ke target AI provider gagal atau terjadi timeout.",
+                message=f"Koneksi Gagal: {raw_err}",
+                error_detail=raw_err,
             )
 
     @classmethod

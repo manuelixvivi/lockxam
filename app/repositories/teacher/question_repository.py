@@ -43,5 +43,26 @@ class QuestionRepository(BaseRepository[Question]):
         )
         return db.scalars(stmt).first()
 
+    def delete_by_owner(self, db: Session, owner_teacher_id: int) -> int:
+        from app.models.teacher.package_item import QuestionPackageItem
+
+        # Unlink question package items pointing to this teacher's questions
+        owned_q_ids = [
+            row[0]
+            for row in db.execute(
+                select(Question.id).where(Question.owner_teacher_account_id == owner_teacher_id)
+            ).all()
+        ]
+        if owned_q_ids:
+            from sqlalchemy import delete
+            db.execute(
+                delete(QuestionPackageItem).where(QuestionPackageItem.question_id.in_(owned_q_ids))
+            )
+            stmt = delete(Question).where(Question.owner_teacher_account_id == owner_teacher_id)
+            res = db.execute(stmt)
+            db.flush()
+            return res.rowcount or 0
+        return 0
+
 
 question_repository = QuestionRepository()

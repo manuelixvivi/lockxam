@@ -257,8 +257,8 @@ class SchoolStaffService:
             )
 
         # Hapus assignments & competency via repositories
-        teacher_subject_repository.delete_by_teacher(db, teacher.id)
-        class_subject_teacher_repository.delete_by_teacher(db, teacher.id)
+        teacher_subject_repository.unassign_all_for_teacher(db, teacher.id)
+        class_subject_teacher_repository.unassign_all_for_teacher(db, teacher.id)
 
         # Unlink packages & questions safely via repositories
         question_package_repository.delete_by_owner(db, teacher.id)

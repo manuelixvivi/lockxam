@@ -91,5 +91,11 @@ class ClassSubjectTeacherRepository(BaseRepository[ClassSubjectTeacher]):
             return True
         return False
 
+    def unassign_all_for_teacher(self, db: Session, teacher_id: int) -> int:
+        stmt = delete(ClassSubjectTeacher).where(ClassSubjectTeacher.teacher_id == teacher_id)
+        res = db.execute(stmt)
+        db.flush()
+        return res.rowcount or 0
+
 
 class_subject_teacher_repository = ClassSubjectTeacherRepository()

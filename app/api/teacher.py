@@ -2143,6 +2143,9 @@ class AiEssayGradeRequest(BaseModel):
     education_level: str = "SMA"
     education_class: str = "Kelas 11"
     api_key: Optional[str] = None
+    subject_id: Optional[int] = None
+    academic_year_id: Optional[int] = None
+    class_level: Optional[str] = None
 
 
 @dashboard_router.get("/ai/status")
@@ -2173,7 +2176,9 @@ def generate_ai_rubric(
 
 @dashboard_router.post("/ai/grade-essay")
 def grade_ai_essay(
-    payload: AiEssayGradeRequest, current_user=Depends(require_role(UserRole.TEACHER))
+    payload: AiEssayGradeRequest,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(UserRole.TEACHER)),
 ):
     from app.services.ai.ai_grading_service import AiGradingService
 
@@ -2187,6 +2192,11 @@ def grade_ai_essay(
             education_level=payload.education_level,
             education_class=payload.education_class,
             api_key=payload.api_key,
+            db=db,
+            school_id=getattr(current_user, "school_id", None),
+            subject_id=payload.subject_id,
+            academic_year_id=payload.academic_year_id,
+            class_level=payload.class_level,
         )
         return res
     except Exception as e:

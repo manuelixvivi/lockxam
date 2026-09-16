@@ -124,7 +124,9 @@ class AuthService:
             # 6. Commit transaction
             db.commit()
 
-            return AuthService._build_login_response(account, session, expires_delta=expires_delta)
+            return AuthService._build_login_response(
+                db, account, session, expires_delta=expires_delta
+            )
 
         except AuthenticationException as ae:
             # Log failed login attempt for rate limiting
@@ -194,6 +196,8 @@ class AuthService:
 
     @staticmethod
     def refresh(db: Session, data: RefreshRequest) -> TokenResponse:
+        if not data.refresh_token:
+            raise AuthenticationException("Refresh token required")
         payload = verify_token(data.refresh_token)
 
         if not payload or payload.get("type") != "refresh":
@@ -226,7 +230,7 @@ class AuthService:
             if not account or not account.is_active:
                 user_session.revoked = True
                 user_session.revoked_at = datetime.now(timezone.utc)
-                user_session.revoked_reason = SessionRevokedReason.ADMIN_REVOCATION
+                user_session.revoked_reason = SessionRevokedReason.ADMIN_FORCE_LOGOUT
                 session_repository.update(db, user_session)
                 db.commit()
                 raise AuthenticationException("User account is inactive or disabled")
@@ -531,7 +535,7 @@ class AuthService:
 
     @staticmethod
     def _build_login_response(
-        account, session, expires_delta: timedelta | None = None
+        db: Session, account, session, expires_delta: timedelta | None = None
     ) -> LoginResponse:
         access_token = create_user_token(
             user_id=account.id,

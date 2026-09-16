@@ -117,6 +117,68 @@ class SchoolStaffService:
         return teachers
 
     @staticmethod
+    def resolve_teacher_academic_profile(
+        db: Session, account: AuthAccount
+    ) -> tuple[list[str], list[str]]:
+        """Dynamically resolve subjects and classes for a teacher from TeacherSubject and CST."""
+        if not account or account.role not in ("TEACHER", UserRole.TEACHER):
+            return account.subjects_taught or [], account.classes_taught or []
+
+        from app.models.academic.class_entity import ClassEntity
+        from app.models.academic.class_subject_teacher import ClassSubjectTeacher
+        from app.models.academic.subject import Subject
+        from app.models.academic.teacher_subject import TeacherSubject
+
+        # 1. Resolve subjects from TeacherSubject (competency) and ClassSubjectTeacher
+        ts_subs = [
+            s[0]
+            for s in db.query(Subject.name)
+            .join(TeacherSubject, TeacherSubject.subject_id == Subject.id)
+            .filter(
+                TeacherSubject.teacher_id == account.id,
+                Subject.school_id == account.school_id,
+            )
+            .all()
+            if s[0]
+        ]
+        cst_subs = [
+            s[0]
+            for s in db.query(Subject.name)
+            .join(ClassSubjectTeacher, ClassSubjectTeacher.subject_id == Subject.id)
+            .filter(
+                ClassSubjectTeacher.teacher_id == account.id,
+                Subject.school_id == account.school_id,
+            )
+            .all()
+            if s[0]
+        ]
+        existing_subs = account.subjects_taught or []
+        resolved_subjects = list(dict.fromkeys(ts_subs + cst_subs + existing_subs))
+
+        # 2. Resolve classes from ClassSubjectTeacher
+        cst_classes = [
+            c[0]
+            for c in db.query(ClassEntity.name)
+            .join(ClassSubjectTeacher, ClassSubjectTeacher.class_id == ClassEntity.id)
+            .filter(ClassSubjectTeacher.teacher_id == account.id, ClassEntity.is_active == True)
+            .all()
+            if c[0]
+        ]
+        existing_classes = account.classes_taught or []
+        resolved_classes = list(dict.fromkeys(cst_classes + existing_classes))
+
+        # 3. Synchronize on account if changed
+        if (
+            account.subjects_taught != resolved_subjects
+            or account.classes_taught != resolved_classes
+        ):
+            account.subjects_taught = resolved_subjects
+            account.classes_taught = resolved_classes
+            db.flush()
+
+        return resolved_subjects, resolved_classes
+
+    @staticmethod
     def create_teacher(
         db: Session,
         school_id: int,

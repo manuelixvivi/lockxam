@@ -89,6 +89,9 @@ export const teacherContentApi = {
     return apiClient.get<QuestionPackage[]>(`/api/v1/teacher/packages${qs ? `?${qs}` : ""}`);
   },
 
+  getAssignedSubjects: (): Promise<string[]> =>
+    apiClient.get<string[]>("/api/v1/teacher/packages/assigned-subjects"),
+
   createPackage: (data: QuestionPackageCreate): Promise<QuestionPackage> =>
     apiClient.post<QuestionPackage>("/api/v1/teacher/packages", data),
 

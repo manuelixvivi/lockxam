@@ -286,7 +286,10 @@ class ExamScheduleService:
         if not year or year.school_id != school_id:
             raise BusinessException("Tahun ajaran tidak ditemukan.", status_code=404)
 
+        import uuid
+
         package = ExamSchedulePackage(
+            public_id=uuid.uuid4(),
             school_id=school_id,
             academic_year_id=academic_year_id,
             title=title_clean,

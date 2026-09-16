@@ -139,6 +139,25 @@ def list_packages(
     return list(db.scalars(stmt).all())
 
 
+@router.get("/assigned-subjects", response_model=list[str])
+def get_teacher_assigned_subjects(
+    current_user=Depends(require_role(UserRole.TEACHER)),
+    db: Session = Depends(get_db),
+):
+    teacher_account_id = int(current_user["sub"])
+    from app.repositories.security.auth_repository import auth_repository
+
+    account = auth_repository.get_by_id(db, teacher_account_id)
+    if not account:
+        raise HTTPException(status_code=404, detail="Akun guru tidak ditemukan")
+
+    from app.services.school.staff_service import SchoolStaffService
+
+    subjects, _ = SchoolStaffService.resolve_teacher_academic_profile(db, account)
+    db.commit()
+    return subjects
+
+
 @router.post("", response_model=QuestionPackageResponse, status_code=status.HTTP_201_CREATED)
 def create_package(
     payload: QuestionPackageCreate,

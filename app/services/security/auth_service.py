@@ -308,6 +308,15 @@ class AuthService:
                             if s_lvl:
                                 school_level_code = s_lvl.code
 
+                subjects_taught = account.subjects_taught
+                classes_taught = account.classes_taught
+                if account.role in ("TEACHER", UserRole.TEACHER):
+                    from app.services.school.staff_service import SchoolStaffService
+
+                    subjects_taught, classes_taught = (
+                        SchoolStaffService.resolve_teacher_academic_profile(db, account)
+                    )
+
                 user_profile = CurrentUserResponse(
                     user_id=account.id,
                     username=account.username,
@@ -327,8 +336,8 @@ class AuthService:
                     registered_year=account.registered_year,
                     nip=account.nip,
                     teacher_code=account.teacher_code,
-                    subjects_taught=account.subjects_taught,
-                    classes_taught=account.classes_taught,
+                    subjects_taught=subjects_taught,
+                    classes_taught=classes_taught,
                 )
 
             return TokenResponse(
@@ -545,6 +554,15 @@ class AuthService:
 
         from app.schemas.security.auth import CurrentUserResponse
 
+        subjects_taught = account.subjects_taught
+        classes_taught = account.classes_taught
+        if account.role in ("TEACHER", UserRole.TEACHER):
+            from app.services.school.staff_service import SchoolStaffService
+
+            subjects_taught, classes_taught = SchoolStaffService.resolve_teacher_academic_profile(
+                db, account
+            )
+
         user_profile = CurrentUserResponse(
             user_id=account.id,
             username=account.username or "unknown",
@@ -560,8 +578,8 @@ class AuthService:
             registered_year=account.registered_year,
             nip=account.nip,
             teacher_code=account.teacher_code,
-            subjects_taught=account.subjects_taught,
-            classes_taught=account.classes_taught,
+            subjects_taught=subjects_taught,
+            classes_taught=classes_taught,
         )
 
         return LoginResponse(

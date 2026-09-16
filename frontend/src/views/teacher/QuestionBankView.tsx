@@ -167,21 +167,38 @@ export function QuestionBankView({}: QuestionBankViewProps) {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Get subjects strictly assigned to current teacher
-  const subjectsTaught = user?.subjects_taught || [];
-  const assignedSubjectOptions = getTeacherAssignedSubjectOptions(subjectsTaught);
+  const [assignedSubjectsList, setAssignedSubjectsList] = useState<string[]>(user?.subjects_taught || []);
+
+  useEffect(() => {
+    if (user?.subjects_taught && user.subjects_taught.length > 0) {
+      setAssignedSubjectsList((prev) => Array.from(new Set([...prev, ...(user.subjects_taught || [])])));
+    }
+    teacherContentApi
+      .getAssignedSubjects()
+      .then((subs) => {
+        if (Array.isArray(subs) && subs.length > 0) {
+          setAssignedSubjectsList((prev) => Array.from(new Set([...prev, ...subs])));
+        }
+      })
+      .catch(() => {
+        // Fallback to user?.subjects_taught
+      });
+  }, [user?.subjects_taught]);
+
+  const assignedSubjectOptions = getTeacherAssignedSubjectOptions(assignedSubjectsList);
 
   // Set default subject and grade level if not set
   useEffect(() => {
-    if (!subject && subjectsTaught.length > 0) {
-      setSubject(subjectsTaught[0]);
+    if (!subject && assignedSubjectsList.length > 0) {
+      setSubject(assignedSubjectsList[0]);
     }
-    if (!importSubject && subjectsTaught.length > 0) {
-      setImportSubject(subjectsTaught[0]);
+    if (!importSubject && assignedSubjectsList.length > 0) {
+      setImportSubject(assignedSubjectsList[0]);
     }
     if (!classLevel || classLevel === "X") {
       setClassLevel(defaultGrade);
     }
-  }, [subjectsTaught, defaultGrade]);
+  }, [assignedSubjectsList, defaultGrade]);
 
   // UI States
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -223,7 +240,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
     setContent("");
     setAnswerKey("");
     setAiGrading(false);
-    setSubject(subjectsTaught.length > 0 ? subjectsTaught[0] : "");
+    setSubject(assignedSubjectsList.length > 0 ? assignedSubjectsList[0] : "");
     setClassLevel(defaultGrade);
     setOptions(["", "", "", ""]);
     setRubrics([{ criteria: "Kriteria Utama", max_score: 10 }]);
@@ -236,7 +253,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
     setContent(q.content);
     setAnswerKey(q.answer_key);
     setAiGrading(q.ai_grading || false);
-    setSubject(q.subject || (subjectsTaught.length > 0 ? subjectsTaught[0] : ""));
+    setSubject(q.subject || (assignedSubjectsList.length > 0 ? assignedSubjectsList[0] : ""));
     setClassLevel(q.class_level || "X");
     setOptions(q.options || ["", "", "", ""]);
     setRubrics(q.rubrics || [{ criteria: "Kriteria Utama", max_score: 10 }]);
@@ -644,7 +661,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
 
   // Collect all distinct subjects present in the bank questions
   const distinctBankSubjects = Array.from(
-    new Set([...subjectsTaught, ...questions.map((q) => q.subject).filter((s): s is string => Boolean(s))])
+    new Set([...assignedSubjectsList, ...questions.map((q) => q.subject).filter((s): s is string => Boolean(s))])
   );
 
   const filteredQuestions = questions.filter((q) => {
@@ -664,7 +681,7 @@ export function QuestionBankView({}: QuestionBankViewProps) {
     }
   };
 
-  const hasAssignedSubjects = subjectsTaught.length > 0;
+  const hasAssignedSubjects = assignedSubjectsList.length > 0;
 
   return (
     <div className="space-y-6">

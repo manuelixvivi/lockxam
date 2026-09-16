@@ -120,6 +120,17 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
                 if s_lvl:
                     school_level_code = s_lvl.code
 
+    subjects_taught = account.subjects_taught if account else None
+    classes_taught = account.classes_taught if account else None
+
+    if account and account.role in ("TEACHER", UserRole.TEACHER):
+        from app.services.school.staff_service import SchoolStaffService
+
+        subjects_taught, classes_taught = (
+            SchoolStaffService.resolve_teacher_academic_profile(db, account)
+        )
+        db.commit()
+
     return CurrentUserResponse(
         user_id=user_id,
         username=account.username if account else "unknown",
@@ -137,8 +148,8 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
         registered_year=account.registered_year if account else None,
         nip=account.nip if account else None,
         teacher_code=account.teacher_code if account else None,
-        subjects_taught=account.subjects_taught if account else None,
-        classes_taught=account.classes_taught if account else None,
+        subjects_taught=subjects_taught,
+        classes_taught=classes_taught,
     )
 
 

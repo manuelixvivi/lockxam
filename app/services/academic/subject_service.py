@@ -107,16 +107,47 @@ class SubjectService:
             raise BusinessException("Mata pelajaran tidak ditemukan.", status_code=404)
 
         # TeacherSubject is the ONLY authority for competency.
-        # Do NOT write teacher.subjects_taught here.
-        # The derived projection is computed at read-time in SchoolStaffService.list_teachers().
-        return teacher_subject_repository.assign(db, school_id, teacher_id, subject_id)
+        ts = teacher_subject_repository.assign(db, school_id, teacher_id, subject_id)
+        from app.services.school.staff_service import SchoolStaffService
+
+        SchoolStaffService.resolve_teacher_academic_profile(db, teacher)
+        return ts
 
     @staticmethod
     def unassign_teacher_competency(db: Session, teacher_id: int, subject_id: int) -> bool:
         # TeacherSubject DELETE is the ONLY authority for removing competency.
-        # Do NOT write teacher.subjects_taught here.
-        # The derived projection is computed at read-time in SchoolStaffService.list_teachers().
-        return teacher_subject_repository.unassign(db, teacher_id, subject_id)
+        res = teacher_subject_repository.unassign(db, teacher_id, subject_id)
+        teacher = auth_repository.get_by_id(db, teacher_id)
+        if teacher:
+            from app.models.academic.class_subject_teacher import ClassSubjectTeacher
+            from app.models.academic.subject import Subject
+            from app.models.academic.teacher_subject import TeacherSubject
+
+            ts_subs = [
+                s[0]
+                for s in db.query(Subject.name)
+                .join(TeacherSubject, TeacherSubject.subject_id == Subject.id)
+                .filter(
+                    TeacherSubject.teacher_id == teacher.id,
+                    Subject.school_id == teacher.school_id,
+                )
+                .all()
+                if s[0]
+            ]
+            cst_subs = [
+                s[0]
+                for s in db.query(Subject.name)
+                .join(ClassSubjectTeacher, ClassSubjectTeacher.subject_id == Subject.id)
+                .filter(
+                    ClassSubjectTeacher.teacher_id == teacher.id,
+                    Subject.school_id == teacher.school_id,
+                )
+                .all()
+                if s[0]
+            ]
+            teacher.subjects_taught = list(dict.fromkeys(ts_subs + cst_subs))
+            db.flush()
+        return res
 
     @staticmethod
     def list_qualified_teachers_for_subject(

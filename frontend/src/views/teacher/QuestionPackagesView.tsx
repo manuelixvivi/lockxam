@@ -58,19 +58,36 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
   const [pageSize] = useState<number>(25);
 
   // Get subjects strictly assigned to current teacher
-  const subjectsTaught = user?.subjects_taught || [];
-  const assignedSubjectOptions = getTeacherAssignedSubjectOptions(subjectsTaught);
-  const hasAssignedSubjects = subjectsTaught.length > 0;
+  const [assignedSubjectsList, setAssignedSubjectsList] = useState<string[]>(user?.subjects_taught || []);
+
+  useEffect(() => {
+    if (user?.subjects_taught && user.subjects_taught.length > 0) {
+      setAssignedSubjectsList((prev) => Array.from(new Set([...prev, ...(user.subjects_taught || [])])));
+    }
+    teacherContentApi
+      .getAssignedSubjects()
+      .then((subs) => {
+        if (Array.isArray(subs) && subs.length > 0) {
+          setAssignedSubjectsList((prev) => Array.from(new Set([...prev, ...subs])));
+        }
+      })
+      .catch(() => {
+        // Fallback to user?.subjects_taught
+      });
+  }, [user?.subjects_taught]);
+
+  const assignedSubjectOptions = getTeacherAssignedSubjectOptions(assignedSubjectsList);
+  const hasAssignedSubjects = assignedSubjectsList.length > 0;
 
   // Set default subject and grade level when opening or mounting
   useEffect(() => {
-    if (!subject && subjectsTaught.length > 0) {
-      setSubject(subjectsTaught[0]);
+    if (!subject && assignedSubjectsList.length > 0) {
+      setSubject(assignedSubjectsList[0]);
     }
     if (!classLevel || classLevel === "X") {
       setClassLevel(defaultGrade);
     }
-  }, [subjectsTaught, defaultGrade]);
+  }, [assignedSubjectsList, defaultGrade]);
 
   const fetchPackages = async () => {
     setIsLoading(true);
@@ -100,7 +117,7 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
   const handleOpenAddModal = () => {
     setName("");
     setClassLevel(defaultGrade);
-    setSubject(subjectsTaught.length > 0 ? subjectsTaught[0] : "");
+    setSubject(assignedSubjectsList.length > 0 ? assignedSubjectsList[0] : "");
     setTargetPG("10");
     setTargetIS("5");
     setTargetES("2");
@@ -185,7 +202,7 @@ export function QuestionPackagesView({ onNavigate, onSelectPackage }: QuestionPa
 
   // Distinct subjects in created packages for filter
   const distinctPackageSubjects = Array.from(
-    new Set([...subjectsTaught, ...packages.map((p) => p.subject).filter((s): s is string => Boolean(s))])
+    new Set([...assignedSubjectsList, ...packages.map((p) => p.subject).filter((s): s is string => Boolean(s))])
   );
 
   const filtered = packages.filter((p) => {

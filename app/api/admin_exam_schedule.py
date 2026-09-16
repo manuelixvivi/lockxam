@@ -1,3 +1,4 @@
+from datetime import datetime, timezone
 from uuid import UUID
 
 from fastapi import APIRouter, Depends, Request, status
@@ -212,6 +213,7 @@ def _enrich_package_response(db: Session, p) -> ExamSchedulePackageResponse:
             for s in schedules
         )
 
+    now_utc = datetime.now(timezone.utc)
     return ExamSchedulePackageResponse(
         id=p.id,
         public_id=p.public_id,
@@ -219,8 +221,8 @@ def _enrich_package_response(db: Session, p) -> ExamSchedulePackageResponse:
         academic_year_id=p.academic_year_id,
         title=p.title,
         is_closed=is_closed_val,
-        created_at=p.created_at,
-        updated_at=p.updated_at,
+        created_at=p.created_at or now_utc,
+        updated_at=p.updated_at or now_utc,
         academic_year_name=year.name if year else None,
         schedules=enriched_schedules,
     )
@@ -240,6 +242,7 @@ def create_exam_schedule_package(
         db=db, school_id=school_id, title=data.title, academic_year_id=data.academic_year_id
     )
     db.commit()
+    db.refresh(package)
     return _enrich_package_response(db, package)
 
 

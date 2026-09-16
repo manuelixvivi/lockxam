@@ -24,5 +24,5 @@ class ExamSchedulePackage(TimestampMixin, PublicIdMixin, Base):
         "ExamSchedule",
         back_populates="package",
         cascade="all, delete-orphan",
-        foreign_keys="[ExamSchedule.package_id]",
+        foreign_keys="ExamSchedule.package_id",
     )

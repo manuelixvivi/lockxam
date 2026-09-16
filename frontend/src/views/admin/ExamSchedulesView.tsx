@@ -842,6 +842,9 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
               leftIcon={<Plus className="w-4 h-4" />}
               onClick={() => {
                 setFormPackageTitle("");
+                setFormPackageYearId(
+                  packageFilterYearId || (academicYears.length > 0 ? academicYears[0].id : null)
+                );
                 setIsCreatePackageOpen(true);
               }}
             >
@@ -1277,7 +1280,10 @@ export const ExamSchedulesView: React.FC<ExamSchedulesViewProps> = ({ onNavigate
             <label className="block text-xs font-semibold text-slate-300 mb-1.5">Tahun Ajaran Terkait (Wajib)</label>
             <Select
               options={academicYears.map((y) => ({ value: y.id.toString(), label: y.name }))}
-              value={formPackageYearId?.toString() || ""}
+              value={
+                formPackageYearId?.toString() ||
+                (academicYears.length > 0 ? academicYears[0].id.toString() : "")
+              }
               onChange={(e) => setFormPackageYearId(parseInt(e.target.value, 10))}
               required
             />

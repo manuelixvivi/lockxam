@@ -1,0 +1,10 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+# We use requirements.txt for dependencies, but Pipfile is needed for Python version.
+
+[requires]
+python_version = "3.12"

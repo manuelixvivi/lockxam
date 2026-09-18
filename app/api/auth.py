@@ -126,8 +126,8 @@ def me(current_user=Depends(get_current_user), db: Session = Depends(get_db)):
     if account and account.role in ("TEACHER", UserRole.TEACHER):
         from app.services.school.staff_service import SchoolStaffService
 
-        subjects_taught, classes_taught = (
-            SchoolStaffService.resolve_teacher_academic_profile(db, account)
+        subjects_taught, classes_taught = SchoolStaffService.resolve_teacher_academic_profile(
+            db, account
         )
         db.commit()
 

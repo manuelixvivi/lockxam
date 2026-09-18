@@ -276,6 +276,5 @@ class SubjectService:
                 status_code=500,
             )
 
+
 # Batch 3A Backend Verified
-
-

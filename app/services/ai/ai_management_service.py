@@ -35,22 +35,6 @@ logger = logging.getLogger(__name__)
 # Canonical recommended Groq models
 DEFAULT_RECOMMENDED_MODELS: List[Dict[str, Any]] = [
     {
-        "id": "openai/gpt-oss-120b",
-        "name": "GPT OSS 120B (Primary Flagship)",
-        "provider": "Groq",
-        "context_window": 128000,
-        "is_recommended": True,
-        "description": "OpenAI GPT OSS 120B model on Groq LPU with 128k context and state-of-the-art grading & feedback reasoning.",
-    },
-    {
-        "id": "openai/gpt-oss-20b",
-        "name": "GPT OSS 20B (High-Speed Fallback)",
-        "provider": "Groq",
-        "context_window": 32768,
-        "is_recommended": True,
-        "description": "OpenAI GPT OSS 20B model for ultra-low latency inference and high-throughput evaluation.",
-    },
-    {
         "id": "llama-3.3-70b-versatile",
         "name": "Llama 3.3 70B Versatile",
         "provider": "Groq",

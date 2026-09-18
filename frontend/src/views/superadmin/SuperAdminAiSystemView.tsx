@@ -133,9 +133,9 @@ export const SuperAdminAiSystemView: React.FC<{
         const c = configRes.value;
         setConfig(c);
         // Populate form
-        setFormModel(c.model_name || "openai/gpt-oss-120b");
-        setFormEvalModel(c.eval_model_name || c.model_name || "openai/gpt-oss-120b");
-        setFormFallbackModel(c.fallback_model || "openai/gpt-oss-20b");
+        setFormModel(c.model_name || "llama-3.3-70b-versatile");
+        setFormEvalModel(c.eval_model_name || c.model_name || "llama-3.3-70b-versatile");
+        setFormFallbackModel(c.fallback_model || "llama-3.1-8b-instant");
         setFormTemperature(c.temperature ?? 0.2);
         setFormMaxTokens(c.max_output_tokens ?? 4096);
         setFormRagEnabled(c.rag_enabled ?? false);

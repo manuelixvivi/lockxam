@@ -6,12 +6,10 @@ from app.core.security import hash_password
 from app.exceptions.base import BusinessException
 from app.models.security.auth_account import AuthAccount
 from app.models.security.enums import UserRole
-from app.repositories.academic.class_repository import class_repository
 from app.repositories.academic.class_subject_teacher_repository import (
     class_subject_teacher_repository,
 )
 from app.repositories.academic.exam_schedule_repository import exam_schedule_repository
-from app.repositories.academic.subject_repository import subject_repository
 from app.repositories.academic.teacher_subject_repository import teacher_subject_repository
 from app.repositories.school.school_repository import school_repository
 from app.repositories.security.auth_repository import auth_repository
@@ -67,6 +65,7 @@ class SchoolStaffService:
         active_class_map = {}
         if relevant_class_ids:
             from app.models.academic.class_entity import ClassEntity
+
             classes = (
                 db.query(ClassEntity)
                 .filter(ClassEntity.id.in_(relevant_class_ids), ClassEntity.is_active == True)
@@ -78,7 +77,12 @@ class SchoolStaffService:
         subject_name_map = {}
         if relevant_subject_ids:
             from app.models.academic.subject import Subject
-            subjects = db.query(Subject).filter(Subject.id.in_(relevant_subject_ids), Subject.school_id == school_id).all()
+
+            subjects = (
+                db.query(Subject)
+                .filter(Subject.id.in_(relevant_subject_ids), Subject.school_id == school_id)
+                .all()
+            )
             subject_name_map = {s.id: s.name for s in subjects}
 
         for t in teachers:
@@ -593,5 +597,5 @@ class SchoolStaffService:
                 status_code=500,
             )
 
-# Batch 3 Bulk Import Remediation Verified
 
+# Batch 3 Bulk Import Remediation Verified

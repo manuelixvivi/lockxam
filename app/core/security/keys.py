@@ -38,8 +38,11 @@ def get_internal_service_token() -> str:
 
 
 ALGORITHM = os.getenv("ALGORITHM", "HS256")
-ACCESS_TOKEN_EXPIRE_MINUTES = int(os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", 60))
-REFRESH_TOKEN_EXPIRE_DAYS = int(os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", 30))
+_access_token_env = os.getenv("ACCESS_TOKEN_EXPIRE_MINUTES", "")
+ACCESS_TOKEN_EXPIRE_MINUTES = int(_access_token_env) if _access_token_env.strip() else 60
+
+_refresh_token_env = os.getenv("REFRESH_TOKEN_EXPIRE_DAYS", "")
+REFRESH_TOKEN_EXPIRE_DAYS = int(_refresh_token_env) if _refresh_token_env.strip() else 30
 
 # JWT Key ID (kid) Rotation settings
 ACTIVE_KEY_ID = os.getenv("JWT_ACTIVE_KEY_ID", "v1")

@@ -140,6 +140,7 @@ class LlmClient:
             if "json" not in (sys_content + user_prompt).lower():
                 sys_content = f"{sys_content}\nRespond strictly in valid JSON format."
 
+            strip_json_format = False
             for attempt in range(max_retries):
                 payload = {
                     "model": target_model,
@@ -149,8 +150,11 @@ class LlmClient:
                     ],
                     "temperature": temperature,
                     "max_tokens": max_tokens,
-                    "response_format": {"type": "json_object"},
                 }
+
+                if not strip_json_format:
+                    payload["response_format"] = {"type": "json_object"}
+
                 data_bytes = json.dumps(payload).encode("utf-8")
                 req = urllib.request.Request(url, data=data_bytes, headers=headers, method="POST")
 
@@ -198,6 +202,14 @@ class LlmClient:
                             f"Model '{target_model}' not found (404 / deprecated). Switching to fallback model '{AiConfig.GROQ_FALLBACK_MODEL}'..."
                         )
                         target_model = AiConfig.GROQ_FALLBACK_MODEL
+                        continue
+
+                    # Handle 400 Bad Request (OpenRouter unsupported response_format)
+                    if he.code == 400 and attempt == 0:
+                        logger.warning(
+                            f"Model '{target_model}' returned 400 Bad Request. Retrying without JSON response_format... Error: {error_body}"
+                        )
+                        strip_json_format = True
                         continue
 
                     # Handle 401 / 403 Authentication / Permission Error

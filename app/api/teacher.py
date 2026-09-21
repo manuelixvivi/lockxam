@@ -848,7 +848,7 @@ class EssayGradingEvaluationResponse(BaseModel):
     ai_feedback: str | None
     grading_status: str
     final_score: float | None
-    confidence: float = 1.0
+    confidence: float | None = None
     confidence_level: str = "HIGH"
     review_required: bool = False
     rubric_scores: list[dict[str, Any]] | None = None
@@ -891,25 +891,21 @@ def _derive_ai_evaluation_metadata(
         try:
             confidence = round(max(0.0, min(1.0, float(raw_conf))), 2)
         except (ValueError, TypeError):
-            confidence = 0.95 if ratio >= 0.9 else (0.82 if ratio >= 0.75 else (0.70 if ratio >= 0.5 else 0.65))
+            confidence = None
     else:
-        # Default AI model certainty for unfinalized non-empty evaluation
-        # Calculate dynamic confidence based on the score ratio so it's not uniformly 85%
-        if ratio >= 0.9:
-            confidence = 0.95
-        elif ratio >= 0.75:
-            confidence = 0.82
-        elif ratio >= 0.5:
-            confidence = 0.70
-        else:
-            confidence = 0.65
+        # No fallback confidence if AI engine fails to return it
+        confidence = None
 
-    if confidence >= 0.90:
-        confidence_level = "HIGH"
-        review_required = False
-    elif confidence >= 0.75:
-        confidence_level = "MEDIUM"
-        review_required = True
+    if confidence is not None:
+        if confidence >= 0.90:
+            confidence_level = "HIGH"
+            review_required = False
+        elif confidence >= 0.75:
+            confidence_level = "MEDIUM"
+            review_required = True
+        else:
+            confidence_level = "LOW"
+            review_required = True
     else:
         confidence_level = "LOW"
         review_required = True

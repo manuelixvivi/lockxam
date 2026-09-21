@@ -153,6 +153,7 @@ export function TeacherGradingView() {
   const [protests, setProtests] = useState<any[]>([]);
 
   const [examHistoryPackages, setExamHistoryPackages] = useState<any[]>([]);
+  const [expandedDetails, setExpandedDetails] = useState<Record<string, boolean>>({});
 
   const fetchEvaluations = async () => {
     setIsLoading(true);
@@ -349,7 +350,7 @@ export function TeacherGradingView() {
         if (ans.evaluation_id) {
           const maxAllowed = ans.max_score || 100;
           const targetScore = ans.score_earned !== undefined && ans.score_earned !== null ? ans.score_earned : 0;
-          const targetFb = ans.ai_feedback || "";
+          const targetFb = ans.teacher_feedback !== undefined ? ans.teacher_feedback : (ans.academic_rationale || ans.ai_feedback || "");
           const validScore = Math.min(Math.max(targetScore, 0), maxAllowed);
 
           await teacherDashboardApi.finalizeGrading(ans.evaluation_id, validScore, targetFb);
@@ -1365,56 +1366,71 @@ export function TeacherGradingView() {
                           {/* R5: AI Confidence Elevation, Review Badges, Rubric Breakdown, & Academic Rationale */}
                           {(ans.question_type === "ES" || ans.evaluation_id || confidenceVal !== undefined) && (
                             <div className="p-4 rounded-xl bg-slate-950/60 border border-indigo-500/20 space-y-4">
-                              {/* Visual Confidence Gauge & Categorical Recommendation Badge */}
-                              <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-3.5 bg-slate-900/70 rounded-xl border border-slate-800">
-                                <div className="flex items-center gap-3">
-                                  {confidencePct !== null && (
-                                    <div className="flex items-center gap-3 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
-                                      <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
-                                        <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 68 68">
-                                          <circle
-                                            cx="34"
-                                            cy="34"
-                                            r={gaugeRadius}
-                                            stroke="currentColor"
-                                            strokeWidth="5"
-                                            className="text-slate-800"
-                                            fill="transparent"
-                                          />
-                                          <circle
-                                            cx="34"
-                                            cy="34"
-                                            r={gaugeRadius}
-                                            stroke={gaugeStrokeColor}
-                                            strokeWidth="5"
-                                            strokeDasharray={gaugeCircumference}
-                                            strokeDashoffset={gaugeOffset}
-                                            strokeLinecap="round"
-                                            fill="transparent"
-                                            className="transition-all duration-700 ease-out"
-                                          />
-                                        </svg>
-                                        <span className={`absolute text-xs font-black font-mono ${gaugeTextColor}`}>
-                                          {confidencePct}%
-                                        </span>
-                                      </div>
-                                      <div className="space-y-0.5">
-                                        <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
-                                          Visual Confidence Gauge
-                                        </span>
-                                        <div className="text-xs font-semibold text-slate-200">
-                                          Tingkat Keyakinan AI
+                              {/* Toggle Button for Rincian AI */}
+                              <div className="flex items-center justify-between">
+                                <span className="text-xs font-bold text-slate-300">Hasil Evaluasi Otomatis (AI)</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  onClick={() => setExpandedDetails(prev => ({ ...prev, [qKey]: !prev[qKey] }))}
+                                  className="text-[11px] h-7"
+                                >
+                                  {expandedDetails[qKey] ? "Sembunyikan Rincian AI" : "Lihat Rincian Keyakinan AI"}
+                                </Button>
+                              </div>
+
+                              {expandedDetails[qKey] && (
+                                <>
+                                  {/* Visual Confidence Gauge & Categorical Recommendation Badge */}
+                                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 p-3.5 bg-slate-900/70 rounded-xl border border-slate-800">
+                                    <div className="flex items-center gap-3">
+                                      {confidencePct !== null && (
+                                        <div className="flex items-center gap-3 bg-slate-950/80 p-2.5 rounded-xl border border-slate-800">
+                                          <div className="relative w-16 h-16 flex items-center justify-center shrink-0">
+                                            <svg className="w-16 h-16 transform -rotate-90" viewBox="0 0 68 68">
+                                              <circle
+                                                cx="34"
+                                                cy="34"
+                                                r={gaugeRadius}
+                                                stroke="currentColor"
+                                                strokeWidth="5"
+                                                className="text-slate-800"
+                                                fill="transparent"
+                                              />
+                                              <circle
+                                                cx="34"
+                                                cy="34"
+                                                r={gaugeRadius}
+                                                stroke={gaugeStrokeColor}
+                                                strokeWidth="5"
+                                                strokeDasharray={gaugeCircumference}
+                                                strokeDashoffset={gaugeOffset}
+                                                strokeLinecap="round"
+                                                fill="transparent"
+                                                className="transition-all duration-700 ease-out"
+                                              />
+                                            </svg>
+                                            <span className={`absolute text-xs font-black font-mono ${gaugeTextColor}`}>
+                                              {confidencePct}%
+                                            </span>
+                                          </div>
+                                          <div className="space-y-0.5">
+                                            <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400 block">
+                                              Visual Confidence Gauge
+                                            </span>
+                                            <div className="text-xs font-semibold text-slate-200">
+                                              Tingkat Keyakinan AI
+                                            </div>
+                                            <div className="w-28 bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
+                                              <div
+                                                className="h-full rounded-full transition-all duration-700"
+                                                style={{ width: `${confidencePct}%`, backgroundColor: gaugeStrokeColor }}
+                                              />
+                                            </div>
+                                          </div>
                                         </div>
-                                        <div className="w-28 bg-slate-800 h-1.5 rounded-full overflow-hidden mt-1">
-                                          <div
-                                            className="h-full rounded-full transition-all duration-700"
-                                            style={{ width: `${confidencePct}%`, backgroundColor: gaugeStrokeColor }}
-                                          />
-                                        </div>
-                                      </div>
+                                      )}
                                     </div>
-                                  )}
-                                </div>
 
                                 <div className="space-y-1.5 flex flex-col items-start sm:items-end">
                                   <span className="text-[10px] uppercase font-bold tracking-wider text-slate-400">
@@ -1506,19 +1522,10 @@ export function TeacherGradingView() {
                                   </div>
                                 </div>
                               )}
-
-                              {/* Generated Academic Rationale */}
-                              {(ans.academic_rationale || ans.ai_feedback) && (
-                                <div className="p-3.5 bg-indigo-950/30 rounded-xl border border-indigo-500/30 text-xs space-y-1.5">
-                                  <div className="flex items-center gap-1.5 font-bold text-indigo-300 text-xs">
-                                    <BookOpen className="w-4 h-4 text-indigo-400" />
-                                    <span>Rasional Akademik &amp; Justifikasi Pedagogis (Generated Academic Rationale):</span>
-                                  </div>
-                                  <div className="text-slate-300 text-xs leading-relaxed italic bg-slate-950/60 p-3 rounded-lg border border-indigo-500/20 font-sans">
-                                    "{ans.academic_rationale || ans.ai_feedback}"
-                                  </div>
-                                </div>
+                              </>
                               )}
+
+                              {/* Removed Generated Academic Rationale per user request */}
                             </div>
                           )}
 
@@ -1580,7 +1587,7 @@ export function TeacherGradingView() {
                                     <label className="block text-[11px] font-semibold text-slate-400 mb-1">Catatan &amp; Feedback Guru (Opsional):</label>
                                     <Input
                                       type="text"
-                                      value={ans.ai_feedback || ""}
+                                      value={ans.teacher_feedback !== undefined ? ans.teacher_feedback : (ans.academic_rationale || ans.ai_feedback || "")}
                                       id={`full-fb-${ans.question_id}`}
                                       placeholder="Tuliskan catatan evaluasi perbaikan untuk siswa..."
                                       onChange={(e) => {
@@ -1589,7 +1596,7 @@ export function TeacherGradingView() {
                                         setSelectedStudentAttempt((prev: any) => {
                                           if (!prev || !prev.answers) return prev;
                                           const newAnswers = prev.answers.map((a: any) =>
-                                            a.question_id === qId ? { ...a, ai_feedback: newFb } : a
+                                            a.question_id === qId ? { ...a, teacher_feedback: newFb } : a
                                           );
                                           return { ...prev, answers: newAnswers };
                                         });

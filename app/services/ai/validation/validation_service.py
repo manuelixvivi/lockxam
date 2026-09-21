@@ -1,6 +1,6 @@
 import logging
 import time
-from typing import List
+from typing import List, Optional, Any
 
 from app.services.ai.shared.config import AiConfig
 from app.services.ai.shared.llm_client import LlmClient

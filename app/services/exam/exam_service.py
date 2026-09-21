@@ -815,7 +815,7 @@ class ExamService:
     # ──────────────────────────────────────────────────
 
     @staticmethod
-    def execute_ai_essay_grading_job(db: Session, attempt_id: int) -> None:
+    def execute_ai_essay_grading_job(db: Session, attempt_id: int, force_regrade: bool = False) -> None:
         """Evaluates pending essay questions using equigradeAI microservice."""
         try:
             attempt = attempt_repository.get_with_lock(db, attempt_id)
@@ -867,7 +867,7 @@ class ExamService:
             education_class = class_entity.name if class_entity else "Kelas 11"
 
             for q_id, eval_item in evaluations.items():
-                if eval_item.grading_status != GradingStatus.AI_PENDING:
+                if not force_regrade and eval_item.grading_status != GradingStatus.AI_PENDING:
                     continue
 
                 q = questions.get(q_id)

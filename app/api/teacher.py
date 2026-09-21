@@ -2153,18 +2153,8 @@ def regrade_attempt_evaluations(
     from app.services.exam.exam_service import ExamService
 
     try:
-        # Set all AI evaluations back to pending
-        db.query(ExamAnswerEvaluation).filter(
-            ExamAnswerEvaluation.attempt_id == attempt_id,
-            ExamAnswerEvaluation.evaluation_type == "ES",
-        ).update(
-            {"grading_status": GradingStatus.AI_PENDING, "score": 0.0, "feedback": None},
-            synchronize_session=False,
-        )
-        db.commit()
-
-        # Synchronously execute AI essay grading job to refresh the scores
-        ExamService.execute_ai_essay_grading_job(db, attempt_id)
+        # Synchronously execute AI essay grading job with force_regrade to refresh all ES scores
+        ExamService.execute_ai_essay_grading_job(db, attempt_id, force_regrade=True)
         return {"status": "success", "message": "Berhasil mengkalkulasi ulang penilaian AI."}
     except Exception as e:
         db.rollback()

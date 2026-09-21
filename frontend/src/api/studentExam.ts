@@ -202,3 +202,8 @@ export const studentExamApi = {
     return res;
   },
 };
+
+export const getAttemptReview = async (attemptId: number): Promise<any> => {
+  const { data } = await apiClient.get(/api/v1/exam/attempts//review);
+  return data;
+};

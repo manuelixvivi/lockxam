@@ -77,13 +77,15 @@ PANDUAN PENGGUNAAN HISTORI PENILAIAN GURU (REFERENCE CASES):
 FORMAT OUTPUT (JSON MURNI TANPA MARKDOWN):
 {
   "feedback": "Feedback konstruktif.",
-  "confidence": 0.95,
+  "confidence": 0.88,
   "confidence_level": "HIGH",
   "rubric_scores": [
     {"ku_id": "C1", "achieved": 100},
     {"ku_id": "C2", "achieved": 75}
   ]
-}"""
+}
+
+PENTING: Nilai "confidence" (0.00 - 1.00) dan "confidence_level" (HIGH/MEDIUM/LOW) di atas HANYA CONTOH. Kamu WAJIB mengkalkulasi dan mengeluarkan tingkat kepastianmu sendiri yang organik berdasarkan kualitas dan kelengkapan jawaban siswa!"""
     return prompt
 
 
@@ -122,7 +124,9 @@ FORMAT OUTPUT (JSON MURNI TANPA MARKDOWN):
 {{
   "matched_items": ["Item 1", "Item 2"],
   "feedback": "Feedback penjelasan singkat.",
-  "confidence": 0.95,
+  "confidence": 0.88,
   "confidence_level": "HIGH"
-}}"""
+}}
+
+PENTING: Nilai "confidence" (0.00 - 1.00) dan "confidence_level" (HIGH/MEDIUM/LOW) di atas HANYA CONTOH. Kamu WAJIB mengkalkulasi tingkat kepastianmu sendiri yang organik berdasarkan kualitas jawaban siswa!"""
     return prompt

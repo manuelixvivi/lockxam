@@ -82,12 +82,14 @@ FORMAT OUTPUT (RAW JSON MURNI TANPA MARKDOWN):
     {{
       "student_id": "{submissions[0].student_id if submissions else 1}",
       "feedback": "Penjelasan feedback.",
-      "confidence": 0.95,
+      "confidence": 0.88,
       "confidence_level": "HIGH",
       "rubric_scores": [
         {{"ku_id": "C1", "achieved": 100}}
       ]
     }}
   ]
-}}"""
+}}
+
+PENTING: Nilai "confidence" (0.00 - 1.00) dan "confidence_level" (HIGH/MEDIUM/LOW) di atas HANYA CONTOH. Kamu WAJIB mengkalkulasi tingkat kepastianmu sendiri secara organik berdasarkan seberapa yakin kamu dengan penilaian untuk masing-masing siswa!"""
     return prompt

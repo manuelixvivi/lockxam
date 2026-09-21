@@ -814,6 +814,54 @@ async def flush_all_answers(
 # â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
 
+@router.get(
+    "/attempts/{attempt_id}/review",
+    status_code=status.HTTP_200_OK,
+)
+def get_attempt_review(
+    attempt_id: int,
+    current_user=Depends(require_role(UserRole.STUDENT)),
+    db: Session = Depends(get_db),
+):
+    student_id = int(current_user["sub"])
+    
+    from app.repositories.exam.exam_attempt_repository import attempt_repository
+    from app.repositories.exam.student_answer_repository import student_answer_repository
+    from app.repositories.exam.evaluation_repository import evaluation_repository
+    from app.repositories.academic.exam_package_snapshot_repository import snapshot_repository
+    from app.models.exam.enums import ExamAttemptStatus
+    
+    attempt = attempt_repository.get_by_id(db, attempt_id)
+    if not attempt or attempt.student_id != student_id:
+        raise HTTPException(status_code=404, detail="Attempt not found")
+        
+    if attempt.status != ExamAttemptStatus.GRADED:
+        raise HTTPException(status_code=403, detail="Ujian belum selesai dinilai.")
+        
+    snapshot = snapshot_repository.get_by_session(db, attempt.exam_session_id)
+    questions = snapshot.questions_json if snapshot else []
+    
+    answers = student_answer_repository.get_all_by_attempt(db, attempt_id)
+    evals = evaluation_repository.get_all_by_attempt(db, attempt_id)
+    
+    ans_map = {a.question_id: {"selected_option": a.selected_option, "text_answer": a.text_answer} for a in answers}
+    eval_map = {e.question_id: {
+        "score": float(e.score),
+        "max_score": float(e.max_score),
+        "feedback": e.feedback,
+        "confidence": float(e.confidence) if getattr(e, "confidence", None) is not None else None,
+        "confidence_level": getattr(e, "confidence_level", None)
+    } for e in evals}
+    
+    return {
+        "id": attempt.id,
+        "final_score": attempt.final_score,
+        "questions": questions,
+        "answers": ans_map,
+        "evaluations": eval_map
+    }
+
+
 @router.post(
     "/attempts/{attempt_id}/submit",
     response_model=ExamAttemptResponse,

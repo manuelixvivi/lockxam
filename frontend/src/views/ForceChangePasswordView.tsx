@@ -7,7 +7,7 @@ import { useAuth } from "../context/AuthContext";
 import { useToast } from "../context/ToastContext";
 
 export const ForceChangePasswordView: React.FC = () => {
-  const { refreshProfile, logout, user } = useAuth();
+  const { logout, user } = useAuth();
   const { showToast } = useToast();
 
   const [oldPassword, setOldPassword] = useState("");

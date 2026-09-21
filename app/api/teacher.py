@@ -757,8 +757,8 @@ async def upload_question_image(
         )
     except ValueError as ve:
         raise HTTPException(status_code=400, detail=str(ve))
-    except Exception:
-        logger.exception("Gagal menyimpan file gambar")
+    except Exception as e:
+        print(f"Gagal menyimpan file gambar: {e}")
         raise HTTPException(status_code=500, detail="Gagal menyimpan file gambar.")
 
     return {"url": saved["url"], "filename": saved["filename"]}
@@ -2148,20 +2148,21 @@ def regrade_attempt_evaluations(
     db: Session = Depends(get_db),
     current_user=Depends(require_role(UserRole.TEACHER)),
 ):
-    from app.models.exam.exam_answer_evaluation import ExamAnswerEvaluation, GradingStatus
+    from app.models.exam.answer_evaluation import ExamAnswerEvaluation
+    from app.models.exam.enums import GradingStatus
     from app.services.exam.exam_service import ExamService
 
     try:
         # Set all AI evaluations back to pending
         db.query(ExamAnswerEvaluation).filter(
             ExamAnswerEvaluation.attempt_id == attempt_id,
-            ExamAnswerEvaluation.evaluation_type == "ES"
+            ExamAnswerEvaluation.evaluation_type == "ES",
         ).update(
             {"grading_status": GradingStatus.AI_PENDING, "score": 0.0, "feedback": None},
-            synchronize_session=False
+            synchronize_session=False,
         )
         db.commit()
-        
+
         # Synchronously execute AI essay grading job to refresh the scores
         ExamService.execute_ai_essay_grading_job(db, attempt_id)
         return {"status": "success", "message": "Berhasil mengkalkulasi ulang penilaian AI."}

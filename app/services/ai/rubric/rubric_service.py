@@ -32,6 +32,7 @@ class RubricService:
         cls,
         payload: RubricGenerateRequest,
         historical_rubric_provider: Optional[Callable[..., List[Dict[str, Any]]]] = None,
+        db: Optional[Any] = None,
     ) -> RubricGenerateResponse:
         """
         Generates structured assessment rubrics from question text and answer key.
@@ -73,11 +74,7 @@ class RubricService:
         llm_response = LlmClient.call_chat_completion(
             system_prompt=RUBRIC_SYSTEM_PROMPT,
             user_prompt=user_prompt,
-            model=(
-                AiConfig.RUBRIC_MODEL_NAME
-                if hasattr(AiConfig, "RUBRIC_MODEL_NAME")
-                else AiConfig.MODEL_NAME
-            ),
+            model=AiConfig.get_effective_eval_model(db=db),
             temperature=0.2,
         )
 

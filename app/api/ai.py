@@ -65,6 +65,7 @@ def get_ai_diagnostics(
 def generate_rubric(
     payload: RubricGenerateRequest,
     current_user: dict = Depends(require_academic_staff()),
+    db: Session = Depends(get_db),
 ) -> RubricGenerateResponse:
     """
     Capability 1: Rubric Generation AI.
@@ -72,7 +73,7 @@ def generate_rubric(
     Does NOT grade student answers and does NOT compute scores.
     """
     try:
-        return RubricService.generate_rubric(payload)
+        return RubricService.generate_rubric(payload, db=db)
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:
@@ -90,6 +91,7 @@ def generate_rubric(
 def validate_rubric(
     payload: RubricValidateRequest,
     current_user: dict = Depends(require_academic_staff()),
+    db: Session = Depends(get_db),
 ) -> RubricValidateResponse:
     """
     Capability 2: Rubric & Answer Key Validation AI.
@@ -97,7 +99,7 @@ def validate_rubric(
     Provides review signals (VALID, SUSPICIOUS, INVALID) without overriding teacher authority.
     """
     try:
-        return ValidationService.validate_rubric_and_key(payload)
+        return ValidationService.validate_rubric_and_key(payload, db=db)
     except ValueError as ve:
         raise HTTPException(status_code=422, detail=str(ve))
     except Exception as e:

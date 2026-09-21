@@ -30,7 +30,7 @@ class ValidationService:
     """
 
     @classmethod
-    def validate_rubric_and_key(cls, payload: RubricValidateRequest) -> RubricValidateResponse:
+    def validate_rubric_and_key(cls, payload: RubricValidateRequest, db: Optional[Any] = None) -> RubricValidateResponse:
         """
         Executes semantic consistency analysis between question, answer key, and rubric.
         """
@@ -58,7 +58,7 @@ class ValidationService:
                     )
                 ],
                 suggested_review=True,
-                model=AiConfig.VALIDATION_MODEL_NAME,
+                model=AiConfig.get_effective_eval_model(db=db),
                 prompt_version=VALIDATION_PROMPT_VERSION,
                 execution_time_seconds=round(time.time() - start_time, 3),
             )
@@ -76,7 +76,7 @@ class ValidationService:
         llm_response = LlmClient.call_chat_completion(
             system_prompt=VALIDATION_SYSTEM_PROMPT,
             user_prompt=user_prompt,
-            model=AiConfig.VALIDATION_MODEL_NAME,
+            model=AiConfig.get_effective_eval_model(db=db),
             temperature=0.1,
         )
 

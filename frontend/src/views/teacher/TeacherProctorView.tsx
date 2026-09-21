@@ -98,7 +98,7 @@ export function TeacherProctorView() {
     };
 
     fetchAttempts();
-    const interval = setInterval(fetchAttempts, 3000);
+    const interval = setInterval(fetchAttempts, 10000); // Relaxed from 3s to 10s to save database requests
     return () => clearInterval(interval);
   }, [activeDuty]);
 

@@ -40,8 +40,6 @@ export const ServerHealthIndicator: React.FC = () => {
 
   useEffect(() => {
     checkHealth();
-    const interval = setInterval(checkHealth, 10000);
-    return () => clearInterval(interval);
   }, []);
 
   return (

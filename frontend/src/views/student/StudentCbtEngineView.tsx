@@ -173,7 +173,7 @@ export function StudentCbtEngineView({ schedule, onExit }: StudentCbtEngineProps
     };
 
     pollBroadcasts();
-    const interval = setInterval(pollBroadcasts, 4000);
+    const interval = setInterval(pollBroadcasts, 15000); // Relaxed from 4s to 15s to save DB load
     return () => clearInterval(interval);
   }, [schedule.session_id, isCompleted, showToast]);
 

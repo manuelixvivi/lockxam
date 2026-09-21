@@ -891,10 +891,18 @@ def _derive_ai_evaluation_metadata(
         try:
             confidence = round(max(0.0, min(1.0, float(raw_conf))), 2)
         except (ValueError, TypeError):
-            confidence = 0.85
+            confidence = 0.95 if ratio >= 0.9 else (0.82 if ratio >= 0.75 else (0.70 if ratio >= 0.5 else 0.65))
     else:
         # Default AI model certainty for unfinalized non-empty evaluation
-        confidence = 0.85
+        # Calculate dynamic confidence based on the score ratio so it's not uniformly 85%
+        if ratio >= 0.9:
+            confidence = 0.95
+        elif ratio >= 0.75:
+            confidence = 0.82
+        elif ratio >= 0.5:
+            confidence = 0.70
+        else:
+            confidence = 0.65
 
     if confidence >= 0.90:
         confidence_level = "HIGH"

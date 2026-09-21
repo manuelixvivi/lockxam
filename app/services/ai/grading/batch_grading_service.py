@@ -72,7 +72,7 @@ class BatchGradingService:
                 total_submissions=0,
                 total_evaluated=0,
                 results=[],
-                model=AiConfig.EVAL_MODEL_NAME,
+                model=AiConfig.get_effective_eval_model(db=db),
                 prompt_version=BATCH_GRADING_PROMPT_VERSION,
                 rag_enabled=False,
                 latency_ms=0.0,
@@ -169,7 +169,7 @@ class BatchGradingService:
                 llm_res = LlmClient.call_chat_completion(
                     system_prompt=BATCH_GRADING_SYSTEM_PROMPT,
                     user_prompt=prompt,
-                    model=AiConfig.EVAL_MODEL_NAME,
+                    model=AiConfig.get_effective_eval_model(db=db),
                     temperature=0.2,
                 )
                 data = llm_res.get("data", {})

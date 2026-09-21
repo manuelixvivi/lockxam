@@ -215,7 +215,7 @@ class GradingService:
         llm_response = LlmClient.call_chat_completion(
             system_prompt=GRADING_SYSTEM_PROMPT,
             user_prompt=user_prompt,
-            model=AiConfig.EVAL_MODEL_NAME,
+            model=AiConfig.get_effective_eval_model(db=db),
             temperature=0.2,
             extra_payload=extra_payload,
         )

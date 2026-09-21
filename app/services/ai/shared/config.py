@@ -109,6 +109,20 @@ class AiConfig:
         return cls.MODEL_NAME
 
     @classmethod
+    def get_effective_eval_model(
+        cls, explicit_model: Optional[str] = None, db: Optional[Any] = None
+    ) -> str:
+        """Returns active evaluation model with persistent DB priority."""
+        if explicit_model and explicit_model.strip():
+            return explicit_model.strip()
+        db_cfg = cls.get_runtime_db_config(db)
+        if db_cfg.get("eval_model_name"):
+            return db_cfg["eval_model_name"]
+        if db_cfg.get("model_name"):
+            return db_cfg["model_name"]
+        return cls.EVAL_MODEL_NAME
+
+    @classmethod
     def get_effective_fallback_model(cls, db: Optional[Any] = None) -> str:
         """Returns fallback model with persistent DB priority."""
         db_cfg = cls.get_runtime_db_config(db)

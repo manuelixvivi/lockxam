@@ -396,6 +396,7 @@ export function TeacherGradingView() {
       });
       // Refresh the attempt details
       if (selectedScheduleId) {
+        setFeedbackValues({}); // Clear feedback cache to force UI to render new AI feedback
         const res = await apiClient.get<{ students: any[] }>(`/api/v1/teacher/exam-history/${selectedScheduleId}/student-answers`);
         setStudentAnswersList(res.students || []);
         const updatedSt = (res.students || []).find((s: any) => s.student_id === selectedStudentAttempt.student_id);

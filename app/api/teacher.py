@@ -966,10 +966,18 @@ def _derive_ai_evaluation_metadata(
     elif is_empty:
         academic_rationale = "Jawaban siswa kosong. Tidak ada poin yang dapat dinilai."
     else:
-        academic_rationale = (
-            f"Evaluasi berbasis {len(rubric_scores)} kriteria rubrik dengan capaian {round(ratio * 100, 1)}%. "
-            f"Skor akhir: {round(earned, 1)} dari {round(max_q, 1)} poin."
-        )
+        raw_type = getattr(q, "type", "ES") if q else "ES"
+        q_type_str = getattr(raw_type, "value", str(raw_type))
+        if q_type_str.upper() == "ES":
+            academic_rationale = (
+                "⚠️ Umpan balik analitis dari AI tidak tersedia (proses evaluasi terinterupsi atau gagal saat ujian berlangsung). "
+                f"Silakan nilai secara manual atau klik tombol '🔄 AI Koreksi Ulang' untuk mencoba mengevaluasi ulang."
+            )
+        else:
+            academic_rationale = (
+                f"Evaluasi otomatis berbasis {len(rubric_scores)} kriteria rubrik dengan capaian {round(ratio * 100, 1)}%. "
+                f"Skor akhir: {round(earned, 1)} dari {round(max_q, 1)} poin."
+            )
 
     return {
         "confidence": confidence,

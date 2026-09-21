@@ -396,7 +396,6 @@ export function TeacherGradingView() {
       });
       // Refresh the attempt details
       if (selectedScheduleId) {
-        setFeedbackValues({}); // Clear feedback cache to force UI to render new AI feedback
         const res = await apiClient.get<{ students: any[] }>(`/api/v1/teacher/exam-history/${selectedScheduleId}/student-answers`);
         setStudentAnswersList(res.students || []);
         const updatedSt = (res.students || []).find((s: any) => s.student_id === selectedStudentAttempt.student_id);
@@ -1333,8 +1332,6 @@ export function TeacherGradingView() {
                   <div className="space-y-4">
                     {filteredAnswers.map((ans: any, aIdx: number) => {
                       const qKey = ans.question_id ? `q-${ans.question_type}-${ans.question_id}` : `q-${ans.question_type}-${aIdx}`;
-                      const maxScoreVal = ans.max_score || 10;
-                      const earnedScoreVal = ans.score_earned !== undefined && ans.score_earned !== null ? ans.score_earned : 0;
                       const confidenceVal = typeof ans.confidence === "number" ? ans.confidence : undefined;
                       const confidencePct = confidenceVal !== undefined ? Math.max(0, Math.min(100, Math.round(confidenceVal * 100))) : null;
                       const confLevel: "HIGH" | "MEDIUM" | "LOW" | null = ans.confidence_level || (confidencePct !== null ? (confidencePct >= 90 ? "HIGH" : confidencePct >= 75 ? "MEDIUM" : "LOW") : null);

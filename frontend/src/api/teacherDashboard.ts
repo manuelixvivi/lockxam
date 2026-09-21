@@ -148,4 +148,7 @@ export const teacherDashboardApi = {
       score,
       feedback,
     }),
+
+  regradeAttempt: (attemptId: number): Promise<any> =>
+    apiClient.post<any>(`/api/v1/teacher/grading/evaluations/attempts/${attemptId}/regrade`),
 };

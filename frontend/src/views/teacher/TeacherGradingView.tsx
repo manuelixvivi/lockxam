@@ -369,17 +369,46 @@ export function TeacherGradingView() {
       if (selectedScheduleId) {
         const res = await apiClient.get<{ students: any[] }>(`/api/v1/teacher/exam-history/${selectedScheduleId}/student-answers`);
         setStudentAnswersList(res.students || []);
-        const updatedSt = (res.students || []).find((s) => s.student_id === selectedStudentAttempt.student_id);
+        const updatedSt = (res.students || []).find((s: any) => s.student_id === selectedStudentAttempt.student_id);
         if (updatedSt) setSelectedStudentAttempt(updatedSt);
       }
     } catch (err: any) {
       showToast({
         type: "error",
-        title: "Gagal Menyimpan Nilai",
-        message: err?.message || "Terjadi kesalahan saat menyimpan nilai.",
+        title: "Gagal Menyimpan Koreksi",
+        message: err?.message || "Terjadi kesalahan.",
       });
     } finally {
       setIsSavingAll(false);
+    }
+  };
+
+  const [isRegrading, setIsRegrading] = useState(false);
+  const handleRegradeAttempt = async () => {
+    if (!selectedStudentAttempt) return;
+    setIsRegrading(true);
+    try {
+      await teacherDashboardApi.regradeAttempt(selectedStudentAttempt.attempt_id);
+      showToast({
+        type: "success",
+        title: "Koreksi Ulang Berhasil",
+        message: "AI telah mengkalkulasi ulang jawaban siswa ini secara sekuensial.",
+      });
+      // Refresh the attempt details
+      if (selectedScheduleId) {
+        const res = await apiClient.get<{ students: any[] }>(`/api/v1/teacher/exam-history/${selectedScheduleId}/student-answers`);
+        setStudentAnswersList(res.students || []);
+        const updatedSt = (res.students || []).find((s: any) => s.student_id === selectedStudentAttempt.student_id);
+        if (updatedSt) setSelectedStudentAttempt(updatedSt);
+      }
+    } catch (err: any) {
+      showToast({
+        type: "error",
+        title: "Koreksi Ulang Gagal",
+        message: err?.message || "Terjadi kesalahan.",
+      });
+    } finally {
+      setIsRegrading(false);
     }
   };
 
@@ -1611,7 +1640,19 @@ export function TeacherGradingView() {
                       );
                     })}
 
-                    <div className="flex justify-end pt-4 border-t border-slate-800">
+                    <div className="flex justify-end gap-3 pt-4 border-t border-slate-800">
+                      {selectedStudentAttempt && (
+                        <Button
+                          variant="outline"
+                          size="md"
+                          leftIcon={<RefreshCw className={`w-4 h-4 ${isRegrading ? "animate-spin" : ""}`} />}
+                          isLoading={isRegrading}
+                          onClick={handleRegradeAttempt}
+                          className="text-indigo-400 border-indigo-500/30 hover:bg-indigo-500/10"
+                        >
+                          🔄 AI Koreksi Ulang
+                        </Button>
+                      )}
                       <Button
                         variant="primary"
                         size="md"

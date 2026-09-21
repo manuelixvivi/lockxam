@@ -2142,6 +2142,34 @@ def finalize_evaluation_score(
     return {"status": "success", "score": float(eval_res.score)}
 
 
+@dashboard_router.post("/grading/evaluations/attempts/{attempt_id}/regrade")
+def regrade_attempt_evaluations(
+    attempt_id: int,
+    db: Session = Depends(get_db),
+    current_user=Depends(require_role(UserRole.TEACHER)),
+):
+    from app.models.exam.exam_answer_evaluation import ExamAnswerEvaluation, GradingStatus
+    from app.services.exam.exam_service import ExamService
+
+    try:
+        # Set all AI evaluations back to pending
+        db.query(ExamAnswerEvaluation).filter(
+            ExamAnswerEvaluation.attempt_id == attempt_id,
+            ExamAnswerEvaluation.evaluation_type == "ES"
+        ).update(
+            {"grading_status": GradingStatus.AI_PENDING, "score": 0.0, "feedback": None},
+            synchronize_session=False
+        )
+        db.commit()
+        
+        # Synchronously execute AI essay grading job to refresh the scores
+        ExamService.execute_ai_essay_grading_job(db, attempt_id)
+        return {"status": "success", "message": "Berhasil mengkalkulasi ulang penilaian AI."}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=400, detail=str(e))
+
+
 # ─── Teacher AI Integration Endpoints (equigradeAI Microservice Bridge) ───
 
 

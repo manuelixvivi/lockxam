@@ -82,6 +82,8 @@ FORMAT OUTPUT (RAW JSON MURNI TANPA MARKDOWN):
     {{
       "student_id": "{submissions[0].student_id if submissions else 1}",
       "feedback": "Penjelasan feedback.",
+      "confidence": 0.95,
+      "confidence_level": "HIGH",
       "rubric_scores": [
         {{"ku_id": "C1", "achieved": 100}}
       ]

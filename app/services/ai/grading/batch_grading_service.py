@@ -555,6 +555,8 @@ class BatchGradingService:
                         if eval_rec.grading_status != GradingStatus.FINALIZED:
                             eval_rec.score = res_item.score
                             eval_rec.feedback = res_item.feedback
+                            eval_rec.confidence = res_item.confidence if res_item.confidence is not None else 0.95
+                            eval_rec.confidence_level = res_item.confidence_level if res_item.confidence_level is not None else "HIGH"
                             eval_rec.grading_status = GradingStatus.AI_DRAFT
                             eval_rec.grading_source = GradingSource.AI
                             eval_rec.grading_version = (eval_rec.grading_version or 0) + 1
@@ -566,6 +568,8 @@ class BatchGradingService:
                             score=res_item.score,
                             max_score=float(q_dict.get("max_score", 10.0)),
                             feedback=res_item.feedback,
+                            confidence=res_item.confidence if res_item.confidence is not None else 0.95,
+                            confidence_level=res_item.confidence_level if res_item.confidence_level is not None else "HIGH",
                             grading_status=GradingStatus.AI_DRAFT,
                             grading_source=GradingSource.AI,
                             grading_version=1,

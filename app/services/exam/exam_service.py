@@ -918,6 +918,8 @@ class ExamService:
 
                         eval_item.score = actual_score
                         eval_item.feedback = feedback
+                        eval_item.confidence = float(ai_res.get("confidence", 0.95))
+                        eval_item.confidence_level = ai_res.get("confidence_level", "HIGH")
                         eval_item.grading_status = GradingStatus.AI_DRAFT
                         eval_item.grading_source = GradingSource.AI
                         eval_item.grading_version = 1

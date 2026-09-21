@@ -53,7 +53,7 @@ class BatchStudentGradingResult(BaseModel):
         1.0, description="Evaluation quality and completeness metric (0.0 - 1.0)"
     )
     confidence: float = Field(
-        ...,
+        0.85,
         ge=0.0,
         le=1.0,
         description="Root-level grading confidence score (0.0 to 1.0)",

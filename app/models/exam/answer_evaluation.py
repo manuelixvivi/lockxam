@@ -1,7 +1,7 @@
 from datetime import datetime
 from typing import TYPE_CHECKING
 
-from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint
+from sqlalchemy import DateTime, ForeignKey, Integer, Numeric, Text, UniqueConstraint, String
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
@@ -37,6 +37,8 @@ class ExamAnswerEvaluation(Base):
     )
     grading_version: Mapped[int] = mapped_column(Integer, default=1, nullable=False)
     feedback: Mapped[str | None] = mapped_column(Text, nullable=True)
+    confidence: Mapped[float | None] = mapped_column(Numeric(3, 2), nullable=True)
+    confidence_level: Mapped[str | None] = mapped_column(String(20), nullable=True)
     last_evaluated_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )

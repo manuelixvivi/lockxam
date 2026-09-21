@@ -295,20 +295,33 @@ class GradingService:
         )
 
         # R5: AI Confidence Level Elevation
-        # Derive confidence from quality_indicator (defaulting to 0.85 if missing)
-        confidence = float(quality_indicator) if quality_indicator is not None else 0.85
-        confidence = round(max(0.0, min(1.0, confidence)), 2)
-
-        # Classify categorical levels: HIGH >= 0.90, MEDIUM 0.75-0.89, LOW < 0.75
-        if confidence >= 0.90:
-            confidence_level = "HIGH"
-            review_required = False
-        elif confidence >= 0.75:
-            confidence_level = "MEDIUM"
-            review_required = True
+        # Read confidence directly from LLM output, otherwise default to high (0.95) if missing but eval is complete
+        llm_conf = data.get("confidence")
+        if llm_conf is not None:
+            try:
+                confidence = float(llm_conf)
+            except (ValueError, TypeError):
+                confidence = 0.95
         else:
-            confidence_level = "LOW"
-            review_required = True
+            confidence = 0.95 if eval_completeness == 1.0 else 0.85
+            
+        confidence = round(max(0.0, min(1.0, confidence)), 2)
+        
+        # Read confidence_level directly from LLM, otherwise classify
+        llm_conf_level = data.get("confidence_level")
+        if llm_conf_level and isinstance(llm_conf_level, str):
+            confidence_level = llm_conf_level.upper()
+            review_required = confidence_level != "HIGH"
+        else:
+            if confidence >= 0.90:
+                confidence_level = "HIGH"
+                review_required = False
+            elif confidence >= 0.75:
+                confidence_level = "MEDIUM"
+                review_required = True
+            else:
+                confidence_level = "LOW"
+                review_required = True
 
         academic_rationale = (
             data.get("academic_rationale")

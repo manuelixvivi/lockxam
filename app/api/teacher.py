@@ -893,20 +893,9 @@ def _derive_ai_evaluation_metadata(
         except (ValueError, TypeError):
             confidence = None
     else:
-        # Calculate raw continuous confidence dynamically (no stepped rounding)
-        # Base confidence: 0.70 to 0.90 based on score ratio
-        base_conf = 0.70 + (ratio * 0.20)
-        
-        # Minor boost based on text length and keyword overlap if possible
-        length_boost = 0.0
-        if text_answer:
-            words = len(text_answer.split())
-            if words > 20:
-                length_boost = 0.05
-            elif words > 5:
-                length_boost = 0.02
-        
-        confidence = round(max(0.0, min(1.0, base_conf + length_boost)), 2)
+        # We now rely on the database column for confidence.
+        # If it's missing (e.g. from an old evaluation), we don't fake it.
+        confidence = None
 
     if confidence is not None:
         if confidence >= 0.90:

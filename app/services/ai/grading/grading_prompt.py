@@ -77,6 +77,8 @@ PANDUAN PENGGUNAAN HISTORI PENILAIAN GURU (REFERENCE CASES):
 FORMAT OUTPUT (JSON MURNI TANPA MARKDOWN):
 {
   "feedback": "Feedback konstruktif.",
+  "confidence": 0.95,
+  "confidence_level": "HIGH",
   "rubric_scores": [
     {"ku_id": "C1", "achieved": 100},
     {"ku_id": "C2", "achieved": 75}
@@ -119,6 +121,8 @@ TUGAS:
 FORMAT OUTPUT (JSON MURNI TANPA MARKDOWN):
 {{
   "matched_items": ["Item 1", "Item 2"],
-  "feedback": "Feedback penjelasan singkat."
+  "feedback": "Feedback penjelasan singkat.",
+  "confidence": 0.95,
+  "confidence_level": "HIGH"
 }}"""
     return prompt

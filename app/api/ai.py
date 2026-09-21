@@ -57,6 +57,20 @@ def get_ai_diagnostics(
     return LlmClient.check_health()
 
 
+@router.get("/upgrade-db", summary="Upgrade Production Database Schema")
+def upgrade_db(db: Session = Depends(get_db)):
+    """Temporary endpoint to alter production database schema for AI Confidence."""
+    from sqlalchemy import text
+    try:
+        db.execute(text("ALTER TABLE exam_answer_evaluations ADD COLUMN IF NOT EXISTS confidence NUMERIC(3, 2);"))
+        db.execute(text("ALTER TABLE exam_answer_evaluations ADD COLUMN IF NOT EXISTS confidence_level VARCHAR(20);"))
+        db.commit()
+        return {"status": "success", "message": "Columns confidence and confidence_level added."}
+    except Exception as e:
+        db.rollback()
+        return {"status": "error", "detail": str(e)}
+
+
 @router.post(
     "/rubric/generate",
     response_model=RubricGenerateResponse,

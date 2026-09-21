@@ -57,9 +57,9 @@ export const ForceChangePasswordView: React.FC = () => {
         message: "Kata sandi Anda berhasil diperbarui. Halaman akan dimuat ulang...",
       });
 
-      // Reload profile to update must_change_password status
-      setTimeout(async () => {
-        await refreshProfile();
+      // Hard reload the browser so it clears the state and fetches the fresh profile
+      setTimeout(() => {
+        window.location.href = "/";
       }, 2000);
     } catch (err: any) {
       setErrorMessage(err.message || "Gagal memperbarui kata sandi. Periksa kata sandi lama Anda.");

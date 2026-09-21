@@ -6,9 +6,9 @@ from typing import Any, Dict, Optional
 class AiConfig:
     """Central configuration for EquiGrade AI Services."""
 
-    EQUIGRADE_AI_URL: str = os.environ.get("EQUIGRADE_AI_URL", "http://localhost:5000")
-    GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY", "")
-    GROQ_BASE_URL: str = os.environ.get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    EQUIGRADE_AI_URL: str = os.environ.get("EQUIGRADE_AI_URL") or "http://localhost:5000"
+    GROQ_API_KEY: str = os.environ.get("GROQ_API_KEY") or ""
+    GROQ_BASE_URL: str = os.environ.get("GROQ_BASE_URL") or "https://api.groq.com/openai/v1"
     MODEL_NAME: str = os.environ.get(
         "GROQ_MODEL", os.environ.get("MODEL_NAME", "llama-3.3-70b-versatile")
     )

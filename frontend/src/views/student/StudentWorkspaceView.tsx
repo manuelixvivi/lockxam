@@ -2,6 +2,7 @@ import { useState } from "react";
 import { AppShell } from "../../components/layout/AppShell";
 import { StudentSchedulesView } from "./StudentSchedulesView";
 import { StudentCbtEngineView } from "./StudentCbtEngineView";
+import { StudentReviewView } from "./StudentReviewView";
 import type { StudentSchedule } from "../../api/studentExam";
 import { Breadcrumb } from "../../components/layout/Breadcrumb";
 import { Badge } from "../../components/ui/Badge";
@@ -105,7 +106,9 @@ export function StudentWorkspaceView({ initialPath = "/student/dashboard", onNav
         />
 
         {currentPath === "/student/history" ? (
-          <StudentSchedulesView mode="HISTORY" onStartExam={(sch) => setActiveExamSchedule(sch)} />
+          <StudentSchedulesView mode="HISTORY" onStartExam={(sch) => setActiveExamSchedule(sch)} onNavigate={handleNavigate} />
+        ) : currentPath.startsWith("/student/history/review/") ? (
+          <StudentReviewView attemptId={Number(currentPath.split("/").pop())} onNavigate={handleNavigate} />
         ) : currentPath === "/student/profile" ? (
           <div className="space-y-6 animate-fade-in">
             {/* Main Profile Card */}
@@ -179,7 +182,7 @@ export function StudentWorkspaceView({ initialPath = "/student/dashboard", onNav
             </div>
           </div>
         ) : (
-          <StudentSchedulesView onStartExam={(sch) => setActiveExamSchedule(sch)} />
+          <StudentSchedulesView onStartExam={(sch) => setActiveExamSchedule(sch)} onNavigate={handleNavigate} />
         )}
 
         {/* ── Modal Ganti Password Siswa ── */}

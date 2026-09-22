@@ -1,4 +1,5 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
+import { useNavigate } from "react-router-dom";
 import {
   BookOpen, Clock, Play, Lock, Search, RefreshCw, CheckCircle,
   AlertCircle, QrCode, Camera, CameraOff, ScanLine,
@@ -62,9 +63,10 @@ const formatCountdown = (ms: number): string => {
 interface StudentSchedulesViewProps {
   mode?: "DASHBOARD" | "HISTORY";
   onStartExam?: (schedule: StudentSchedule) => void;
+  onNavigate?: (path: string) => void;
 }
 
-export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: StudentSchedulesViewProps = {}) {
+export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam, onNavigate }: StudentSchedulesViewProps = {}) {
   const { user } = useAuth();
   const { showToast } = useToast();
 
@@ -879,9 +881,15 @@ export function StudentSchedulesView({ mode = "DASHBOARD", onStartExam }: Studen
                               </div>
                             </div>
 
-                            <Button variant="secondary" className="w-full" disabled leftIcon={<CheckCircle className="w-4 h-4 text-emerald-400" />}>
-                              Ujian Berhasil Dikumpulkan
-                            </Button>
+                            {sch.attempt_id ? (
+                              <Button variant="primary" className="w-full" leftIcon={<CheckCircle className="w-4 h-4 text-emerald-400" />} onClick={() => onNavigate?.(`/student/history/review/${sch.attempt_id}`)}>
+                                Review Koreksi Ujian
+                              </Button>
+                            ) : (
+                              <Button variant="secondary" className="w-full" disabled leftIcon={<CheckCircle className="w-4 h-4 text-emerald-400" />}>
+                                Ujian Berhasil Dikumpulkan
+                              </Button>
+                            )}
                           </div>
                         ))}
                       </div>

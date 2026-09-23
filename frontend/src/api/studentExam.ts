@@ -201,9 +201,9 @@ export const studentExamApi = {
     const res = await apiClient.get<ClassLeaderboardResponse>("/api/v1/exam/class-leaderboard");
     return res;
   },
-};
 
-export const getAttemptReview = async (attemptId: number): Promise<any> => {
-  const { data } = await apiClient.get(/api/v1/exam/attempts//review);
-  return data;
+  getAttemptReview: async (attemptId: number): Promise<any> => {
+    const res = await apiClient.get(`/api/v1/exam/attempts/${attemptId}/review`);
+    return res;
+  },
 };

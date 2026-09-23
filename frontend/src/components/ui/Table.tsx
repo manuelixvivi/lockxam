@@ -30,7 +30,7 @@ export function Table<T>({
   };
 
   return (
-    <div className="w-full overflow-x-auto rounded-xl border border-slate-800 bg-slate-900/60 shadow-lg">
+    <div className="w-full overflow-x-auto rounded-2xl border border-slate-800 bg-slate-900/60 shadow-lg overflow-hidden">
       <table className="w-full text-sm text-left border-collapse">
         <thead className="bg-slate-950/80 text-xs font-semibold text-slate-400 uppercase tracking-wider border-b border-slate-800">
           <tr>
@@ -64,7 +64,7 @@ export function Table<T>({
             </tr>
           ) : (
             data.map((item) => (
-              <tr key={keyExtractor(item)} className="hover:bg-slate-800/40 transition-colors">
+              <tr key={keyExtractor(item)} className="table-row-hover transition-colors">
                 {columns.map((col) => (
                   <td
                     key={col.key}

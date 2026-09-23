@@ -49,10 +49,12 @@ export const Modal: React.FC<ModalProps> = ({
 
       {/* Dialog */}
       <div
-        className={`relative z-10 w-full ${maxWidthStyles[maxWidth]} bg-slate-900 border border-slate-700/80 rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-in`}
+        className={`relative z-10 w-full ${maxWidthStyles[maxWidth]} bg-slate-900 border border-slate-700/80 rounded-3xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh] animate-scale-in`}
         role="dialog"
         aria-modal="true"
       >
+        <div className="h-1 bg-brand-gradient shrink-0" />
+
         {/* Header */}
         <div className="flex items-center justify-between p-5 border-b border-slate-800 bg-slate-900/50">
           <div>

@@ -1,5 +1,4 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from "react";
-import { useNavigate } from "react-router-dom";
 import {
   BookOpen, Clock, Play, Lock, Search, RefreshCw, CheckCircle,
   AlertCircle, QrCode, Camera, CameraOff, ScanLine,

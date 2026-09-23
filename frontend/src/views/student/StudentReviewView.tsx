@@ -1,7 +1,6 @@
-import React, { useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import { studentExamApi } from "../../api/studentExam";
 import { ArrowLeft, ShieldCheck } from "lucide-react";
-import { Badge } from "../../components/ui/Badge";
 
 interface StudentReviewViewProps {
   attemptId: number;

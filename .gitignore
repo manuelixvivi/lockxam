@@ -81,3 +81,14 @@ tmp_s3_staging/
 tmp_*/
 checkpoints/
 *.log
+test_groq_chat.py
+test_models.py
+test_regrade_groq.py
+test_regrade.py
+test_answers.py
+test_db.py
+alter_db.py
+seed_rag_db.py
+simulate_rag.py
+mockup_*.html
+*.zip

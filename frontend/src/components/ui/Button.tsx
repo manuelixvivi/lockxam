@@ -28,7 +28,7 @@ export const Button: React.FC<ButtonProps> = ({
 
   const variantStyles: Record<ButtonVariant, string> = {
     primary:
-      "bg-indigo-600 hover:bg-indigo-500 text-white shadow-lg shadow-indigo-600/30 border border-indigo-500/50",
+      "bg-brand-gradient text-white border border-white/10 shadow-lg shadow-indigo-950/40 hover:brightness-110 hover:shadow-indigo-600/30",
     secondary:
       "bg-slate-800 hover:bg-slate-700 text-slate-200 border border-slate-700 shadow-md",
     danger:
